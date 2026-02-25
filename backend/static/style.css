@@ -906,6 +906,70 @@ body {
   padding: 1rem 0;
 }
 
+/* ── Setup Banner ────────────────────────────────────────── */
+.setup-banner {
+  background: #fffbeb;
+  border: 1.5px solid #fbbf24;
+  border-radius: 10px;
+  padding: 0.875rem 1rem;
+  margin-bottom: 1rem;
+  position: relative;
+}
+
+.setup-banner strong {
+  display: block;
+  color: #92400e;
+  font-size: 0.9375rem;
+  margin-bottom: 0.5rem;
+}
+
+.setup-banner__list {
+  margin: 0.25rem 0 0 1.25rem;
+  padding: 0;
+  list-style: disc;
+}
+
+.setup-banner__list li {
+  color: #78350f;
+  font-size: 0.875rem;
+  margin-bottom: 0.25rem;
+}
+
+.setup-banner__link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #b45309;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.setup-banner__link:hover {
+  color: #92400e;
+}
+
+.setup-banner__dismiss {
+  position: absolute;
+  top: 0.625rem;
+  right: 0.625rem;
+  background: none;
+  border: none;
+  color: #a16207;
+  font-size: 1rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0.125rem 0.25rem;
+  border-radius: 4px;
+}
+
+.setup-banner__dismiss:hover {
+  background: #fef3c7;
+  color: #92400e;
+}
+
 /* ── Responsive ──────────────────────────────────────────── */
 @media (min-width: 600px) {
   .mac-controls-grid {

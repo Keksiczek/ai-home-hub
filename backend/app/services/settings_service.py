@@ -1,7 +1,10 @@
 """Settings service – reads/writes backend/data/settings.json."""
 import json
+import logging
 from pathlib import Path
 from typing import Any, Dict
+
+logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
 SETTINGS_FILE = DATA_DIR / "settings.json"
@@ -122,6 +125,31 @@ class SettingsService:
 
     def get_quick_actions(self) -> list:
         return self.load().get("quick_actions", [])
+
+    def warn_if_unconfigured(self) -> None:
+        """Log actionable warnings for settings that need first-time configuration."""
+        s = self.load()
+
+        allowed = s.get("filesystem", {}).get("allowed_directories", [])
+        if not allowed:
+            logger.warning(
+                "⚠️  Filesystem: allowed_directories is empty – all /api/filesystem/* calls "
+                "will be blocked. Add directories in Settings → Filesystem Security or set "
+                "'filesystem.allowed_directories' in data/settings.json."
+            )
+
+        projects = s.get("integrations", {}).get("vscode", {}).get("projects", {})
+        if not projects:
+            logger.info(
+                "ℹ️  VS Code: no projects configured. Add them in Settings → VS Code Projects "
+                "to use 'open_project' actions."
+            )
+
+        ollama_url = s.get("llm", {}).get("ollama_url", "http://localhost:11434")
+        provider = s.get("llm", {}).get("provider", "ollama")
+        if provider == "ollama":
+            logger.info("ℹ️  LLM: using Ollama at %s (model: %s). Run 'ollama serve' if not started.",
+                        ollama_url, s.get("llm", {}).get("model", "llama3.2"))
 
 
 def _deep_copy(obj: Any) -> Any:

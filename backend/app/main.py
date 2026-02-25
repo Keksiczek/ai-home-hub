@@ -15,6 +15,7 @@ from app.routers.websocket_router import router as ws_router
 from app.services.ws_manager import get_ws_manager
 from app.services.agent_orchestrator import get_agent_orchestrator
 from app.services.task_manager import get_task_manager
+from app.services.settings_service import get_settings_service
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -32,6 +33,9 @@ async def lifespan(app: FastAPI):
     base = Path(__file__).parent.parent / "data"
     for subdir in ("sessions", "artifacts", "uploads"):
         (base / subdir).mkdir(parents=True, exist_ok=True)
+
+    # Log actionable first-time-setup warnings
+    get_settings_service().warn_if_unconfigured()
 
     logger.info("AI Home Hub started – Mac Control Center ready")
     yield
@@ -74,6 +78,40 @@ app.include_router(integrations.router, prefix="/api", tags=["integrations"])
 
 # WebSocket (no /api prefix – connects at /ws)
 app.include_router(ws_router)
+
+
+@app.get("/api/health/setup", tags=["health"])
+async def setup_check() -> dict:
+    """Return a checklist of first-time configuration items."""
+    s = get_settings_service().load()
+    items = []
+
+    allowed = s.get("filesystem", {}).get("allowed_directories", [])
+    items.append({
+        "key": "filesystem_dirs",
+        "label": "Filesystem allowed directories",
+        "ok": bool(allowed),
+        "hint": "Add directories in Settings → Filesystem Security",
+    })
+
+    projects = s.get("integrations", {}).get("vscode", {}).get("projects", {})
+    items.append({
+        "key": "vscode_projects",
+        "label": "VS Code projects",
+        "ok": bool(projects),
+        "hint": "Add projects in Settings → VS Code Projects",
+    })
+
+    llm_provider = s.get("llm", {}).get("provider", "ollama")
+    items.append({
+        "key": "llm_provider",
+        "label": "LLM provider",
+        "ok": True,
+        "hint": f"Current: {llm_provider}. Run 'ollama serve' for Ollama.",
+    })
+
+    all_ok = all(i["ok"] for i in items)
+    return {"setup_complete": all_ok, "items": items}
 
 
 @app.get("/api/health", tags=["health"])

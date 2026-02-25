@@ -63,6 +63,9 @@ document.addEventListener('DOMContentLoaded', () => {
   bindActionsEvents();
   bindSettingsEvents();
   initWebSocket();
+
+  // First-time setup check
+  checkSetupStatus();
 });
 
 /* ============================================================
@@ -897,6 +900,34 @@ function renderAllowedDirsList() {
       <button class="btn btn--ghost btn--small" onclick="removeAllowedDir('${escHtml(d)}')">Remove</button>
     </div>
   `).join('');
+}
+
+/* ============================================================
+   SETUP CHECK
+   ============================================================ */
+async function checkSetupStatus() {
+  try {
+    const res = await fetch('/api/health/setup');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.setup_complete) {
+      const incomplete = data.items.filter(i => !i.ok);
+      const hints = incomplete.map(i => `• ${i.label}: ${i.hint}`).join('\n');
+      // Insert a dismissible setup banner above the tab content
+      const banner = document.createElement('div');
+      banner.id = 'setup-banner';
+      banner.className = 'setup-banner';
+      banner.innerHTML = `
+        <strong>First-time setup needed</strong>
+        <button class="setup-banner__dismiss" onclick="document.getElementById('setup-banner').remove()" title="Dismiss">&#10005;</button>
+        <ul class="setup-banner__list">
+          ${incomplete.map(i => `<li><button class="setup-banner__link" onclick="switchTab('settings')">${escHtml(i.label)}</button> – ${escHtml(i.hint)}</li>`).join('')}
+        </ul>
+      `;
+      const main = document.querySelector('.main');
+      if (main) main.prepend(banner);
+    }
+  } catch (e) { /* non-critical */ }
 }
 
 /* ============================================================
