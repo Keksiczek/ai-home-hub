@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Home Hub</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <!-- ===== HEADER ===== -->
+  <header class="header">
+    <div class="header-inner">
+      <span class="header-logo">&#129302;</span>
+      <h1 class="header-title">AI Home Hub</h1>
+    </div>
+  </header>
+
+  <main class="main">
+
+    <!-- ===== UPLOAD CARD ===== -->
+    <section class="card" id="upload-card">
+      <h2 class="card-title">Nahrát soubory</h2>
+
+      <!-- Drop zone -->
+      <div class="drop-zone" id="drop-zone" role="button" tabindex="0"
+           aria-label="Přetáhni soubory nebo klikni pro výběr">
+        <input type="file" id="file-input" multiple hidden />
+        <span class="drop-zone-icon">&#128196;</span>
+        <p class="drop-zone-text">Přetáhni soubory nebo <span class="link">klikni zde</span></p>
+        <p class="drop-zone-hint">Jakýkoliv typ souboru</p>
+      </div>
+
+      <!-- Upload spinner / progress -->
+      <div id="upload-spinner" class="spinner-wrap hidden">
+        <span class="spinner" aria-label="Nahrávám..."></span>
+        <span>Nahrávám...</span>
+      </div>
+
+      <!-- Uploaded files list -->
+      <div id="file-list-wrap" class="hidden">
+        <h3 class="section-label">Nahrané soubory</h3>
+        <ul class="file-list" id="file-list"></ul>
+      </div>
+    </section>
+
+    <!-- ===== CHAT CARD ===== -->
+    <section class="card" id="chat-card">
+      <h2 class="card-title">Chat s AI</h2>
+
+      <!-- Mode selector -->
+      <div class="form-row">
+        <label class="form-label" for="mode-select">Režim:</label>
+        <select class="select" id="mode-select">
+          <option value="general">Obecný (general)</option>
+          <option value="powerbi">Power BI</option>
+          <option value="lean">Lean</option>
+        </select>
+      </div>
+
+      <!-- Message textarea -->
+      <div class="form-row">
+        <label class="form-label" for="chat-input">Zpráva:</label>
+        <textarea class="textarea" id="chat-input" rows="4"
+                  placeholder="Napiš zprávu..."></textarea>
+      </div>
+
+      <!-- File context checkboxes (only shown when files are uploaded) -->
+      <div id="context-files-wrap" class="hidden">
+        <h3 class="section-label">Kontext – soubory:</h3>
+        <ul class="context-file-list" id="context-file-list"></ul>
+      </div>
+
+      <!-- Send button -->
+      <div class="form-row form-row--right">
+        <button class="btn btn--primary" id="send-btn">
+          Odeslat
+          <span class="spinner spinner--small hidden" id="chat-spinner"
+                aria-label="Odesílám..."></span>
+        </button>
+      </div>
+
+      <!-- Conversation history -->
+      <div id="history-wrap" class="hidden">
+        <h3 class="section-label">Historie konverzace</h3>
+        <div class="chat-history" id="chat-history" role="log" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <!-- ===== OPENCLAW CARD ===== -->
+    <section class="card" id="openclaw-card">
+      <!-- Collapsible header -->
+      <button class="card-toggle" id="openclaw-toggle" aria-expanded="false"
+              aria-controls="openclaw-body">
+        <h2 class="card-title card-title--inline">OpenClaw akce</h2>
+        <span class="toggle-icon" aria-hidden="true">&#8250;</span>
+      </button>
+
+      <div class="card-collapsible collapsed" id="openclaw-body">
+        <div class="form-row">
+          <label class="form-label" for="action-select">Akce:</label>
+          <select class="select" id="action-select">
+            <option value="start_whatsapp_agent">Spustit WhatsApp agenta</option>
+            <option value="restart_telegram_agent">Restartovat Telegram agenta</option>
+            <option value="run_workflow">Spustit workflow</option>
+          </select>
+        </div>
+
+        <div class="form-row form-row--right">
+          <button class="btn btn--secondary" id="action-btn">
+            Spustit akci
+            <span class="spinner spinner--small hidden" id="action-spinner"
+                  aria-label="Spouštím..."></span>
+          </button>
+        </div>
+
+        <!-- Action result -->
+        <div id="action-result" class="result-box hidden"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ===== TOAST ===== -->
+  <div class="toast hidden" id="toast" role="alert" aria-live="assertive"></div>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>
