@@ -3,120 +3,400 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AI Home Hub</title>
+  <title>AI Home Hub – Mac Control Center</title>
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
+
   <!-- ===== HEADER ===== -->
   <header class="header">
     <div class="header-inner">
       <span class="header-logo">&#129302;</span>
       <h1 class="header-title">AI Home Hub</h1>
+      <span class="header-sub">Mac Control Center</span>
+      <div class="ws-status" id="ws-status" title="WebSocket">
+        <span class="ws-dot ws-dot--disconnected" id="ws-dot"></span>
+        <span class="ws-label" id="ws-label">Offline</span>
+      </div>
     </div>
   </header>
 
+  <!-- ===== TAB NAV ===== -->
+  <nav class="tab-nav" role="tablist" aria-label="Main sections">
+    <button class="tab-btn tab-btn--active" role="tab" aria-selected="true"
+            aria-controls="tab-chat" data-tab="chat">Chat</button>
+    <button class="tab-btn" role="tab" aria-selected="false"
+            aria-controls="tab-agents" data-tab="agents">Agents</button>
+    <button class="tab-btn" role="tab" aria-selected="false"
+            aria-controls="tab-actions" data-tab="actions">Actions</button>
+    <button class="tab-btn" role="tab" aria-selected="false"
+            aria-controls="tab-settings" data-tab="settings">Settings</button>
+  </nav>
+
   <main class="main">
 
-    <!-- ===== UPLOAD CARD ===== -->
-    <section class="card" id="upload-card">
-      <h2 class="card-title">Nahrát soubory</h2>
+    <!-- ======================== CHAT TAB ======================== -->
+    <div class="tab-panel" id="tab-chat" role="tabpanel">
 
-      <!-- Drop zone -->
-      <div class="drop-zone" id="drop-zone" role="button" tabindex="0"
-           aria-label="Přetáhni soubory nebo klikni pro výběr">
-        <input type="file" id="file-input" multiple hidden />
-        <span class="drop-zone-icon">&#128196;</span>
-        <p class="drop-zone-text">Přetáhni soubory nebo <span class="link">klikni zde</span></p>
-        <p class="drop-zone-hint">Jakýkoliv typ souboru</p>
-      </div>
+      <!-- UPLOAD CARD -->
+      <section class="card" id="upload-card">
+        <h2 class="card-title">Upload Files</h2>
+        <div class="drop-zone" id="drop-zone" role="button" tabindex="0"
+             aria-label="Drag files or click to select">
+          <input type="file" id="file-input" multiple hidden />
+          <span class="drop-zone-icon">&#128196;</span>
+          <p class="drop-zone-text">Drag files or <span class="link">click here</span></p>
+          <p class="drop-zone-hint">Any file type</p>
+        </div>
+        <div id="upload-spinner" class="spinner-wrap hidden">
+          <span class="spinner" aria-label="Uploading..."></span>
+          <span>Uploading...</span>
+        </div>
+        <div id="file-list-wrap" class="hidden">
+          <h3 class="section-label">Uploaded Files</h3>
+          <ul class="file-list" id="file-list"></ul>
+        </div>
+      </section>
 
-      <!-- Upload spinner / progress -->
-      <div id="upload-spinner" class="spinner-wrap hidden">
-        <span class="spinner" aria-label="Nahrávám..."></span>
-        <span>Nahrávám...</span>
-      </div>
+      <!-- CHAT CARD -->
+      <section class="card" id="chat-card">
+        <div class="chat-header-row">
+          <h2 class="card-title" style="margin-bottom:0">Chat with AI</h2>
+          <div class="chat-session-bar">
+            <span class="session-badge" id="session-label">New session</span>
+            <button class="btn btn--ghost btn--small" id="new-session-btn">+ New</button>
+          </div>
+        </div>
 
-      <!-- Uploaded files list -->
-      <div id="file-list-wrap" class="hidden">
-        <h3 class="section-label">Nahrané soubory</h3>
-        <ul class="file-list" id="file-list"></ul>
-      </div>
-    </section>
-
-    <!-- ===== CHAT CARD ===== -->
-    <section class="card" id="chat-card">
-      <h2 class="card-title">Chat s AI</h2>
-
-      <!-- Mode selector -->
-      <div class="form-row">
-        <label class="form-label" for="mode-select">Režim:</label>
-        <select class="select" id="mode-select">
-          <option value="general">Obecný (general)</option>
-          <option value="powerbi">Power BI</option>
-          <option value="lean">Lean</option>
-        </select>
-      </div>
-
-      <!-- Message textarea -->
-      <div class="form-row">
-        <label class="form-label" for="chat-input">Zpráva:</label>
-        <textarea class="textarea" id="chat-input" rows="4"
-                  placeholder="Napiš zprávu..."></textarea>
-      </div>
-
-      <!-- File context checkboxes (only shown when files are uploaded) -->
-      <div id="context-files-wrap" class="hidden">
-        <h3 class="section-label">Kontext – soubory:</h3>
-        <ul class="context-file-list" id="context-file-list"></ul>
-      </div>
-
-      <!-- Send button -->
-      <div class="form-row form-row--right">
-        <button class="btn btn--primary" id="send-btn">
-          Odeslat
-          <span class="spinner spinner--small hidden" id="chat-spinner"
-                aria-label="Odesílám..."></span>
-        </button>
-      </div>
-
-      <!-- Conversation history -->
-      <div id="history-wrap" class="hidden">
-        <h3 class="section-label">Historie konverzace</h3>
-        <div class="chat-history" id="chat-history" role="log" aria-live="polite"></div>
-      </div>
-    </section>
-
-    <!-- ===== OPENCLAW CARD ===== -->
-    <section class="card" id="openclaw-card">
-      <!-- Collapsible header -->
-      <button class="card-toggle" id="openclaw-toggle" aria-expanded="false"
-              aria-controls="openclaw-body">
-        <h2 class="card-title card-title--inline">OpenClaw akce</h2>
-        <span class="toggle-icon" aria-hidden="true">&#8250;</span>
-      </button>
-
-      <div class="card-collapsible collapsed" id="openclaw-body">
         <div class="form-row">
-          <label class="form-label" for="action-select">Akce:</label>
-          <select class="select" id="action-select">
-            <option value="start_whatsapp_agent">Spustit WhatsApp agenta</option>
-            <option value="restart_telegram_agent">Restartovat Telegram agenta</option>
-            <option value="run_workflow">Spustit workflow</option>
+          <label class="form-label" for="mode-select">Mode:</label>
+          <select class="select" id="mode-select">
+            <option value="general">General</option>
+            <option value="powerbi">Power BI</option>
+            <option value="lean">Lean / CI</option>
           </select>
         </div>
 
-        <div class="form-row form-row--right">
-          <button class="btn btn--secondary" id="action-btn">
-            Spustit akci
-            <span class="spinner spinner--small hidden" id="action-spinner"
-                  aria-label="Spouštím..."></span>
-          </button>
+        <div id="history-wrap" class="hidden">
+          <div class="chat-history" id="chat-history" role="log" aria-live="polite"></div>
         </div>
 
-        <!-- Action result -->
-        <div id="action-result" class="result-box hidden"></div>
+        <div id="context-files-wrap" class="hidden">
+          <h3 class="section-label">Context files:</h3>
+          <ul class="context-file-list" id="context-file-list"></ul>
+        </div>
+
+        <div class="chat-input-area">
+          <textarea class="textarea chat-textarea" id="chat-input" rows="3"
+                    placeholder="Type message... (Ctrl+Enter to send)"></textarea>
+          <button class="btn btn--primary" id="send-btn">
+            Send
+            <span class="spinner spinner--small hidden" id="chat-spinner" aria-label="Sending..."></span>
+          </button>
+        </div>
+      </section>
+
+      <!-- OPENCLAW CARD -->
+      <section class="card" id="openclaw-card">
+        <button class="card-toggle" id="openclaw-toggle" aria-expanded="false"
+                aria-controls="openclaw-body">
+          <h2 class="card-title card-title--inline">OpenClaw Actions</h2>
+          <span class="toggle-icon" aria-hidden="true">&#8250;</span>
+        </button>
+        <div class="card-collapsible collapsed" id="openclaw-body">
+          <div class="form-row">
+            <label class="form-label" for="action-select">Action:</label>
+            <select class="select" id="action-select">
+              <option value="screenshot">Screenshot</option>
+              <option value="start_whatsapp_agent">Start WhatsApp Agent</option>
+              <option value="restart_telegram_agent">Restart Telegram Agent</option>
+              <option value="run_workflow">Run Workflow</option>
+            </select>
+          </div>
+          <div class="form-row form-row--right">
+            <button class="btn btn--secondary" id="action-btn">
+              Run Action
+              <span class="spinner spinner--small hidden" id="action-spinner"></span>
+            </button>
+          </div>
+          <div id="action-result" class="result-box hidden"></div>
+        </div>
+      </section>
+
+    </div><!-- /tab-chat -->
+
+    <!-- ======================== AGENTS TAB ======================== -->
+    <div class="tab-panel hidden" id="tab-agents" role="tabpanel">
+
+      <section class="card">
+        <h2 class="card-title">Spawn New Agent</h2>
+        <div class="form-row">
+          <label class="form-label" for="agent-type-select">Type:</label>
+          <select class="select" id="agent-type-select">
+            <option value="general">General</option>
+            <option value="code">Code</option>
+            <option value="research">Research</option>
+            <option value="testing">Testing</option>
+            <option value="devops">DevOps</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label class="form-label" for="agent-goal">Goal:</label>
+          <textarea class="textarea" id="agent-goal" rows="3"
+                    placeholder="Describe the agent's goal..."></textarea>
+        </div>
+        <div class="form-row">
+          <label class="form-label" for="agent-workspace">Workspace:</label>
+          <input type="text" class="input" id="agent-workspace"
+                 placeholder="/path/to/project (optional)" />
+        </div>
+        <div class="form-row form-row--right">
+          <button class="btn btn--primary" id="spawn-btn">
+            Spawn Agent
+            <span class="spinner spinner--small hidden" id="spawn-spinner"></span>
+          </button>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="section-header-row">
+          <h2 class="card-title" style="margin-bottom:0">Active Agents</h2>
+          <div style="display:flex;gap:0.5rem">
+            <button class="btn btn--ghost btn--small" id="refresh-agents-btn">Refresh</button>
+            <button class="btn btn--ghost btn--small" id="cleanup-agents-btn">Cleanup done</button>
+          </div>
+        </div>
+        <div id="agents-list" style="margin-top:0.75rem">
+          <p class="empty-state">No agents running.</p>
+        </div>
+      </section>
+
+    </div><!-- /tab-agents -->
+
+    <!-- ======================== ACTIONS TAB ======================== -->
+    <div class="tab-panel hidden" id="tab-actions" role="tabpanel">
+
+      <section class="card">
+        <h2 class="card-title">Quick Actions</h2>
+        <p class="hint-text">Pre-configured action sequences from settings.json.</p>
+        <div id="quick-actions-list" class="quick-actions-grid">
+          <p class="empty-state">Loading actions...</p>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">Mac OS Controls</h2>
+        <div class="mac-controls-grid">
+          <div class="mac-control-row">
+            <span class="mac-control-label">Volume</span>
+            <input type="range" id="volume-slider" min="0" max="100" value="50" class="slider" />
+            <span id="volume-value" class="mac-control-value">50%</span>
+            <button class="btn btn--secondary btn--small" id="set-volume-btn">Set</button>
+          </div>
+          <div class="mac-control-row">
+            <span class="mac-control-label">Safari</span>
+            <input type="text" class="input" id="safari-url" placeholder="https://..." style="flex:1" />
+            <button class="btn btn--secondary btn--small" id="safari-open-btn">Open</button>
+          </div>
+          <div class="mac-control-row">
+            <span class="mac-control-label">VS Code</span>
+            <select class="select" id="vscode-project-select" style="flex:1"></select>
+            <button class="btn btn--secondary btn--small" id="vscode-open-btn">Open</button>
+          </div>
+          <div class="mac-control-row">
+            <span class="mac-control-label">Finder</span>
+            <input type="text" class="input" id="finder-path" placeholder="/path/to/folder" style="flex:1" />
+            <button class="btn btn--secondary btn--small" id="finder-open-btn">Open</button>
+          </div>
+        </div>
+        <div id="mac-action-result" class="result-box hidden" style="margin-top:0.75rem"></div>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">Git Controls</h2>
+        <div class="form-row">
+          <label class="form-label">Repo:</label>
+          <input type="text" class="input" id="git-repo-path" placeholder="/path/to/repo" style="flex:1" />
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:0.75rem">
+          <button class="btn btn--secondary btn--small" data-git="status">Status</button>
+          <button class="btn btn--secondary btn--small" data-git="pull">Pull</button>
+          <button class="btn btn--secondary btn--small" data-git="fetch">Fetch</button>
+          <button class="btn btn--secondary btn--small" data-git="log">Log</button>
+          <button class="btn btn--secondary btn--small" data-git="branches">Branches</button>
+        </div>
+        <div style="display:flex;gap:0.5rem;margin-top:0.5rem">
+          <input type="text" class="input" id="git-commit-msg" placeholder="Commit message..." style="flex:1" />
+          <button class="btn btn--primary btn--small" data-git="commit">Commit All</button>
+          <button class="btn btn--secondary btn--small" data-git="push">Push</button>
+        </div>
+        <div id="git-result" class="result-box hidden" style="margin-top:0.75rem"></div>
+      </section>
+
+    </div><!-- /tab-actions -->
+
+    <!-- ======================== SETTINGS TAB ======================== -->
+    <div class="tab-panel hidden" id="tab-settings" role="tabpanel">
+
+      <section class="card">
+        <h2 class="card-title">LLM Configuration</h2>
+        <div class="form-row">
+          <label class="form-label" for="s-llm-provider">Provider:</label>
+          <select class="select" id="s-llm-provider">
+            <option value="ollama">Ollama (local)</option>
+            <option value="stub">Stub (testing)</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label class="form-label" for="s-llm-model">Model:</label>
+          <input type="text" class="input" id="s-llm-model" placeholder="llama3.2" />
+        </div>
+        <div class="form-row">
+          <label class="form-label" for="s-llm-temp">Temperature:</label>
+          <input type="number" class="input" id="s-llm-temp" min="0" max="2" step="0.1" style="max-width:100px" />
+        </div>
+        <div class="form-row">
+          <label class="form-label" for="s-llm-url">Ollama URL:</label>
+          <input type="text" class="input" id="s-llm-url" placeholder="http://localhost:11434" />
+        </div>
+        <div class="form-row form-row--right">
+          <button class="btn btn--ghost btn--small" id="check-ollama-btn">Check Ollama</button>
+        </div>
+        <div id="ollama-status" class="result-box hidden"></div>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">Integrations</h2>
+
+        <div class="integration-block">
+          <label class="toggle-label">
+            <input type="checkbox" id="s-vscode-enabled" />
+            <strong>VS Code</strong>
+          </label>
+          <div class="form-row" style="margin-top:0.5rem">
+            <label class="form-label" for="s-vscode-binary">Binary:</label>
+            <input type="text" class="input" id="s-vscode-binary" placeholder="/usr/local/bin/code" />
+          </div>
+        </div>
+        <hr class="divider" />
+
+        <div class="integration-block">
+          <label class="toggle-label">
+            <input type="checkbox" id="s-macos-enabled" />
+            <strong>macOS AppleScript</strong>
+          </label>
+          <p class="hint-text">Controls Safari, Finder, volume, notifications via osascript.</p>
+        </div>
+        <hr class="divider" />
+
+        <div class="integration-block">
+          <label class="toggle-label">
+            <input type="checkbox" id="s-mcp-enabled" />
+            <strong>Claude MCP</strong>
+          </label>
+          <div class="form-row" style="margin-top:0.5rem">
+            <label class="form-label" for="s-mcp-type">Connection:</label>
+            <select class="select" id="s-mcp-type">
+              <option value="stdio">stdio</option>
+              <option value="http">HTTP</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label class="form-label" for="s-mcp-path">Path:</label>
+            <input type="text" class="input" id="s-mcp-path" placeholder="/Applications/Claude.app/..." />
+          </div>
+        </div>
+        <hr class="divider" />
+
+        <div class="integration-block">
+          <label class="toggle-label">
+            <input type="checkbox" id="s-ag-enabled" />
+            <strong>Google Antigravity IDE</strong>
+          </label>
+          <div class="form-row" style="margin-top:0.5rem">
+            <label class="form-label" for="s-ag-endpoint">Endpoint:</label>
+            <input type="text" class="input" id="s-ag-endpoint" placeholder="http://localhost:8080" />
+          </div>
+          <div class="form-row">
+            <label class="form-label" for="s-ag-key">API key:</label>
+            <input type="password" class="input" id="s-ag-key" placeholder="your-api-key" />
+          </div>
+        </div>
+        <hr class="divider" />
+
+        <div class="integration-block">
+          <label class="toggle-label">
+            <input type="checkbox" id="s-ntfy-enabled" />
+            <strong>Push Notifications (ntfy.sh)</strong>
+          </label>
+          <div class="form-row" style="margin-top:0.5rem">
+            <label class="form-label" for="s-ntfy-url">URL:</label>
+            <input type="text" class="input" id="s-ntfy-url" placeholder="https://ntfy.sh" />
+          </div>
+          <div class="form-row">
+            <label class="form-label" for="s-ntfy-topic">Topic:</label>
+            <input type="text" class="input" id="s-ntfy-topic" placeholder="ai-home-hub" />
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">VS Code Projects</h2>
+        <div id="projects-list"></div>
+        <div style="display:flex;gap:0.5rem;margin-top:1rem;flex-wrap:wrap">
+          <input type="text" class="input" id="new-project-key" placeholder="key (e.g. lean-rpg)" style="flex:1;min-width:120px" />
+          <input type="text" class="input" id="new-project-path" placeholder="/path/to/project" style="flex:2;min-width:180px" />
+          <button class="btn btn--secondary btn--small" id="add-project-btn">+ Add</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">Filesystem Security</h2>
+        <p class="hint-text">Only these directories are accessible via the API.</p>
+        <div id="allowed-dirs-list" style="margin-top:0.5rem"></div>
+        <div style="display:flex;gap:0.5rem;margin-top:0.75rem">
+          <input type="text" class="input" id="new-allowed-dir" placeholder="/Users/you/projects" style="flex:1" />
+          <button class="btn btn--secondary btn--small" id="add-dir-btn">+ Add</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">System Prompts</h2>
+        <div class="form-row">
+          <label class="form-label" for="s-prompt-general">General:</label>
+          <textarea class="textarea" id="s-prompt-general" rows="4"></textarea>
+        </div>
+        <div class="form-row">
+          <label class="form-label" for="s-prompt-powerbi">Power BI:</label>
+          <textarea class="textarea" id="s-prompt-powerbi" rows="4"></textarea>
+        </div>
+        <div class="form-row">
+          <label class="form-label" for="s-prompt-lean">Lean:</label>
+          <textarea class="textarea" id="s-prompt-lean" rows="4"></textarea>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">Agent Limits</h2>
+        <div class="form-row">
+          <label class="form-label" for="s-agents-max">Max concurrent:</label>
+          <input type="number" class="input" id="s-agents-max" min="1" max="10" style="max-width:100px" />
+        </div>
+        <div class="form-row">
+          <label class="form-label" for="s-agents-timeout">Timeout (min):</label>
+          <input type="number" class="input" id="s-agents-timeout" min="5" max="120" style="max-width:100px" />
+        </div>
+      </section>
+
+      <div style="display:flex;gap:0.75rem;justify-content:flex-end;padding:0.5rem 0 1rem">
+        <button class="btn btn--ghost" id="reload-settings-btn">Reload</button>
+        <button class="btn btn--primary" id="save-settings-btn">
+          Save Settings
+          <span class="spinner spinner--small hidden" id="settings-spinner"></span>
+        </button>
       </div>
-    </section>
+
+    </div><!-- /tab-settings -->
 
   </main>
 
