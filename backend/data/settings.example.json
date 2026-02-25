@@ -1,0 +1,109 @@
+{
+  "_comment": "Copy this file to settings.json and customise. API keys are masked in the UI.",
+  "llm": {
+    "provider": "ollama",
+    "model": "llama3.2",
+    "temperature": 0.7,
+    "ollama_url": "http://localhost:11434"
+  },
+  "integrations": {
+    "claude_mcp": {
+      "enabled": false,
+      "connection_type": "stdio",
+      "stdio_path": "/Applications/Claude.app/Contents/Resources/mcp-server",
+      "http_endpoint": "http://localhost:3000",
+      "available_tools": ["github", "filesystem", "brave-search", "puppeteer"]
+    },
+    "vscode": {
+      "enabled": true,
+      "binary_path": "/usr/local/bin/code",
+      "projects": {
+        "ai-home-hub": {
+          "path": "/Users/stepan/projects/ai-home-hub",
+          "workspace": "/Users/stepan/projects/ai-home-hub/hub.code-workspace",
+          "auto_tasks": []
+        },
+        "lean-rpg": {
+          "path": "/Users/stepan/projects/lean-rpg",
+          "workspace": "/Users/stepan/projects/lean-rpg/rpg.code-workspace",
+          "auto_tasks": []
+        }
+      }
+    },
+    "antigravity": {
+      "enabled": false,
+      "api_endpoint": "http://localhost:8080",
+      "api_key": "your-api-key-here",
+      "workspace_root": "/Users/stepan/projects",
+      "auto_sync_artifacts": true
+    },
+    "openclaw": {
+      "enabled": true,
+      "binary_path": "/usr/local/bin/openclaw"
+    },
+    "macos": {
+      "enabled": true
+    }
+  },
+  "filesystem": {
+    "allowed_directories": [
+      "/Users/stepan/projects",
+      "/Users/stepan/Documents/work"
+    ],
+    "require_confirmation": ["delete"],
+    "blacklist_patterns": [
+      "*.env",
+      "*.key",
+      "*.pem",
+      "**/node_modules",
+      "**/.git",
+      "**/secrets"
+    ]
+  },
+  "notifications": {
+    "enabled": false,
+    "ntfy_url": "https://ntfy.sh",
+    "topic": "ai-home-hub-YOUR_UNIQUE_TOPIC"
+  },
+  "agents": {
+    "max_concurrent": 5,
+    "timeout_minutes": 30
+  },
+  "system_prompts": {
+    "general": "Jsi můj osobní Mac Control Center AI asistent. Ovládáš VS Code, Claude MCP, filesystem, git, Mac aplikace. Odpovídáš česky, stručně. Preferuješ akce před vysvětlením.",
+    "powerbi": "Jsi Power BI a DAX expert s přístupem k filesystemu. Čteš .pbix metadata, analyzuješ DAX measures, navrhuješ optimalizace. Ovládáš VS Code pro editaci Power Query M skriptů.",
+    "lean": "Jsi Lean/CI specialista s přístupem k projektům a dokumentaci. Analyzuješ procesy, navrhuješ Kaizen akce, generuješ VSM diagramy. Ovládáš git pro verzování process dokumentace."
+  },
+  "quick_actions": [
+    {
+      "id": "daily-standup",
+      "name": "Daily Standup",
+      "icon": "📊",
+      "steps": [
+        {"service": "vscode", "action": "open_project", "params": {"project_key": "ai-home-hub"}},
+        {"service": "git", "action": "pull", "params": {"repo_path": "/Users/stepan/projects/ai-home-hub"}},
+        {"service": "macos", "action": "safari_open", "params": {"url": "https://github.com/Keksiczek"}}
+      ]
+    },
+    {
+      "id": "work-mode",
+      "name": "Work Mode Start",
+      "icon": "💻",
+      "steps": [
+        {"service": "macos", "action": "volume_set", "params": {"level": 20}},
+        {"service": "vscode", "action": "open_project", "params": {"project_key": "ai-home-hub"}},
+        {"service": "macos", "action": "open_app", "params": {"app_name": "Slack"}}
+      ]
+    },
+    {
+      "id": "end-of-day",
+      "name": "End of Day",
+      "icon": "🌙",
+      "steps": [
+        {"service": "git", "action": "status", "params": {"repo_path": "/Users/stepan/projects/ai-home-hub"}},
+        {"service": "macos", "action": "volume_set", "params": {"level": 0}},
+        {"service": "macos", "action": "notification", "params": {"title": "Work Done!", "message": "Time to rest."}}
+      ]
+    }
+  ]
+}
