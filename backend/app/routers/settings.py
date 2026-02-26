@@ -136,6 +136,48 @@ async def check_ollama_health() -> Dict[str, Any]:
     return await svc.check_ollama_health()
 
 
+@router.get("/ollama/models", tags=["settings"])
+async def list_ollama_models() -> Dict[str, Any]:
+    """Fetch downloaded models from Ollama and return with auto-assigned profiles."""
+    import httpx
+
+    settings_svc = get_settings_service()
+    ollama_url = settings_svc.get_llm_config().get("ollama_url", "http://localhost:11434")
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(f"{ollama_url}/api/tags")
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as exc:
+        return {"models": [], "error": str(exc)}
+
+    models = []
+    for m in data.get("models", []):
+        name = m.get("name", "")
+        size_bytes = m.get("size", 0)
+        size_gb = round(size_bytes / (1024 ** 3), 1)
+
+        # Auto-assign profile based on model name
+        name_lower = name.lower()
+        if "coder" in name_lower or "code" in name_lower:
+            profile = "tech"
+        elif "vision" in name_lower or "vl" in name_lower:
+            profile = "vision"
+        elif "dolphin" in name_lower:
+            profile = "dolphin"
+        else:
+            profile = "chat"
+
+        models.append({
+            "name": name,
+            "size_gb": size_gb,
+            "profile": profile,
+        })
+
+    return {"models": models}
+
+
 def _mask_secrets(settings: Dict[str, Any]) -> None:
     """Replace API key values with masked placeholder in-place."""
     try:

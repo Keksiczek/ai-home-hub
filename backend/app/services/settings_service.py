@@ -74,6 +74,12 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
             "Ovládáš git pro verzování process dokumentace."
         ),
     },
+    "profiles": {
+        "chat": {"model": "llama3.2", "temperature": 0.7},
+        "tech": {"model": "qwen2.5-coder:3b", "temperature": 0.3},
+        "vision": {"model": "llava:7b", "temperature": 0.5},
+        "dolphin": {"model": "dolphin-llama3:8b", "temperature": 0.8},
+    },
     "quick_actions": [],
 }
 

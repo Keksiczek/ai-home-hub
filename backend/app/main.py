@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.routers import actions, chat, files
-from app.routers import agents, filesystem, integrations, settings, tasks
+from app.routers import agents, filesystem, integrations, settings, skills, tasks
 from app.routers.websocket_router import router as ws_router
 
 # Wire up broadcast callback so agents/tasks can push WS updates
@@ -48,7 +48,7 @@ app = FastAPI(
         "Unified Mac control hub integrating Ollama LLM, Claude MCP, "
         "VS Code, Antigravity IDE, filesystem, git, and macOS automation."
     ),
-    version="0.2.0",
+    version="0.3.0",
     lifespan=lifespan,
 )
 
@@ -75,6 +75,7 @@ app.include_router(tasks.router, prefix="/api", tags=["tasks"])
 app.include_router(settings.router, prefix="/api", tags=["settings"])
 app.include_router(filesystem.router, prefix="/api", tags=["filesystem"])
 app.include_router(integrations.router, prefix="/api", tags=["integrations"])
+app.include_router(skills.router, prefix="/api", tags=["skills"])
 
 # WebSocket (no /api prefix – connects at /ws)
 app.include_router(ws_router)
