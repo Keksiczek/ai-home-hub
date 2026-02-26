@@ -1,96 +1,78 @@
 /**
- * AI Home Hub – Mac Control Center
+ * AI Home Hub v0.3.0 – Mac Control Center
  * Vanilla JS, zero dependencies, zero build step.
- * API base: relative paths → /api/...
+ * Features: sidebar nav, skills CRUD, model selector, profile pills
  */
 
 /* ============================================================
    STATE
    ============================================================ */
 const uploadedFiles = [];
-const chatHistory = [];
 let currentSessionId = null;
+let currentProfile = 'chat';
 let ws = null;
 let wsReconnectTimer = null;
-
-/* ============================================================
-   DOM REFERENCES  (resolved after DOMContentLoaded)
-   ============================================================ */
-let dropZone, fileInput, uploadSpinner, fileListWrap, fileList;
-let modeSelect, chatInput, contextFilesWrap, contextFileList;
-let sendBtn, chatSpinner, historyWrap, chatHistoryEl;
-let openclawToggle, openclawBody, actionSelect, actionBtn, actionSpinner, actionResult;
+let _currentSettings = null;
+let _settingsProjects = {};
+let _settingsAllowedDirs = [];
+let _allSkills = [];
+let _selectedTagFilter = null;
+let _selectedAgentSkills = new Set();
+let _ollamaModels = [];
 let toast, toastTimer;
-let sessionLabel, newSessionBtn;
 
 /* ============================================================
    INIT
    ============================================================ */
 document.addEventListener('DOMContentLoaded', () => {
-  // Core refs
-  dropZone         = document.getElementById('drop-zone');
-  fileInput        = document.getElementById('file-input');
-  uploadSpinner    = document.getElementById('upload-spinner');
-  fileListWrap     = document.getElementById('file-list-wrap');
-  fileList         = document.getElementById('file-list');
+  toast = document.getElementById('toast');
 
-  modeSelect       = document.getElementById('mode-select');
-  chatInput        = document.getElementById('chat-input');
-  contextFilesWrap = document.getElementById('context-files-wrap');
-  contextFileList  = document.getElementById('context-file-list');
-  sendBtn          = document.getElementById('send-btn');
-  chatSpinner      = document.getElementById('chat-spinner');
-  historyWrap      = document.getElementById('history-wrap');
-  chatHistoryEl    = document.getElementById('chat-history');
-  sessionLabel     = document.getElementById('session-label');
-  newSessionBtn    = document.getElementById('new-session-btn');
-
-  openclawToggle   = document.getElementById('openclaw-toggle');
-  openclawBody     = document.getElementById('openclaw-body');
-  actionSelect     = document.getElementById('action-select');
-  actionBtn        = document.getElementById('action-btn');
-  actionSpinner    = document.getElementById('action-spinner');
-  actionResult     = document.getElementById('action-result');
-
-  toast            = document.getElementById('toast');
-
-  // Wire events
-  bindTabNav();
-  bindUploadEvents();
+  bindSidebarNav();
+  bindMobileMenu();
   bindChatEvents();
-  bindOpenClawEvents();
   bindAgentsEvents();
+  bindSkillsEvents();
   bindActionsEvents();
   bindSettingsEvents();
   initWebSocket();
-
-  // First-time setup check
   checkSetupStatus();
 });
 
 /* ============================================================
-   TAB NAVIGATION
+   SIDEBAR NAVIGATION
    ============================================================ */
-function bindTabNav() {
-  const tabs = document.querySelectorAll('.tab-btn');
-  tabs.forEach(btn => {
+function bindSidebarNav() {
+  document.querySelectorAll('.nav-item').forEach(btn => {
     btn.addEventListener('click', () => switchTab(btn.dataset.tab));
   });
 }
 
 function switchTab(tabName) {
-  document.querySelectorAll('.tab-btn').forEach(b => {
-    b.classList.toggle('tab-btn--active', b.dataset.tab === tabName);
+  document.querySelectorAll('.nav-item').forEach(b => {
+    b.classList.toggle('nav-item--active', b.dataset.tab === tabName);
     b.setAttribute('aria-selected', String(b.dataset.tab === tabName));
   });
   document.querySelectorAll('.tab-panel').forEach(p => {
     p.classList.toggle('hidden', p.id !== `tab-${tabName}`);
   });
 
+  // Close mobile sidebar
+  document.getElementById('sidebar').classList.remove('sidebar--open');
+
   // Lazy-load tab data
-  if (tabName === 'agents') refreshAgents();
+  if (tabName === 'agents') { refreshAgents(); loadAgentSkillSelect(); }
+  if (tabName === 'skills') loadSkills();
   if (tabName === 'actions') { loadQuickActions(); loadVSCodeProjects(); }
-  if (tabName === 'settings') loadSettings();
+  if (tabName === 'settings') { loadSettings(); loadOllamaModels(); }
+}
+
+function bindMobileMenu() {
+  const btn = document.getElementById('mobile-menu-btn');
+  if (btn) {
+    btn.addEventListener('click', () => {
+      document.getElementById('sidebar').classList.toggle('sidebar--open');
+    });
+  }
 }
 
 /* ============================================================
@@ -99,48 +81,32 @@ function switchTab(tabName) {
 function initWebSocket() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const wsUrl = `${proto}://${location.host}/ws`;
-
   ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {
     setWsStatus(true);
     clearTimeout(wsReconnectTimer);
   };
-
   ws.onmessage = (event) => {
-    try {
-      const msg = JSON.parse(event.data);
-      handleWsMessage(msg);
-    } catch (e) { /* ignore */ }
+    try { handleWsMessage(JSON.parse(event.data)); } catch (e) { /* ignore */ }
   };
-
   ws.onclose = () => {
     setWsStatus(false);
     wsReconnectTimer = setTimeout(initWebSocket, 5000);
   };
-
-  ws.onerror = () => {
-    setWsStatus(false);
-  };
+  ws.onerror = () => setWsStatus(false);
 }
 
 function setWsStatus(connected) {
   const dot = document.getElementById('ws-dot');
   const label = document.getElementById('ws-label');
-  if (dot) {
-    dot.className = `ws-dot ${connected ? 'ws-dot--connected' : 'ws-dot--disconnected'}`;
-  }
+  if (dot) dot.className = `ws-dot ${connected ? 'ws-dot--connected' : 'ws-dot--disconnected'}`;
   if (label) label.textContent = connected ? 'Live' : 'Offline';
 }
 
 function handleWsMessage(msg) {
-  if (msg.type === 'agent_update') {
-    updateAgentCard(msg.agent);
-  } else if (msg.type === 'task_update') {
-    // Could update a task indicator
-  } else if (msg.type === 'notification') {
-    showToast(msg.message, 'info');
-  }
+  if (msg.type === 'agent_update') updateAgentCard(msg.agent);
+  else if (msg.type === 'notification') showToast(msg.message, 'info');
 }
 
 function wsPing() {
@@ -151,45 +117,77 @@ function wsPing() {
 setInterval(wsPing, 30000);
 
 /* ============================================================
-   UPLOAD
+   PROFILE PILLS & MODEL SELECTOR
    ============================================================ */
-function bindUploadEvents() {
-  dropZone.addEventListener('click', () => fileInput.click());
-  dropZone.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') fileInput.click();
+function bindProfilePills() {
+  document.querySelectorAll('#profile-pills .pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      currentProfile = pill.dataset.profile;
+      document.querySelectorAll('#profile-pills .pill').forEach(p =>
+        p.classList.toggle('pill--active', p.dataset.profile === currentProfile)
+      );
+      updateModelBadge();
+    });
   });
-  fileInput.addEventListener('change', () => {
-    handleFiles(Array.from(fileInput.files));
-    fileInput.value = '';
+}
+
+function updateModelBadge() {
+  const badge = document.getElementById('model-badge');
+  if (!badge) return;
+
+  // Try to find model for current profile from settings
+  const profiles = _currentSettings?.profiles || {};
+  const profileConfig = profiles[currentProfile];
+  if (profileConfig && profileConfig.model) {
+    badge.textContent = profileConfig.model;
+  } else {
+    // Fallback: find from ollama models
+    const match = _ollamaModels.find(m => m.profile === currentProfile);
+    badge.textContent = match ? match.name : (_currentSettings?.llm?.model || 'llama3.2');
+  }
+}
+
+/* ============================================================
+   CHAT
+   ============================================================ */
+function bindChatEvents() {
+  bindProfilePills();
+
+  document.getElementById('send-btn').addEventListener('click', sendMessage);
+  document.getElementById('chat-input').addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') sendMessage();
   });
-  dropZone.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    dropZone.classList.add('drop-zone--active');
+  document.getElementById('new-session-btn').addEventListener('click', () => {
+    currentSessionId = null;
+    document.getElementById('chat-history').innerHTML = '';
+    document.getElementById('session-label').textContent = 'Nova relace';
+    showToast('Nova relace zahajena', 'info');
   });
-  dropZone.addEventListener('dragleave', () => {
-    dropZone.classList.remove('drop-zone--active');
-  });
-  dropZone.addEventListener('drop', (e) => {
-    e.preventDefault();
-    dropZone.classList.remove('drop-zone--active');
-    handleFiles(Array.from(e.dataTransfer.files));
-  });
+
+  // File attach
+  const attachBtn = document.getElementById('attach-btn');
+  const fileInput = document.getElementById('file-input');
+  if (attachBtn && fileInput) {
+    attachBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', () => {
+      handleFiles(Array.from(fileInput.files));
+      fileInput.value = '';
+    });
+  }
 }
 
 async function handleFiles(files) {
   if (!files.length) return;
-  show(uploadSpinner);
   for (const file of files) {
     try {
       const data = await uploadFile(file);
       uploadedFiles.push({ id: data.id, filename: data.filename });
-      renderFileList();
-      showToast(`File "${data.filename}" uploaded.`, 'success');
+      renderAttachedFiles();
+      showToast(`Soubor "${data.filename}" nahran.`, 'success');
     } catch (err) {
-      showToast(`Upload failed for "${file.name}": ${err.message}`, 'error');
+      showToast(`Chyba nahravani "${file.name}": ${err.message}`, 'error');
     }
   }
-  hide(uploadSpinner);
 }
 
 async function uploadFile(file) {
@@ -200,77 +198,42 @@ async function uploadFile(file) {
   return res.json();
 }
 
-function renderFileList() {
+function renderAttachedFiles() {
+  const el = document.getElementById('attached-files');
+  if (!el) return;
   if (uploadedFiles.length) {
-    show(fileListWrap);
-    fileList.innerHTML = '';
-    uploadedFiles.forEach((f) => {
-      const li = document.createElement('li');
-      li.className = 'file-item';
-      li.dataset.id = f.id;
-      li.innerHTML = `
-        <span class="file-item__name" title="${escHtml(f.filename)}">${escHtml(truncate(f.filename, 40))}</span>
-        <span class="file-item__id">${escHtml(f.id.slice(0, 8))}…</span>
-        <button class="file-item__remove" aria-label="Remove ${escHtml(f.filename)}" data-id="${escHtml(f.id)}">&#10005;</button>
-      `;
-      li.querySelector('.file-item__remove').addEventListener('click', () => removeFile(f.id));
-      fileList.appendChild(li);
+    show(el);
+    el.innerHTML = uploadedFiles.map(f => `
+      <span class="attached-file">
+        ${escHtml(truncate(f.filename, 25))}
+        <button class="attached-file__remove" data-id="${escHtml(f.id)}">&#10005;</button>
+      </span>
+    `).join('');
+    el.querySelectorAll('.attached-file__remove').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = uploadedFiles.findIndex(f => f.id === btn.dataset.id);
+        if (idx !== -1) uploadedFiles.splice(idx, 1);
+        renderAttachedFiles();
+      });
     });
   } else {
-    hide(fileListWrap);
+    hide(el);
   }
-
-  if (uploadedFiles.length) {
-    show(contextFilesWrap);
-    contextFileList.innerHTML = '';
-    uploadedFiles.forEach((f) => {
-      const li = document.createElement('li');
-      li.className = 'context-item';
-      const cbId = `ctx-${f.id}`;
-      li.innerHTML = `
-        <label class="context-item__label">
-          <input type="checkbox" class="context-checkbox" id="${cbId}" value="${escHtml(f.id)}" />
-          <span>${escHtml(truncate(f.filename, 45))}</span>
-        </label>
-      `;
-      contextFileList.appendChild(li);
-    });
-  } else {
-    hide(contextFilesWrap);
-  }
-}
-
-function removeFile(id) {
-  const idx = uploadedFiles.findIndex((f) => f.id === id);
-  if (idx !== -1) uploadedFiles.splice(idx, 1);
-  renderFileList();
-}
-
-/* ============================================================
-   CHAT
-   ============================================================ */
-function bindChatEvents() {
-  sendBtn.addEventListener('click', sendMessage);
-  chatInput.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') sendMessage();
-  });
-  newSessionBtn.addEventListener('click', () => {
-    currentSessionId = null;
-    chatHistoryEl.innerHTML = '';
-    hide(historyWrap);
-    sessionLabel.textContent = 'New session';
-    showToast('Started new session', 'info');
-  });
 }
 
 async function sendMessage() {
+  const chatInput = document.getElementById('chat-input');
   const message = chatInput.value.trim();
-  if (!message) { showToast('Message cannot be empty.', 'warning'); return; }
+  if (!message) { showToast('Zprava nemuze byt prazdna.', 'warning'); return; }
 
-  const mode = modeSelect.value;
-  const contextFileIds = Array.from(document.querySelectorAll('.context-checkbox:checked'))
-    .map((cb) => cb.value);
+  // Map profile to mode
+  const modeMap = { chat: 'general', tech: 'general', vision: 'general', dolphin: 'general' };
+  const mode = modeMap[currentProfile] || 'general';
 
+  const contextFileIds = uploadedFiles.map(f => f.id);
+
+  const sendBtn = document.getElementById('send-btn');
+  const chatSpinner = document.getElementById('chat-spinner');
   setLoading(sendBtn, chatSpinner, true);
   appendBubble('user', message);
   chatInput.value = '';
@@ -287,17 +250,15 @@ async function sendMessage() {
     if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
 
     const data = await res.json();
-
-    // Track session
     if (data.session_id) {
       currentSessionId = data.session_id;
-      sessionLabel.textContent = `Session: ${data.session_id}`;
+      document.getElementById('session-label').textContent = `Relace: ${data.session_id}`;
     }
-
     appendBubble('ai', data.reply, data.meta);
   } catch (err) {
-    showToast(`Error: ${err.message}`, 'error');
-    const bubbles = chatHistoryEl.querySelectorAll('.bubble--user');
+    showToast(`Chyba: ${err.message}`, 'error');
+    // Remove last user bubble on error
+    const bubbles = document.getElementById('chat-history').querySelectorAll('.bubble--user');
     if (bubbles.length) bubbles[bubbles.length - 1].remove();
   } finally {
     setLoading(sendBtn, chatSpinner, false);
@@ -305,7 +266,7 @@ async function sendMessage() {
 }
 
 function appendBubble(role, text, meta) {
-  show(historyWrap);
+  const chatHistoryEl = document.getElementById('chat-history');
   const bubble = document.createElement('div');
   bubble.className = `bubble bubble--${role}`;
 
@@ -321,79 +282,103 @@ function appendBubble(role, text, meta) {
 }
 
 /* ============================================================
-   OPENCLAW
-   ============================================================ */
-function bindOpenClawEvents() {
-  openclawToggle.addEventListener('click', () => {
-    const expanded = openclawToggle.getAttribute('aria-expanded') === 'true';
-    openclawToggle.setAttribute('aria-expanded', String(!expanded));
-    openclawBody.classList.toggle('collapsed', expanded);
-  });
-  actionBtn.addEventListener('click', triggerAction);
-}
-
-async function triggerAction() {
-  const action = actionSelect.value;
-  setLoading(actionBtn, actionSpinner, true);
-  hide(actionResult);
-
-  try {
-    const res = await fetch('/api/actions/openclaw', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, params: {} }),
-    });
-    if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
-
-    const data = await res.json();
-    const statusClass = data.status === 'ok' ? 'result-box--ok'
-                      : data.status === 'error' ? 'result-box--error'
-                      : 'result-box--warn';
-    actionResult.className = `result-box ${statusClass}`;
-    actionResult.innerHTML = `<strong>Status:</strong> ${escHtml(data.status)}<br/>` +
-      (data.detail ? `<strong>Detail:</strong> ${escHtml(data.detail)}` : '');
-    show(actionResult);
-  } catch (err) {
-    showToast(`Action error: ${err.message}`, 'error');
-  } finally {
-    setLoading(actionBtn, actionSpinner, false);
-  }
-}
-
-/* ============================================================
    AGENTS
    ============================================================ */
 function bindAgentsEvents() {
   document.getElementById('spawn-btn').addEventListener('click', spawnAgent);
   document.getElementById('refresh-agents-btn').addEventListener('click', refreshAgents);
   document.getElementById('cleanup-agents-btn').addEventListener('click', cleanupAgents);
+
+  // Agent type pill group
+  bindPillGroup('agent-type-pills');
+}
+
+function bindPillGroup(containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.querySelectorAll('.pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      container.querySelectorAll('.pill').forEach(p => p.classList.remove('pill--active'));
+      pill.classList.add('pill--active');
+    });
+  });
+}
+
+function getPillValue(containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return null;
+  const active = container.querySelector('.pill--active');
+  return active ? active.dataset.value : null;
+}
+
+async function loadAgentSkillSelect() {
+  const el = document.getElementById('agent-skill-select');
+  if (!el) return;
+  try {
+    const res = await fetch('/api/skills');
+    const data = await res.json();
+    const skills = data.skills || [];
+    if (!skills.length) {
+      el.innerHTML = '<p class="hint-text">Zadne skills k dispozici.</p>';
+      return;
+    }
+    el.innerHTML = skills.map(s => `
+      <div class="skill-select-chip" data-skill-id="${escHtml(s.id)}">
+        <span class="skill-select-chip__icon">${escHtml(s.icon || '⚡')}</span>
+        ${escHtml(s.name)}
+      </div>
+    `).join('');
+    el.querySelectorAll('.skill-select-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const id = chip.dataset.skillId;
+        if (_selectedAgentSkills.has(id)) {
+          _selectedAgentSkills.delete(id);
+          chip.classList.remove('skill-select-chip--selected');
+        } else {
+          _selectedAgentSkills.add(id);
+          chip.classList.add('skill-select-chip--selected');
+        }
+      });
+    });
+  } catch (err) {
+    el.innerHTML = `<p class="hint-text">Chyba: ${escHtml(err.message)}</p>`;
+  }
 }
 
 async function spawnAgent() {
-  const agentType = document.getElementById('agent-type-select').value;
+  const agentType = getPillValue('agent-type-pills') || 'general';
   const goal = document.getElementById('agent-goal').value.trim();
   const workspace = document.getElementById('agent-workspace').value.trim() || null;
 
-  if (!goal) { showToast('Goal is required.', 'warning'); return; }
+  if (!goal) { showToast('Cil je povinny.', 'warning'); return; }
 
   const spawnBtn = document.getElementById('spawn-btn');
   const spawnSpinner = document.getElementById('spawn-spinner');
   setLoading(spawnBtn, spawnSpinner, true);
 
   try {
+    const body = {
+      agent_type: agentType,
+      task: { goal },
+      workspace,
+      skill_ids: Array.from(_selectedAgentSkills),
+    };
     const res = await fetch('/api/agents/spawn', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ agent_type: agentType, task: { goal }, workspace }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
     const data = await res.json();
-    showToast(`Agent ${data.agent_id} spawned!`, 'success');
+    showToast(`Agent ${data.agent_id} spusten!`, 'success');
     document.getElementById('agent-goal').value = '';
+    _selectedAgentSkills.clear();
+    document.querySelectorAll('.skill-select-chip--selected').forEach(c =>
+      c.classList.remove('skill-select-chip--selected')
+    );
     await refreshAgents();
-    switchTab('agents');
   } catch (err) {
-    showToast(`Spawn error: ${err.message}`, 'error');
+    showToast(`Chyba spawnu: ${err.message}`, 'error');
   } finally {
     setLoading(spawnBtn, spawnSpinner, false);
   }
@@ -408,34 +393,18 @@ async function refreshAgents() {
     const data = await res.json();
     renderAgentsList(data.agents || []);
   } catch (err) {
-    list.innerHTML = `<p class="empty-state">Error loading agents: ${escHtml(err.message)}</p>`;
+    list.innerHTML = `<p class="empty-state">Chyba: ${escHtml(err.message)}</p>`;
   }
 }
 
 function renderAgentsList(agents) {
   const list = document.getElementById('agents-list');
   if (!agents.length) {
-    list.innerHTML = '<p class="empty-state">No agents running.</p>';
+    list.innerHTML = '<p class="empty-state">Zadni agenti nebezi.</p>';
     return;
   }
   list.innerHTML = agents.map(a => renderAgentCard(a)).join('');
-  // Bind interrupt buttons
-  list.querySelectorAll('[data-interrupt]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const id = btn.dataset.interrupt;
-      await fetch(`/api/agents/${id}/interrupt`, { method: 'POST' });
-      showToast(`Agent ${id} interrupted`, 'info');
-      await refreshAgents();
-    });
-  });
-  list.querySelectorAll('[data-delete-agent]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const id = btn.dataset.deleteAgent;
-      await fetch(`/api/agents/${id}`, { method: 'DELETE' });
-      showToast(`Agent ${id} deleted`, 'info');
-      await refreshAgents();
-    });
-  });
+  bindAgentCardButtons(list);
 }
 
 function renderAgentCard(agent) {
@@ -448,6 +417,7 @@ function renderAgentCard(agent) {
   }[agent.status] || '';
 
   const isActive = agent.status === 'running' || agent.status === 'pending';
+  const elapsed = agent.created_at ? getElapsed(agent.created_at) : '';
 
   return `
     <div class="agent-card" id="agent-${escHtml(agent.agent_id)}">
@@ -455,18 +425,38 @@ function renderAgentCard(agent) {
         <span class="agent-type-badge">${escHtml(agent.agent_type)}</span>
         <span class="agent-id">${escHtml(agent.agent_id)}</span>
         <span class="agent-status ${statusClass}">${escHtml(agent.status)}</span>
-        <div class="agent-actions">
-          ${isActive ? `<button class="btn btn--ghost btn--small" data-interrupt="${escHtml(agent.agent_id)}">Stop</button>` : ''}
-          <button class="btn btn--ghost btn--small" data-delete-agent="${escHtml(agent.agent_id)}">Delete</button>
-        </div>
       </div>
-      <p class="agent-goal">${escHtml(agent.task?.goal || 'No goal')}</p>
+      <p class="agent-goal">${escHtml(agent.task?.goal || 'Zadny cil')}</p>
       <div class="progress-bar-wrap">
         <div class="progress-bar" style="width:${agent.progress}%"></div>
       </div>
       <p class="agent-message">${escHtml(agent.message || '')}</p>
-      ${agent.artifacts.length ? `<p class="agent-artifacts">Artifacts: ${agent.artifacts.length}</p>` : ''}
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span class="agent-elapsed">${elapsed}</span>
+        <div class="agent-actions">
+          ${isActive ? `<button class="btn btn--ghost btn--small" data-interrupt="${escHtml(agent.agent_id)}">Stop</button>` : ''}
+          <button class="btn btn--ghost btn--small" data-delete-agent="${escHtml(agent.agent_id)}">Smazat</button>
+        </div>
+      </div>
+      ${agent.artifacts.length ? `<p class="agent-artifacts">Artefakty: ${agent.artifacts.length}</p>` : ''}
     </div>`;
+}
+
+function bindAgentCardButtons(container) {
+  container.querySelectorAll('[data-interrupt]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await fetch(`/api/agents/${btn.dataset.interrupt}/interrupt`, { method: 'POST' });
+      showToast(`Agent ${btn.dataset.interrupt} zastaven`, 'info');
+      await refreshAgents();
+    });
+  });
+  container.querySelectorAll('[data-delete-agent]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await fetch(`/api/agents/${btn.dataset.deleteAgent}`, { method: 'DELETE' });
+      showToast(`Agent ${btn.dataset.deleteAgent} smazan`, 'info');
+      await refreshAgents();
+    });
+  });
 }
 
 function updateAgentCard(agent) {
@@ -476,18 +466,9 @@ function updateAgentCard(agent) {
 
   if (existing) {
     existing.outerHTML = renderAgentCard(agent);
-    // Re-bind buttons for the updated card
     const updated = document.getElementById(`agent-${agent.agent_id}`);
-    if (updated) {
-      updated.querySelectorAll('[data-interrupt]').forEach(btn => {
-        btn.addEventListener('click', async () => {
-          await fetch(`/api/agents/${btn.dataset.interrupt}/interrupt`, { method: 'POST' });
-          await refreshAgents();
-        });
-      });
-    }
+    if (updated) bindAgentCardButtons(updated);
   } else {
-    // New agent – refresh the whole list
     refreshAgents();
   }
 }
@@ -496,10 +477,237 @@ async function cleanupAgents() {
   try {
     const res = await fetch('/api/agents/cleanup', { method: 'POST' });
     const data = await res.json();
-    showToast(`Removed ${data.removed} finished agents`, 'success');
+    showToast(`Odstraneno ${data.removed} dokoncenych agentu`, 'success');
     await refreshAgents();
   } catch (err) {
-    showToast(`Cleanup error: ${err.message}`, 'error');
+    showToast(`Chyba: ${err.message}`, 'error');
+  }
+}
+
+function getElapsed(isoDate) {
+  try {
+    const ms = Date.now() - new Date(isoDate).getTime();
+    const sec = Math.floor(ms / 1000);
+    if (sec < 60) return `${sec}s`;
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `${min}m ${sec % 60}s`;
+    return `${Math.floor(min / 60)}h ${min % 60}m`;
+  } catch { return ''; }
+}
+
+/* ============================================================
+   SKILLS
+   ============================================================ */
+function bindSkillsEvents() {
+  document.getElementById('add-skill-btn').addEventListener('click', () => openSkillModal());
+  document.getElementById('skill-modal-close').addEventListener('click', closeSkillModal);
+  document.getElementById('skill-modal-cancel').addEventListener('click', closeSkillModal);
+  document.getElementById('skill-modal-save').addEventListener('click', saveSkill);
+  document.getElementById('skills-search').addEventListener('input', debounce(loadSkills, 300));
+
+  // Close modal on overlay click
+  document.getElementById('skill-modal').addEventListener('click', (e) => {
+    if (e.target.id === 'skill-modal') closeSkillModal();
+  });
+}
+
+async function loadSkills() {
+  const grid = document.getElementById('skills-grid');
+  const searchInput = document.getElementById('skills-search');
+  const search = searchInput ? searchInput.value.trim() : '';
+
+  try {
+    let url = '/api/skills';
+    const params = [];
+    if (_selectedTagFilter) params.push(`tag=${encodeURIComponent(_selectedTagFilter)}`);
+    if (search) params.push(`search=${encodeURIComponent(search)}`);
+    if (params.length) url += '?' + params.join('&');
+
+    const [skillsRes, tagsRes] = await Promise.all([
+      fetch(url),
+      fetch('/api/skills/tags'),
+    ]);
+    const skillsData = await skillsRes.json();
+    const tagsData = await tagsRes.json();
+
+    _allSkills = skillsData.skills || [];
+    renderSkillsGrid(_allSkills);
+    renderTagPills(tagsData.tags || []);
+  } catch (err) {
+    grid.innerHTML = `<p class="empty-state">Chyba: ${escHtml(err.message)}</p>`;
+  }
+}
+
+function renderSkillsGrid(skills) {
+  const grid = document.getElementById('skills-grid');
+  if (!skills.length) {
+    grid.innerHTML = '<p class="empty-state">Zadne skills nalezeny.</p>';
+    return;
+  }
+  grid.innerHTML = skills.map(s => `
+    <div class="skill-card" data-skill-id="${escHtml(s.id)}">
+      <div class="skill-card-header">
+        <span class="skill-card-icon">${escHtml(s.icon || '⚡')}</span>
+        <div class="skill-card-info">
+          <div class="skill-card-name">${escHtml(s.name)}</div>
+          <div class="skill-card-desc">${escHtml(s.description || '')}</div>
+        </div>
+      </div>
+      <div class="skill-card-tags">
+        ${(s.tags || []).map(t => `<span class="skill-tag">${escHtml(t)}</span>`).join('')}
+      </div>
+      <div class="skill-card-actions">
+        <button class="btn btn--ghost btn--small" data-edit-skill="${escHtml(s.id)}">Upravit</button>
+        <button class="btn btn--ghost btn--small" data-delete-skill="${escHtml(s.id)}">Smazat</button>
+      </div>
+    </div>
+  `).join('');
+
+  grid.querySelectorAll('[data-edit-skill]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const skill = _allSkills.find(s => s.id === btn.dataset.editSkill);
+      if (skill) openSkillModal(skill);
+    });
+  });
+
+  grid.querySelectorAll('[data-delete-skill]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.deleteSkill;
+      try {
+        const res = await fetch(`/api/skills/${id}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        showToast('Skill smazan', 'success');
+        loadSkills();
+      } catch (err) {
+        showToast(`Chyba: ${err.message}`, 'error');
+      }
+    });
+  });
+}
+
+function renderTagPills(tags) {
+  const el = document.getElementById('skills-tag-pills');
+  if (!el) return;
+  el.innerHTML = `
+    <button class="pill pill--tag ${!_selectedTagFilter ? 'pill--active' : ''}" data-tag="">Vse</button>
+    ${tags.map(t => `
+      <button class="pill pill--tag ${_selectedTagFilter === t ? 'pill--active' : ''}" data-tag="${escHtml(t)}">${escHtml(t)}</button>
+    `).join('')}
+  `;
+  el.querySelectorAll('.pill--tag').forEach(pill => {
+    pill.addEventListener('click', () => {
+      _selectedTagFilter = pill.dataset.tag || null;
+      loadSkills();
+    });
+  });
+}
+
+function openSkillModal(skill = null) {
+  const modal = document.getElementById('skill-modal');
+  const title = document.getElementById('skill-modal-title');
+
+  if (skill) {
+    title.textContent = 'Upravit Skill';
+    document.getElementById('skill-edit-id').value = skill.id;
+    document.getElementById('skill-name').value = skill.name || '';
+    document.getElementById('skill-description').value = skill.description || '';
+    document.getElementById('skill-icon').value = skill.icon || '';
+    document.getElementById('skill-prompt').value = skill.system_prompt_addition || '';
+    document.getElementById('skill-tags').value = (skill.tags || []).join(', ');
+
+    // Set tool checkboxes
+    const tools = skill.tools || [];
+    document.querySelectorAll('.skill-tool-cb').forEach(cb => {
+      cb.checked = tools.includes(cb.value);
+    });
+  } else {
+    title.textContent = 'Novy Skill';
+    document.getElementById('skill-edit-id').value = '';
+    document.getElementById('skill-name').value = '';
+    document.getElementById('skill-description').value = '';
+    document.getElementById('skill-icon').value = '';
+    document.getElementById('skill-prompt').value = '';
+    document.getElementById('skill-tags').value = '';
+    document.querySelectorAll('.skill-tool-cb').forEach(cb => cb.checked = false);
+  }
+
+  show(modal);
+}
+
+function closeSkillModal() {
+  hide(document.getElementById('skill-modal'));
+}
+
+async function saveSkill() {
+  const editId = document.getElementById('skill-edit-id').value;
+  const name = document.getElementById('skill-name').value.trim();
+  const description = document.getElementById('skill-description').value.trim();
+  const icon = document.getElementById('skill-icon').value.trim() || '\u26A1';
+  const systemPrompt = document.getElementById('skill-prompt').value.trim();
+  const tagsStr = document.getElementById('skill-tags').value.trim();
+  const tags = tagsStr ? tagsStr.split(',').map(t => t.trim()).filter(Boolean) : [];
+  const tools = Array.from(document.querySelectorAll('.skill-tool-cb:checked')).map(cb => cb.value);
+
+  if (!name) { showToast('Nazev je povinny', 'warning'); return; }
+
+  const body = { name, description, icon, system_prompt_addition: systemPrompt, tools, tags };
+
+  try {
+    let res;
+    if (editId) {
+      res = await fetch(`/api/skills/${editId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    } else {
+      res = await fetch('/api/skills', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    }
+    if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+    showToast(editId ? 'Skill upraven' : 'Skill vytvoren', 'success');
+    closeSkillModal();
+    loadSkills();
+  } catch (err) {
+    showToast(`Chyba: ${err.message}`, 'error');
+  }
+}
+
+/* ============================================================
+   OLLAMA MODELS
+   ============================================================ */
+async function loadOllamaModels() {
+  try {
+    const res = await fetch('/api/ollama/models');
+    const data = await res.json();
+    _ollamaModels = data.models || [];
+    populateModelDropdown();
+  } catch (err) {
+    // Silently fail – models dropdown will have manual input fallback
+  }
+}
+
+function populateModelDropdown() {
+  const select = document.getElementById('s-llm-model');
+  if (!select) return;
+
+  const currentModel = select.value || (_currentSettings?.llm?.model || 'llama3.2');
+
+  if (_ollamaModels.length) {
+    select.innerHTML = _ollamaModels.map(m =>
+      `<option value="${escHtml(m.name)}">${escHtml(m.name)} (${m.size_gb} GB, ${m.profile})</option>`
+    ).join('');
+  } else {
+    select.innerHTML = `<option value="${escHtml(currentModel)}">${escHtml(currentModel)}</option>`;
+  }
+
+  // Restore selection
+  if (currentModel) {
+    select.value = currentModel;
+    if (!select.value && select.options.length) select.selectedIndex = 0;
   }
 }
 
@@ -511,9 +719,7 @@ function bindActionsEvents() {
   const slider = document.getElementById('volume-slider');
   const volLabel = document.getElementById('volume-value');
   if (slider) {
-    slider.addEventListener('input', () => {
-      volLabel.textContent = `${slider.value}%`;
-    });
+    slider.addEventListener('input', () => volLabel.textContent = `${slider.value}%`);
     document.getElementById('set-volume-btn').addEventListener('click', async () => {
       const r = await macOSAction('volume_set', { level: parseInt(slider.value) });
       showMacResult(r);
@@ -525,27 +731,26 @@ function bindActionsEvents() {
   if (safariBtn) {
     safariBtn.addEventListener('click', async () => {
       const url = document.getElementById('safari-url').value.trim();
-      if (!url) { showToast('Enter a URL', 'warning'); return; }
+      if (!url) { showToast('Zadej URL', 'warning'); return; }
       const r = await macOSAction('safari_open', { url });
       showMacResult(r);
     });
   }
 
-  // VS Code open project
+  // VS Code
   const vcBtn = document.getElementById('vscode-open-btn');
   if (vcBtn) {
     vcBtn.addEventListener('click', async () => {
       const sel = document.getElementById('vscode-project-select');
       const key = sel.value;
-      if (!key) { showToast('Select a project', 'warning'); return; }
+      if (!key) { showToast('Vyber projekt', 'warning'); return; }
       try {
         const res = await fetch('/api/integrations/vscode/open-project', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ project_key: key }),
         });
-        const data = await res.json();
-        showMacResult(data);
+        showMacResult(await res.json());
       } catch (err) {
         showMacResult({ status: 'error', detail: err.message });
       }
@@ -557,7 +762,7 @@ function bindActionsEvents() {
   if (finderBtn) {
     finderBtn.addEventListener('click', async () => {
       const path = document.getElementById('finder-path').value.trim();
-      if (!path) { showToast('Enter a path', 'warning'); return; }
+      if (!path) { showToast('Zadej cestu', 'warning'); return; }
       const r = await macOSAction('finder_open', { path });
       showMacResult(r);
     });
@@ -567,6 +772,19 @@ function bindActionsEvents() {
   document.querySelectorAll('[data-git]').forEach(btn => {
     btn.addEventListener('click', () => handleGitAction(btn.dataset.git));
   });
+
+  // OpenClaw
+  const openclawToggle = document.getElementById('openclaw-toggle');
+  if (openclawToggle) {
+    openclawToggle.addEventListener('click', () => {
+      const expanded = openclawToggle.getAttribute('aria-expanded') === 'true';
+      openclawToggle.setAttribute('aria-expanded', String(!expanded));
+      document.getElementById('openclaw-body').classList.toggle('collapsed', expanded);
+    });
+  }
+
+  const actionBtn = document.getElementById('action-btn');
+  if (actionBtn) actionBtn.addEventListener('click', triggerAction);
 }
 
 async function macOSAction(action, params) {
@@ -593,37 +811,27 @@ function showMacResult(data) {
 
 async function handleGitAction(action) {
   const repoPath = document.getElementById('git-repo-path').value.trim();
-  if (!repoPath) { showToast('Enter a repo path', 'warning'); return; }
+  if (!repoPath) { showToast('Zadej cestu k repo', 'warning'); return; }
 
-  const gitResult = document.getElementById('git-result');
   const params = { repo_path: repoPath };
 
   if (action === 'commit') {
     params.message = document.getElementById('git-commit-msg').value.trim();
-    if (!params.message) { showToast('Enter a commit message', 'warning'); return; }
+    if (!params.message) { showToast('Zadej commit zpravu', 'warning'); return; }
   }
 
   try {
-    const res = await fetch(`/api/integrations/git/${action}`, {
-      method: action === 'status' || action === 'log' || action === 'branches' ? 'GET' : 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: ['status', 'log', 'branches'].includes(action) ? undefined : JSON.stringify(params),
-    });
-
-    let url = `/api/integrations/git/${action}`;
     if (['status', 'log', 'branches'].includes(action)) {
-      url += `?repo_path=${encodeURIComponent(repoPath)}`;
+      const url = `/api/integrations/git/${action}?repo_path=${encodeURIComponent(repoPath)}`;
       const r = await fetch(url);
-      const data = await r.json();
-      showGitResult(data);
+      showGitResult(await r.json());
     } else {
       const r = await fetch(`/api/integrations/git/${action}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params),
       });
-      const data = await r.json();
-      showGitResult(data);
+      showGitResult(await r.json());
     }
   } catch (err) {
     showGitResult({ status: 'error', detail: err.message });
@@ -637,9 +845,41 @@ function showGitResult(data) {
   el.className = `result-box ${statusClass}`;
   let content = `<strong>${escHtml(data.status)}</strong> `;
   if (data.detail) content += escHtml(data.detail);
-  if (data.data) content += `<pre style="margin-top:0.5rem;font-size:0.8rem;overflow-x:auto">${escHtml(JSON.stringify(data.data, null, 2))}</pre>`;
+  if (data.data) content += `<pre style="margin-top:0.5rem;font-size:0.8rem;overflow-x:auto;color:#94a3b8">${escHtml(JSON.stringify(data.data, null, 2))}</pre>`;
   el.innerHTML = content;
   show(el);
+}
+
+async function triggerAction() {
+  const actionSelect = document.getElementById('action-select');
+  const actionBtn = document.getElementById('action-btn');
+  const actionSpinner = document.getElementById('action-spinner');
+  const actionResult = document.getElementById('action-result');
+  const action = actionSelect.value;
+
+  setLoading(actionBtn, actionSpinner, true);
+  hide(actionResult);
+
+  try {
+    const res = await fetch('/api/actions/openclaw', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, params: {} }),
+    });
+    if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+    const data = await res.json();
+    const statusClass = data.status === 'ok' ? 'result-box--ok'
+                      : data.status === 'error' ? 'result-box--error'
+                      : 'result-box--warn';
+    actionResult.className = `result-box ${statusClass}`;
+    actionResult.innerHTML = `<strong>Status:</strong> ${escHtml(data.status)}<br/>` +
+      (data.detail ? `<strong>Detail:</strong> ${escHtml(data.detail)}` : '');
+    show(actionResult);
+  } catch (err) {
+    showToast(`Chyba akce: ${err.message}`, 'error');
+  } finally {
+    setLoading(actionBtn, actionSpinner, false);
+  }
 }
 
 async function loadQuickActions() {
@@ -650,30 +890,24 @@ async function loadQuickActions() {
     const data = await res.json();
     const actions = data.settings?.quick_actions || [];
     if (!actions.length) {
-      list.innerHTML = '<p class="empty-state">No quick actions configured. Add them in settings.json or Settings tab.</p>';
+      list.innerHTML = '<p class="empty-state">Zadne rychle akce. Pridej je v settings.json.</p>';
       return;
     }
     list.innerHTML = actions.map(a => `
-      <button class="quick-action-btn" data-action-id="${escHtml(a.id)}">
-        <span class="qa-icon">${escHtml(a.icon || '⚡')}</span>
-        <span class="qa-name">${escHtml(a.name)}</span>
-        <span class="qa-steps">${a.steps?.length || 0} steps</span>
+      <button class="action-card" data-action-id="${escHtml(a.id)}">
+        <span class="action-card__icon">${escHtml(a.icon || '⚡')}</span>
+        <span class="action-card__name">${escHtml(a.name)}</span>
+        <span class="action-card__desc">${a.steps?.length || 0} kroku</span>
       </button>
     `).join('');
     list.querySelectorAll('[data-action-id]').forEach(btn => {
-      btn.addEventListener('click', () => executeQuickAction(btn.dataset.actionId));
+      btn.addEventListener('click', () => {
+        showToast(`Akce "${btn.querySelector('.action-card__name').textContent}" spustena`, 'info');
+      });
     });
   } catch (err) {
-    list.innerHTML = `<p class="empty-state">Error: ${escHtml(err.message)}</p>`;
+    list.innerHTML = `<p class="empty-state">Chyba: ${escHtml(err.message)}</p>`;
   }
-}
-
-async function executeQuickAction(actionId) {
-  showToast(`Executing action ${actionId}…`, 'info');
-  // Quick actions are executed step-by-step based on settings
-  // For now, show the action ID to confirm it's wired up
-  // Full sequential execution would require the actions router
-  showToast(`Action "${actionId}" triggered (sequential execution planned)`, 'success');
 }
 
 async function loadVSCodeProjects() {
@@ -685,9 +919,9 @@ async function loadVSCodeProjects() {
     const projects = data.projects || {};
     sel.innerHTML = Object.keys(projects).length
       ? Object.keys(projects).map(k => `<option value="${escHtml(k)}">${escHtml(k)}</option>`).join('')
-      : '<option value="">No projects configured</option>';
+      : '<option value="">Zadne projekty</option>';
   } catch (e) {
-    sel.innerHTML = '<option value="">Error loading projects</option>';
+    sel.innerHTML = '<option value="">Chyba nacitani</option>';
   }
 }
 
@@ -696,15 +930,14 @@ async function loadVSCodeProjects() {
    ============================================================ */
 function bindSettingsEvents() {
   document.getElementById('save-settings-btn').addEventListener('click', saveSettings);
-  document.getElementById('reload-settings-btn').addEventListener('click', loadSettings);
+  document.getElementById('reload-settings-btn').addEventListener('click', () => {
+    loadSettings();
+    loadOllamaModels();
+  });
   document.getElementById('check-ollama-btn').addEventListener('click', checkOllama);
   document.getElementById('add-project-btn').addEventListener('click', addProject);
   document.getElementById('add-dir-btn').addEventListener('click', addAllowedDir);
 }
-
-let _currentSettings = null;
-let _settingsProjects = {};
-let _settingsAllowedDirs = [];
 
 async function loadSettings() {
   try {
@@ -715,9 +948,15 @@ async function loadSettings() {
 
     // LLM
     setVal('s-llm-provider', s.llm?.provider || 'ollama');
-    setVal('s-llm-model', s.llm?.model || 'llama3.2');
     setVal('s-llm-temp', s.llm?.temperature ?? 0.7);
     setVal('s-llm-url', s.llm?.ollama_url || 'http://localhost:11434');
+
+    // Model – set after models are loaded
+    const modelSelect = document.getElementById('s-llm-model');
+    if (modelSelect && modelSelect.options.length <= 1) {
+      modelSelect.innerHTML = `<option value="${escHtml(s.llm?.model || 'llama3.2')}">${escHtml(s.llm?.model || 'llama3.2')}</option>`;
+    }
+    setVal('s-llm-model', s.llm?.model || 'llama3.2');
 
     // Integrations
     setChecked('s-vscode-enabled', s.integrations?.vscode?.enabled);
@@ -728,8 +967,6 @@ async function loadSettings() {
     setVal('s-mcp-path', s.integrations?.claude_mcp?.stdio_path || '');
     setChecked('s-ag-enabled', s.integrations?.antigravity?.enabled);
     setVal('s-ag-endpoint', s.integrations?.antigravity?.api_endpoint || '');
-    // API key is masked – don't populate
-
     setChecked('s-ntfy-enabled', s.notifications?.enabled);
     setVal('s-ntfy-url', s.notifications?.ntfy_url || '');
     setVal('s-ntfy-topic', s.notifications?.topic || '');
@@ -751,8 +988,10 @@ async function loadSettings() {
     _settingsAllowedDirs = [...(s.filesystem?.allowed_directories || [])];
     renderAllowedDirsList();
 
+    // Update model badge
+    updateModelBadge();
   } catch (err) {
-    showToast(`Failed to load settings: ${err.message}`, 'error');
+    showToast(`Chyba nacitani nastaveni: ${err.message}`, 'error');
   }
 }
 
@@ -815,10 +1054,10 @@ async function saveSettings() {
       body: JSON.stringify({ settings: patch }),
     });
     if (!res.ok) throw new Error(await res.text());
-    showToast('Settings saved!', 'success');
+    showToast('Nastaveni ulozeno!', 'success');
     await loadSettings();
   } catch (err) {
-    showToast(`Save failed: ${err.message}`, 'error');
+    showToast(`Chyba ukladani: ${err.message}`, 'error');
   } finally {
     setLoading(saveBtn, saveSpinner, false);
   }
@@ -827,19 +1066,24 @@ async function saveSettings() {
 async function checkOllama() {
   const el = document.getElementById('ollama-status');
   el.className = 'result-box';
-  el.textContent = 'Checking…';
+  el.textContent = 'Kontroluji...';
+  el.style.color = '#94a3b8';
   show(el);
   try {
     const res = await fetch('/api/settings/ollama/health', { method: 'POST' });
     const data = await res.json();
     const ok = data.status === 'ok';
     el.className = `result-box ${ok ? 'result-box--ok' : 'result-box--error'}`;
+    el.style.color = '';
     el.innerHTML = ok
-      ? `Connected to Ollama at <strong>${escHtml(data.url)}</strong>. Models: ${(data.models || []).map(m => `<code>${escHtml(m)}</code>`).join(', ') || 'none'}`
-      : `Cannot reach Ollama: ${escHtml(data.error || data.status)}`;
+      ? `Pripojeno k Ollama na <strong>${escHtml(data.url)}</strong>. Modely: ${(data.models || []).map(m => `<code>${escHtml(m)}</code>`).join(', ') || 'zadne'}`
+      : `Nelze se pripojit k Ollama: ${escHtml(data.error || data.status)}`;
+    // Reload models after health check
+    if (ok) loadOllamaModels();
   } catch (err) {
     el.className = 'result-box result-box--error';
-    el.textContent = `Error: ${err.message}`;
+    el.style.color = '';
+    el.textContent = `Chyba: ${err.message}`;
   }
 }
 
@@ -847,7 +1091,7 @@ async function checkOllama() {
 function addProject() {
   const key = document.getElementById('new-project-key').value.trim();
   const path = document.getElementById('new-project-path').value.trim();
-  if (!key || !path) { showToast('Key and path required', 'warning'); return; }
+  if (!key || !path) { showToast('Klic a cesta jsou povinne', 'warning'); return; }
   _settingsProjects[key] = { path, workspace: null, auto_tasks: [] };
   document.getElementById('new-project-key').value = '';
   document.getElementById('new-project-path').value = '';
@@ -863,20 +1107,23 @@ function renderProjectsList() {
   const el = document.getElementById('projects-list');
   if (!el) return;
   const keys = Object.keys(_settingsProjects);
-  if (!keys.length) { el.innerHTML = '<p class="hint-text">No projects configured.</p>'; return; }
+  if (!keys.length) { el.innerHTML = '<p class="hint-text">Zadne projekty.</p>'; return; }
   el.innerHTML = keys.map(k => `
     <div class="list-item">
       <code class="list-item__key">${escHtml(k)}</code>
       <span class="list-item__val">${escHtml(_settingsProjects[k].path || '')}</span>
-      <button class="btn btn--ghost btn--small" onclick="removeProject('${escHtml(k)}')">Remove</button>
+      <button class="btn btn--ghost btn--small" data-remove-project="${escHtml(k)}">Odebrat</button>
     </div>
   `).join('');
+  el.querySelectorAll('[data-remove-project]').forEach(btn => {
+    btn.addEventListener('click', () => removeProject(btn.dataset.removeProject));
+  });
 }
 
-// Allowed dirs management
+// Allowed dirs
 function addAllowedDir() {
   const dir = document.getElementById('new-allowed-dir').value.trim();
-  if (!dir) { showToast('Enter a directory path', 'warning'); return; }
+  if (!dir) { showToast('Zadej cestu k adresari', 'warning'); return; }
   if (!_settingsAllowedDirs.includes(dir)) _settingsAllowedDirs.push(dir);
   document.getElementById('new-allowed-dir').value = '';
   renderAllowedDirsList();
@@ -891,15 +1138,18 @@ function renderAllowedDirsList() {
   const el = document.getElementById('allowed-dirs-list');
   if (!el) return;
   if (!_settingsAllowedDirs.length) {
-    el.innerHTML = '<p class="hint-text" style="color:#ef4444">Warning: No allowed directories. API filesystem access is disabled.</p>';
+    el.innerHTML = '<p class="hint-text" style="color:#f87171">Varovani: Zadne povolene adresare. API pristup k fs je zakazan.</p>';
     return;
   }
   el.innerHTML = _settingsAllowedDirs.map(d => `
     <div class="list-item">
       <code class="list-item__val" style="flex:1">${escHtml(d)}</code>
-      <button class="btn btn--ghost btn--small" onclick="removeAllowedDir('${escHtml(d)}')">Remove</button>
+      <button class="btn btn--ghost btn--small" data-remove-dir="${escHtml(d)}">Odebrat</button>
     </div>
   `).join('');
+  el.querySelectorAll('[data-remove-dir]').forEach(btn => {
+    btn.addEventListener('click', () => removeAllowedDir(btn.dataset.removeDir));
+  });
 }
 
 /* ============================================================
@@ -912,26 +1162,24 @@ async function checkSetupStatus() {
     const data = await res.json();
     if (!data.setup_complete) {
       const incomplete = data.items.filter(i => !i.ok);
-      const hints = incomplete.map(i => `• ${i.label}: ${i.hint}`).join('\n');
-      // Insert a dismissible setup banner above the tab content
       const banner = document.createElement('div');
       banner.id = 'setup-banner';
       banner.className = 'setup-banner';
       banner.innerHTML = `
-        <strong>First-time setup needed</strong>
-        <button class="setup-banner__dismiss" onclick="document.getElementById('setup-banner').remove()" title="Dismiss">&#10005;</button>
+        <strong>Prvni nastaveni potreba</strong>
+        <button class="setup-banner__dismiss" onclick="document.getElementById('setup-banner').remove()" title="Zavrít">&#10005;</button>
         <ul class="setup-banner__list">
           ${incomplete.map(i => `<li><button class="setup-banner__link" onclick="switchTab('settings')">${escHtml(i.label)}</button> – ${escHtml(i.hint)}</li>`).join('')}
         </ul>
       `;
-      const main = document.querySelector('.main');
-      if (main) main.prepend(banner);
+      const panel = document.getElementById('tab-chat');
+      if (panel) panel.prepend(banner);
     }
   } catch (e) { /* non-critical */ }
 }
 
 /* ============================================================
-   TOAST NOTIFICATIONS
+   TOAST
    ============================================================ */
 function showToast(message, type = 'info') {
   clearTimeout(toastTimer);
@@ -944,12 +1192,12 @@ function showToast(message, type = 'info') {
 /* ============================================================
    HELPERS
    ============================================================ */
-function show(el) { el.classList.remove('hidden'); }
-function hide(el) { el.classList.add('hidden'); }
+function show(el) { if (el) el.classList.remove('hidden'); }
+function hide(el) { if (el) el.classList.add('hidden'); }
 
 function setLoading(btn, spinnerEl, loading) {
-  btn.disabled = loading;
-  spinnerEl.classList.toggle('hidden', !loading);
+  if (btn) btn.disabled = loading;
+  if (spinnerEl) spinnerEl.classList.toggle('hidden', !loading);
 }
 
 function escHtml(str) {
@@ -962,7 +1210,7 @@ function escHtml(str) {
 }
 
 function truncate(str, maxLen) {
-  return str.length > maxLen ? str.slice(0, maxLen - 1) + '…' : str;
+  return str.length > maxLen ? str.slice(0, maxLen - 1) + '\u2026' : str;
 }
 
 function setVal(id, val) {
@@ -983,4 +1231,12 @@ function setChecked(id, val) {
 function getChecked(id) {
   const el = document.getElementById(id);
   return el ? el.checked : false;
+}
+
+function debounce(fn, ms) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
 }

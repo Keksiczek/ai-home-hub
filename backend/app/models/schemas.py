@@ -44,6 +44,7 @@ class SpawnAgentRequest(BaseModel):
     agent_type: str  # code | research | testing | devops | general
     task: Dict[str, Any]
     workspace: Optional[str] = None
+    skill_ids: List[str] = []
 
 
 class AgentStatusResponse(BaseModel):

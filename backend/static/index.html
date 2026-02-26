@@ -8,180 +8,231 @@
 </head>
 <body>
 
-  <!-- ===== HEADER ===== -->
-  <header class="header">
-    <div class="header-inner">
-      <span class="header-logo">&#129302;</span>
-      <h1 class="header-title">AI Home Hub</h1>
-      <span class="header-sub">Mac Control Center</span>
+  <!-- ===== SIDEBAR ===== -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <span class="sidebar-logo">&#129302;</span>
+      <span class="sidebar-title">AI Home Hub</span>
+    </div>
+    <nav class="sidebar-nav" role="tablist" aria-label="Main navigation">
+      <button class="nav-item nav-item--active" role="tab" aria-selected="true"
+              data-tab="chat" title="Chat">
+        <span class="nav-icon">&#128172;</span>
+        <span class="nav-label">Chat</span>
+      </button>
+      <button class="nav-item" role="tab" aria-selected="false"
+              data-tab="agents" title="Agents">
+        <span class="nav-icon">&#129302;</span>
+        <span class="nav-label">Agenti</span>
+      </button>
+      <button class="nav-item" role="tab" aria-selected="false"
+              data-tab="skills" title="Skills">
+        <span class="nav-icon">&#9889;</span>
+        <span class="nav-label">Skills</span>
+      </button>
+      <button class="nav-item" role="tab" aria-selected="false"
+              data-tab="actions" title="Actions">
+        <span class="nav-icon">&#9881;</span>
+        <span class="nav-label">Akce</span>
+      </button>
+      <button class="nav-item" role="tab" aria-selected="false"
+              data-tab="settings" title="Settings">
+        <span class="nav-icon">&#128736;</span>
+        <span class="nav-label">Nastaven&iacute;</span>
+      </button>
+    </nav>
+    <div class="sidebar-footer">
       <div class="ws-status" id="ws-status" title="WebSocket">
         <span class="ws-dot ws-dot--disconnected" id="ws-dot"></span>
         <span class="ws-label" id="ws-label">Offline</span>
       </div>
+      <span class="sidebar-version">v0.3.0</span>
     </div>
-  </header>
+  </aside>
 
-  <!-- ===== TAB NAV ===== -->
-  <nav class="tab-nav" role="tablist" aria-label="Main sections">
-    <button class="tab-btn tab-btn--active" role="tab" aria-selected="true"
-            aria-controls="tab-chat" data-tab="chat">Chat</button>
-    <button class="tab-btn" role="tab" aria-selected="false"
-            aria-controls="tab-agents" data-tab="agents">Agents</button>
-    <button class="tab-btn" role="tab" aria-selected="false"
-            aria-controls="tab-actions" data-tab="actions">Actions</button>
-    <button class="tab-btn" role="tab" aria-selected="false"
-            aria-controls="tab-settings" data-tab="settings">Settings</button>
-  </nav>
-
-  <main class="main">
+  <!-- ===== MAIN CONTENT ===== -->
+  <main class="main-content" id="main-content">
 
     <!-- ======================== CHAT TAB ======================== -->
     <div class="tab-panel" id="tab-chat" role="tabpanel">
 
-      <!-- UPLOAD CARD -->
-      <section class="card" id="upload-card">
-        <h2 class="card-title">Upload Files</h2>
-        <div class="drop-zone" id="drop-zone" role="button" tabindex="0"
-             aria-label="Drag files or click to select">
+      <div class="panel-header">
+        <h1 class="panel-title">Chat</h1>
+        <div class="chat-session-bar">
+          <span class="session-badge" id="session-label">Nov&aacute; relace</span>
+          <button class="btn btn--ghost btn--small" id="new-session-btn">+ Nov&aacute;</button>
+        </div>
+      </div>
+
+      <!-- Profile pills -->
+      <div class="profile-pills" id="profile-pills">
+        <button class="pill pill--active" data-profile="chat">CHAT</button>
+        <button class="pill" data-profile="tech">TECH</button>
+        <button class="pill" data-profile="vision">VISION</button>
+        <button class="pill" data-profile="dolphin">DOLPHIN</button>
+      </div>
+      <div class="model-badge" id="model-badge">llama3.2</div>
+
+      <!-- Chat history -->
+      <div class="chat-area">
+        <div class="chat-history" id="chat-history" role="log" aria-live="polite"></div>
+      </div>
+
+      <!-- Chat input -->
+      <div class="chat-input-area">
+        <div class="chat-input-row">
+          <button class="btn-icon attach-btn" id="attach-btn" title="Pridat soubor">
+            &#128206;
+          </button>
           <input type="file" id="file-input" multiple hidden />
-          <span class="drop-zone-icon">&#128196;</span>
-          <p class="drop-zone-text">Drag files or <span class="link">click here</span></p>
-          <p class="drop-zone-hint">Any file type</p>
-        </div>
-        <div id="upload-spinner" class="spinner-wrap hidden">
-          <span class="spinner" aria-label="Uploading..."></span>
-          <span>Uploading...</span>
-        </div>
-        <div id="file-list-wrap" class="hidden">
-          <h3 class="section-label">Uploaded Files</h3>
-          <ul class="file-list" id="file-list"></ul>
-        </div>
-      </section>
-
-      <!-- CHAT CARD -->
-      <section class="card" id="chat-card">
-        <div class="chat-header-row">
-          <h2 class="card-title" style="margin-bottom:0">Chat with AI</h2>
-          <div class="chat-session-bar">
-            <span class="session-badge" id="session-label">New session</span>
-            <button class="btn btn--ghost btn--small" id="new-session-btn">+ New</button>
-          </div>
-        </div>
-
-        <div class="form-row">
-          <label class="form-label" for="mode-select">Mode:</label>
-          <select class="select" id="mode-select">
-            <option value="general">General</option>
-            <option value="powerbi">Power BI</option>
-            <option value="lean">Lean / CI</option>
-          </select>
-        </div>
-
-        <div id="history-wrap" class="hidden">
-          <div class="chat-history" id="chat-history" role="log" aria-live="polite"></div>
-        </div>
-
-        <div id="context-files-wrap" class="hidden">
-          <h3 class="section-label">Context files:</h3>
-          <ul class="context-file-list" id="context-file-list"></ul>
-        </div>
-
-        <div class="chat-input-area">
-          <textarea class="textarea chat-textarea" id="chat-input" rows="3"
-                    placeholder="Type message... (Ctrl+Enter to send)"></textarea>
-          <button class="btn btn--primary" id="send-btn">
-            Send
-            <span class="spinner spinner--small hidden" id="chat-spinner" aria-label="Sending..."></span>
+          <textarea class="chat-textarea" id="chat-input" rows="2"
+                    placeholder="Napi&#353; zpr&aacute;vu... (Ctrl+Enter pro odesl&aacute;n&iacute;)"></textarea>
+          <button class="btn btn--primary btn--send" id="send-btn">
+            &#10148;
+            <span class="spinner spinner--small hidden" id="chat-spinner" aria-label="Odes&iacute;l&aacute;m..."></span>
           </button>
         </div>
-      </section>
-
-      <!-- OPENCLAW CARD -->
-      <section class="card" id="openclaw-card">
-        <button class="card-toggle" id="openclaw-toggle" aria-expanded="false"
-                aria-controls="openclaw-body">
-          <h2 class="card-title card-title--inline">OpenClaw Actions</h2>
-          <span class="toggle-icon" aria-hidden="true">&#8250;</span>
-        </button>
-        <div class="card-collapsible collapsed" id="openclaw-body">
-          <div class="form-row">
-            <label class="form-label" for="action-select">Action:</label>
-            <select class="select" id="action-select">
-              <option value="screenshot">Screenshot</option>
-              <option value="start_whatsapp_agent">Start WhatsApp Agent</option>
-              <option value="restart_telegram_agent">Restart Telegram Agent</option>
-              <option value="run_workflow">Run Workflow</option>
-            </select>
-          </div>
-          <div class="form-row form-row--right">
-            <button class="btn btn--secondary" id="action-btn">
-              Run Action
-              <span class="spinner spinner--small hidden" id="action-spinner"></span>
-            </button>
-          </div>
-          <div id="action-result" class="result-box hidden"></div>
-        </div>
-      </section>
+        <div id="attached-files" class="attached-files hidden"></div>
+      </div>
 
     </div><!-- /tab-chat -->
 
     <!-- ======================== AGENTS TAB ======================== -->
     <div class="tab-panel hidden" id="tab-agents" role="tabpanel">
 
+      <div class="panel-header">
+        <h1 class="panel-title">Agenti</h1>
+        <div style="display:flex;gap:0.5rem">
+          <button class="btn btn--ghost btn--small" id="refresh-agents-btn">Obnovit</button>
+          <button class="btn btn--ghost btn--small" id="cleanup-agents-btn">Vy&#269;istit</button>
+        </div>
+      </div>
+
       <section class="card">
-        <h2 class="card-title">Spawn New Agent</h2>
-        <div class="form-row">
-          <label class="form-label" for="agent-type-select">Type:</label>
-          <select class="select" id="agent-type-select">
-            <option value="general">General</option>
-            <option value="code">Code</option>
-            <option value="research">Research</option>
-            <option value="testing">Testing</option>
-            <option value="devops">DevOps</option>
-          </select>
+        <h2 class="card-title">Spustit nov&eacute;ho agenta</h2>
+
+        <div class="form-group">
+          <label class="form-label">Typ:</label>
+          <div class="pill-group" id="agent-type-pills">
+            <button class="pill pill--active" data-value="general">General</button>
+            <button class="pill" data-value="code">Code</button>
+            <button class="pill" data-value="research">Research</button>
+            <button class="pill" data-value="testing">Testing</button>
+            <button class="pill" data-value="devops">DevOps</button>
+          </div>
         </div>
-        <div class="form-row">
-          <label class="form-label" for="agent-goal">Goal:</label>
-          <textarea class="textarea" id="agent-goal" rows="3"
-                    placeholder="Describe the agent's goal..."></textarea>
+
+        <div class="form-group">
+          <label class="form-label" for="agent-goal">C&iacute;l:</label>
+          <textarea class="textarea" id="agent-goal" rows="2"
+                    placeholder="Popi&#353; c&iacute;l agenta..."></textarea>
         </div>
-        <div class="form-row">
+
+        <div class="form-group">
           <label class="form-label" for="agent-workspace">Workspace:</label>
           <input type="text" class="input" id="agent-workspace"
-                 placeholder="/path/to/project (optional)" />
+                 placeholder="/cesta/k/projektu (voliteln&eacute;)" />
         </div>
-        <div class="form-row form-row--right">
+
+        <div class="form-group">
+          <label class="form-label">Skills:</label>
+          <div class="skill-select-list" id="agent-skill-select">
+            <p class="hint-text">Na&#269;&iacute;t&aacute;m skills...</p>
+          </div>
+        </div>
+
+        <div class="form-group form-group--right">
           <button class="btn btn--primary" id="spawn-btn">
-            Spawn Agent
+            Spustit agenta
             <span class="spinner spinner--small hidden" id="spawn-spinner"></span>
           </button>
         </div>
       </section>
 
-      <section class="card">
-        <div class="section-header-row">
-          <h2 class="card-title" style="margin-bottom:0">Active Agents</h2>
-          <div style="display:flex;gap:0.5rem">
-            <button class="btn btn--ghost btn--small" id="refresh-agents-btn">Refresh</button>
-            <button class="btn btn--ghost btn--small" id="cleanup-agents-btn">Cleanup done</button>
-          </div>
-        </div>
-        <div id="agents-list" style="margin-top:0.75rem">
-          <p class="empty-state">No agents running.</p>
-        </div>
+      <section id="agents-list" class="agents-grid">
+        <p class="empty-state">&#381;&aacute;dn&iacute; agenti neb&ecaron;&zcaron;&iacute;.</p>
       </section>
 
     </div><!-- /tab-agents -->
 
+    <!-- ======================== SKILLS TAB ======================== -->
+    <div class="tab-panel hidden" id="tab-skills" role="tabpanel">
+
+      <div class="panel-header">
+        <h1 class="panel-title">Skills</h1>
+        <button class="btn btn--primary btn--small" id="add-skill-btn">+ Nov&yacute; Skill</button>
+      </div>
+
+      <div class="skills-toolbar">
+        <input type="text" class="input search-input" id="skills-search"
+               placeholder="Hledat skills..." />
+        <div class="tag-pills" id="skills-tag-pills"></div>
+      </div>
+
+      <div class="skills-grid" id="skills-grid">
+        <p class="empty-state">Na&#269;&iacute;t&aacute;m skills...</p>
+      </div>
+
+      <!-- Skill modal -->
+      <div class="modal-overlay hidden" id="skill-modal">
+        <div class="modal">
+          <div class="modal-header">
+            <h2 class="modal-title" id="skill-modal-title">Nov&yacute; Skill</h2>
+            <button class="btn-icon modal-close" id="skill-modal-close">&#10005;</button>
+          </div>
+          <div class="modal-body">
+            <input type="hidden" id="skill-edit-id" value="" />
+            <div class="form-group">
+              <label class="form-label" for="skill-name">N&aacute;zev:</label>
+              <input type="text" class="input" id="skill-name" placeholder="N&aacute;zev skill" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="skill-description">Popis:</label>
+              <input type="text" class="input" id="skill-description" placeholder="Kr&aacute;tk&yacute; popis" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="skill-icon">Ikona (emoji):</label>
+              <input type="text" class="input" id="skill-icon" placeholder="&#128200;" style="max-width:80px" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="skill-prompt">Syst&eacute;mov&yacute; prompt:</label>
+              <textarea class="textarea" id="skill-prompt" rows="4"
+                        placeholder="Dopl&#328;kov&yacute; syst&eacute;mov&yacute; prompt pro agenta..."></textarea>
+            </div>
+            <div class="form-group">
+              <label class="form-label">N&aacute;stroje:</label>
+              <div class="checkbox-group">
+                <label class="checkbox-label"><input type="checkbox" value="filesystem" class="skill-tool-cb" /> Filesystem</label>
+                <label class="checkbox-label"><input type="checkbox" value="git" class="skill-tool-cb" /> Git</label>
+                <label class="checkbox-label"><input type="checkbox" value="vscode" class="skill-tool-cb" /> VS Code</label>
+                <label class="checkbox-label"><input type="checkbox" value="macos" class="skill-tool-cb" /> macOS</label>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="skill-tags">Tagy (odd&#283;len&eacute; &#269;&aacute;rkou):</label>
+              <input type="text" class="input" id="skill-tags" placeholder="powerbi, analytics" />
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn--ghost" id="skill-modal-cancel">Zru&#353;it</button>
+            <button class="btn btn--primary" id="skill-modal-save">Ulo&#382;it</button>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /tab-skills -->
+
     <!-- ======================== ACTIONS TAB ======================== -->
     <div class="tab-panel hidden" id="tab-actions" role="tabpanel">
 
+      <div class="panel-header">
+        <h1 class="panel-title">Akce</h1>
+      </div>
+
       <section class="card">
-        <h2 class="card-title">Quick Actions</h2>
-        <p class="hint-text">Pre-configured action sequences from settings.json.</p>
-        <div id="quick-actions-list" class="quick-actions-grid">
-          <p class="empty-state">Loading actions...</p>
-        </div>
+        <h2 class="card-title">Rychl&eacute; akce</h2>
+        <p class="hint-text">P&#345;ednastaven&eacute; sekvence akc&iacute; ze settings.</p>
+        <div id="quick-actions-list" class="actions-grid"></div>
       </section>
 
       <section class="card">
@@ -191,22 +242,22 @@
             <span class="mac-control-label">Volume</span>
             <input type="range" id="volume-slider" min="0" max="100" value="50" class="slider" />
             <span id="volume-value" class="mac-control-value">50%</span>
-            <button class="btn btn--secondary btn--small" id="set-volume-btn">Set</button>
+            <button class="btn btn--secondary btn--small" id="set-volume-btn">Nastavit</button>
           </div>
           <div class="mac-control-row">
             <span class="mac-control-label">Safari</span>
             <input type="text" class="input" id="safari-url" placeholder="https://..." style="flex:1" />
-            <button class="btn btn--secondary btn--small" id="safari-open-btn">Open</button>
+            <button class="btn btn--secondary btn--small" id="safari-open-btn">Otev&#345;&iacute;t</button>
           </div>
           <div class="mac-control-row">
             <span class="mac-control-label">VS Code</span>
             <select class="select" id="vscode-project-select" style="flex:1"></select>
-            <button class="btn btn--secondary btn--small" id="vscode-open-btn">Open</button>
+            <button class="btn btn--secondary btn--small" id="vscode-open-btn">Otev&#345;&iacute;t</button>
           </div>
           <div class="mac-control-row">
             <span class="mac-control-label">Finder</span>
-            <input type="text" class="input" id="finder-path" placeholder="/path/to/folder" style="flex:1" />
-            <button class="btn btn--secondary btn--small" id="finder-open-btn">Open</button>
+            <input type="text" class="input" id="finder-path" placeholder="/cesta/ke/slo&#382;ce" style="flex:1" />
+            <button class="btn btn--secondary btn--small" id="finder-open-btn">Otev&#345;&iacute;t</button>
           </div>
         </div>
         <div id="mac-action-result" class="result-box hidden" style="margin-top:0.75rem"></div>
@@ -214,23 +265,50 @@
 
       <section class="card">
         <h2 class="card-title">Git Controls</h2>
-        <div class="form-row">
+        <div class="form-group">
           <label class="form-label">Repo:</label>
-          <input type="text" class="input" id="git-repo-path" placeholder="/path/to/repo" style="flex:1" />
+          <input type="text" class="input" id="git-repo-path" placeholder="/cesta/k/repo" style="flex:1" />
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:0.75rem">
           <button class="btn btn--secondary btn--small" data-git="status">Status</button>
           <button class="btn btn--secondary btn--small" data-git="pull">Pull</button>
           <button class="btn btn--secondary btn--small" data-git="fetch">Fetch</button>
           <button class="btn btn--secondary btn--small" data-git="log">Log</button>
-          <button class="btn btn--secondary btn--small" data-git="branches">Branches</button>
+          <button class="btn btn--secondary btn--small" data-git="branches">V&#283;tve</button>
         </div>
         <div style="display:flex;gap:0.5rem;margin-top:0.5rem">
-          <input type="text" class="input" id="git-commit-msg" placeholder="Commit message..." style="flex:1" />
-          <button class="btn btn--primary btn--small" data-git="commit">Commit All</button>
+          <input type="text" class="input" id="git-commit-msg" placeholder="Commit zpr&aacute;va..." style="flex:1" />
+          <button class="btn btn--primary btn--small" data-git="commit">Commit</button>
           <button class="btn btn--secondary btn--small" data-git="push">Push</button>
         </div>
         <div id="git-result" class="result-box hidden" style="margin-top:0.75rem"></div>
+      </section>
+
+      <!-- OpenClaw -->
+      <section class="card">
+        <button class="card-toggle" id="openclaw-toggle" aria-expanded="false"
+                aria-controls="openclaw-body">
+          <h2 class="card-title card-title--inline">OpenClaw Akce</h2>
+          <span class="toggle-icon" aria-hidden="true">&#8250;</span>
+        </button>
+        <div class="card-collapsible collapsed" id="openclaw-body">
+          <div class="form-group" style="margin-top:0.75rem">
+            <label class="form-label" for="action-select">Akce:</label>
+            <select class="select" id="action-select">
+              <option value="screenshot">Screenshot</option>
+              <option value="start_whatsapp_agent">Start WhatsApp Agent</option>
+              <option value="restart_telegram_agent">Restart Telegram Agent</option>
+              <option value="run_workflow">Run Workflow</option>
+            </select>
+          </div>
+          <div class="form-group form-group--right">
+            <button class="btn btn--secondary" id="action-btn">
+              Spustit
+              <span class="spinner spinner--small hidden" id="action-spinner"></span>
+            </button>
+          </div>
+          <div id="action-result" class="result-box hidden"></div>
+        </div>
       </section>
 
     </div><!-- /tab-actions -->
@@ -238,43 +316,58 @@
     <!-- ======================== SETTINGS TAB ======================== -->
     <div class="tab-panel hidden" id="tab-settings" role="tabpanel">
 
-      <section class="card">
-        <h2 class="card-title">LLM Configuration</h2>
-        <div class="form-row">
+      <div class="panel-header">
+        <h1 class="panel-title">Nastaven&iacute;</h1>
+        <div style="display:flex;gap:0.5rem">
+          <button class="btn btn--ghost btn--small" id="reload-settings-btn">Na&#269;&iacute;st</button>
+          <button class="btn btn--primary btn--small" id="save-settings-btn">
+            Ulo&#382;it
+            <span class="spinner spinner--small hidden" id="settings-spinner"></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- LLM section -->
+      <section class="card settings-section">
+        <h2 class="card-title"><span class="section-icon">&#129504;</span> LLM Konfigurace</h2>
+        <div class="form-group">
           <label class="form-label" for="s-llm-provider">Provider:</label>
           <select class="select" id="s-llm-provider">
-            <option value="ollama">Ollama (local)</option>
-            <option value="stub">Stub (testing)</option>
+            <option value="ollama">Ollama (lok&aacute;ln&iacute;)</option>
+            <option value="stub">Stub (testov&aacute;n&iacute;)</option>
           </select>
         </div>
-        <div class="form-row">
+        <div class="form-group">
           <label class="form-label" for="s-llm-model">Model:</label>
-          <input type="text" class="input" id="s-llm-model" placeholder="llama3.2" />
+          <select class="select" id="s-llm-model">
+            <option value="">Na&#269;&iacute;t&aacute;m modely...</option>
+          </select>
         </div>
-        <div class="form-row">
-          <label class="form-label" for="s-llm-temp">Temperature:</label>
+        <div class="form-group">
+          <label class="form-label" for="s-llm-temp">Teplota:</label>
           <input type="number" class="input" id="s-llm-temp" min="0" max="2" step="0.1" style="max-width:100px" />
         </div>
-        <div class="form-row">
+        <div class="form-group">
           <label class="form-label" for="s-llm-url">Ollama URL:</label>
           <input type="text" class="input" id="s-llm-url" placeholder="http://localhost:11434" />
         </div>
-        <div class="form-row form-row--right">
-          <button class="btn btn--ghost btn--small" id="check-ollama-btn">Check Ollama</button>
+        <div class="form-group form-group--right">
+          <button class="btn btn--ghost btn--small" id="check-ollama-btn">Zkontrolovat Ollama</button>
         </div>
         <div id="ollama-status" class="result-box hidden"></div>
       </section>
 
-      <section class="card">
-        <h2 class="card-title">Integrations</h2>
+      <!-- Integrations section -->
+      <section class="card settings-section">
+        <h2 class="card-title"><span class="section-icon">&#128268;</span> Integrace</h2>
 
         <div class="integration-block">
           <label class="toggle-label">
             <input type="checkbox" id="s-vscode-enabled" />
             <strong>VS Code</strong>
           </label>
-          <div class="form-row" style="margin-top:0.5rem">
-            <label class="form-label" for="s-vscode-binary">Binary:</label>
+          <div class="form-group" style="margin-top:0.5rem">
+            <label class="form-label" for="s-vscode-binary">Bin&aacute;rka:</label>
             <input type="text" class="input" id="s-vscode-binary" placeholder="/usr/local/bin/code" />
           </div>
         </div>
@@ -285,7 +378,7 @@
             <input type="checkbox" id="s-macos-enabled" />
             <strong>macOS AppleScript</strong>
           </label>
-          <p class="hint-text">Controls Safari, Finder, volume, notifications via osascript.</p>
+          <p class="hint-text">Ovl&aacute;d&aacute; Safari, Finder, volume, notifikace p&#345;es osascript.</p>
         </div>
         <hr class="divider" />
 
@@ -294,15 +387,15 @@
             <input type="checkbox" id="s-mcp-enabled" />
             <strong>Claude MCP</strong>
           </label>
-          <div class="form-row" style="margin-top:0.5rem">
-            <label class="form-label" for="s-mcp-type">Connection:</label>
+          <div class="form-group" style="margin-top:0.5rem">
+            <label class="form-label" for="s-mcp-type">P&#345;ipojen&iacute;:</label>
             <select class="select" id="s-mcp-type">
               <option value="stdio">stdio</option>
               <option value="http">HTTP</option>
             </select>
           </div>
-          <div class="form-row">
-            <label class="form-label" for="s-mcp-path">Path:</label>
+          <div class="form-group">
+            <label class="form-label" for="s-mcp-path">Cesta:</label>
             <input type="text" class="input" id="s-mcp-path" placeholder="/Applications/Claude.app/..." />
           </div>
         </div>
@@ -313,13 +406,13 @@
             <input type="checkbox" id="s-ag-enabled" />
             <strong>Google Antigravity IDE</strong>
           </label>
-          <div class="form-row" style="margin-top:0.5rem">
+          <div class="form-group" style="margin-top:0.5rem">
             <label class="form-label" for="s-ag-endpoint">Endpoint:</label>
             <input type="text" class="input" id="s-ag-endpoint" placeholder="http://localhost:8080" />
           </div>
-          <div class="form-row">
-            <label class="form-label" for="s-ag-key">API key:</label>
-            <input type="password" class="input" id="s-ag-key" placeholder="your-api-key" />
+          <div class="form-group">
+            <label class="form-label" for="s-ag-key">API kl&iacute;&#269;:</label>
+            <input type="password" class="input" id="s-ag-key" placeholder="v&aacute;&#353;-api-kl&iacute;&#269;" />
           </div>
         </div>
         <hr class="divider" />
@@ -327,74 +420,70 @@
         <div class="integration-block">
           <label class="toggle-label">
             <input type="checkbox" id="s-ntfy-enabled" />
-            <strong>Push Notifications (ntfy.sh)</strong>
+            <strong>Push Notifikace (ntfy.sh)</strong>
           </label>
-          <div class="form-row" style="margin-top:0.5rem">
+          <div class="form-group" style="margin-top:0.5rem">
             <label class="form-label" for="s-ntfy-url">URL:</label>
             <input type="text" class="input" id="s-ntfy-url" placeholder="https://ntfy.sh" />
           </div>
-          <div class="form-row">
+          <div class="form-group">
             <label class="form-label" for="s-ntfy-topic">Topic:</label>
             <input type="text" class="input" id="s-ntfy-topic" placeholder="ai-home-hub" />
           </div>
         </div>
       </section>
 
-      <section class="card">
-        <h2 class="card-title">VS Code Projects</h2>
-        <div id="projects-list"></div>
-        <div style="display:flex;gap:0.5rem;margin-top:1rem;flex-wrap:wrap">
-          <input type="text" class="input" id="new-project-key" placeholder="key (e.g. lean-rpg)" style="flex:1;min-width:120px" />
-          <input type="text" class="input" id="new-project-path" placeholder="/path/to/project" style="flex:2;min-width:180px" />
-          <button class="btn btn--secondary btn--small" id="add-project-btn">+ Add</button>
-        </div>
-      </section>
-
-      <section class="card">
-        <h2 class="card-title">Filesystem Security</h2>
-        <p class="hint-text">Only these directories are accessible via the API.</p>
+      <!-- Filesystem section -->
+      <section class="card settings-section">
+        <h2 class="card-title"><span class="section-icon">&#128193;</span> Filesyst&eacute;m</h2>
+        <p class="hint-text">Pouze tyto adres&aacute;&#345;e jsou p&#345;&iacute;stupn&eacute; p&#345;es API.</p>
         <div id="allowed-dirs-list" style="margin-top:0.5rem"></div>
         <div style="display:flex;gap:0.5rem;margin-top:0.75rem">
           <input type="text" class="input" id="new-allowed-dir" placeholder="/Users/you/projects" style="flex:1" />
-          <button class="btn btn--secondary btn--small" id="add-dir-btn">+ Add</button>
+          <button class="btn btn--secondary btn--small" id="add-dir-btn">+ P&#345;idat</button>
         </div>
       </section>
 
-      <section class="card">
-        <h2 class="card-title">System Prompts</h2>
-        <div class="form-row">
+      <!-- Prompts section -->
+      <section class="card settings-section">
+        <h2 class="card-title"><span class="section-icon">&#128172;</span> Syst&eacute;mov&eacute; Prompty</h2>
+        <div class="form-group">
           <label class="form-label" for="s-prompt-general">General:</label>
-          <textarea class="textarea" id="s-prompt-general" rows="4"></textarea>
+          <textarea class="textarea" id="s-prompt-general" rows="3"></textarea>
         </div>
-        <div class="form-row">
+        <div class="form-group">
           <label class="form-label" for="s-prompt-powerbi">Power BI:</label>
-          <textarea class="textarea" id="s-prompt-powerbi" rows="4"></textarea>
+          <textarea class="textarea" id="s-prompt-powerbi" rows="3"></textarea>
         </div>
-        <div class="form-row">
+        <div class="form-group">
           <label class="form-label" for="s-prompt-lean">Lean:</label>
-          <textarea class="textarea" id="s-prompt-lean" rows="4"></textarea>
+          <textarea class="textarea" id="s-prompt-lean" rows="3"></textarea>
         </div>
       </section>
 
-      <section class="card">
-        <h2 class="card-title">Agent Limits</h2>
-        <div class="form-row">
-          <label class="form-label" for="s-agents-max">Max concurrent:</label>
+      <!-- Agent limits section -->
+      <section class="card settings-section">
+        <h2 class="card-title"><span class="section-icon">&#129302;</span> Agenti</h2>
+        <div class="form-group">
+          <label class="form-label" for="s-agents-max">Max soub&#283;&#382;n&#253;ch:</label>
           <input type="number" class="input" id="s-agents-max" min="1" max="10" style="max-width:100px" />
         </div>
-        <div class="form-row">
+        <div class="form-group">
           <label class="form-label" for="s-agents-timeout">Timeout (min):</label>
           <input type="number" class="input" id="s-agents-timeout" min="5" max="120" style="max-width:100px" />
         </div>
       </section>
 
-      <div style="display:flex;gap:0.75rem;justify-content:flex-end;padding:0.5rem 0 1rem">
-        <button class="btn btn--ghost" id="reload-settings-btn">Reload</button>
-        <button class="btn btn--primary" id="save-settings-btn">
-          Save Settings
-          <span class="spinner spinner--small hidden" id="settings-spinner"></span>
-        </button>
-      </div>
+      <!-- VS Code Projects section -->
+      <section class="card settings-section">
+        <h2 class="card-title"><span class="section-icon">&#128187;</span> VS Code Projekty</h2>
+        <div id="projects-list"></div>
+        <div style="display:flex;gap:0.5rem;margin-top:1rem;flex-wrap:wrap">
+          <input type="text" class="input" id="new-project-key" placeholder="kl&iacute;&#269; (nap&#345;. lean-rpg)" style="flex:1;min-width:120px" />
+          <input type="text" class="input" id="new-project-path" placeholder="/cesta/k/projektu" style="flex:2;min-width:180px" />
+          <button class="btn btn--secondary btn--small" id="add-project-btn">+ P&#345;idat</button>
+        </div>
+      </section>
 
     </div><!-- /tab-settings -->
 
@@ -402,6 +491,9 @@
 
   <!-- ===== TOAST ===== -->
   <div class="toast hidden" id="toast" role="alert" aria-live="assertive"></div>
+
+  <!-- ===== MOBILE SIDEBAR TOGGLE ===== -->
+  <button class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Menu">&#9776;</button>
 
   <script src="/app.js" defer></script>
 </body>

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from app.services.settings_service import get_settings_service
+from app.services.skills_service import get_skills_service
 
 logger = logging.getLogger(__name__)
 
@@ -31,11 +32,13 @@ class AgentRecord:
         agent_type: str,
         task: Dict[str, Any],
         workspace: Optional[str],
+        skill_ids: Optional[List[str]] = None,
     ) -> None:
         self.agent_id = agent_id
         self.agent_type = agent_type
         self.task = task
         self.workspace = workspace
+        self.skill_ids = skill_ids or []
         self.status = AGENT_STATUS_PENDING
         self.progress = 0
         self.message: Optional[str] = None
@@ -50,6 +53,7 @@ class AgentRecord:
             "agent_type": self.agent_type,
             "task": self.task,
             "workspace": self.workspace,
+            "skill_ids": self.skill_ids,
             "status": self.status,
             "progress": self.progress,
             "message": self.message,
@@ -94,6 +98,7 @@ class AgentOrchestrator:
         agent_type: str,
         task: Dict[str, Any],
         workspace: Optional[str] = None,
+        skill_ids: Optional[List[str]] = None,
     ) -> str:
         """Spawn a new agent. Returns agent_id."""
         cfg = self._settings.load().get("agents", {})
@@ -112,8 +117,16 @@ class AgentOrchestrator:
         if agent_type not in AGENT_TYPES:
             agent_type = "general"
 
+        # Load skills and build system prompt additions
+        if skill_ids:
+            skills_svc = get_skills_service()
+            skills = skills_svc.get_by_ids(skill_ids)
+            skill_prompts = [s.get("system_prompt_addition", "") for s in skills if s.get("system_prompt_addition")]
+            if skill_prompts:
+                task["_skill_prompt"] = "\n\n".join(skill_prompts)
+
         agent_id = str(uuid.uuid4())[:8]
-        record = AgentRecord(agent_id, agent_type, task, workspace)
+        record = AgentRecord(agent_id, agent_type, task, workspace, skill_ids=skill_ids)
         self._agents[agent_id] = record
 
         # Start agent coroutine
