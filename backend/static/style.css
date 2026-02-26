@@ -16,6 +16,7 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  -webkit-tap-highlight-color: transparent;
 }
 
 html {
@@ -28,8 +29,10 @@ body {
   background: #0f1117;
   color: #e2e8f0;
   min-height: 100vh;
+  min-height: 100dvh;
   line-height: 1.5;
   display: flex;
+  overflow-x: hidden;
 }
 
 /* ── Utility ──────────────────────────────────────────────── */
@@ -311,7 +314,7 @@ body {
 }
 
 .search-input {
-  max-width: 320px;
+  max-width: min(320px, 100%);
 }
 
 /* ── Buttons ──────────────────────────────────────────────── */
@@ -466,8 +469,9 @@ body {
 /* ── Chat area ────────────────────────────────────────────── */
 .chat-area {
   flex: 1;
-  min-height: 300px;
+  min-height: 200px;
   max-height: calc(100vh - 360px);
+  max-height: calc(100dvh - 360px);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -1167,6 +1171,15 @@ body {
 }
 .setup-banner__dismiss:hover { background: rgba(245, 158, 11, 0.1); }
 
+/* ── Sidebar overlay (mobile) ─────────────────────────────── */
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 199;
+}
+
 /* ── Desktop tweaks (≥ 768px) ─────────────────────────────── */
 @media (min-width: 768px) {
   .form-group:not(.form-group--right) {
@@ -1185,24 +1198,86 @@ body {
   }
 }
 
+/* ── Tablet responsive (768px – 1024px) ──────────────────── */
+@media (max-width: 1024px) and (min-width: 768px) {
+  .sidebar {
+    width: 180px;
+  }
+  .main-content {
+    margin-left: 180px;
+  }
+  .tab-panel {
+    padding: 1.25rem 1.5rem;
+  }
+  .agents-grid {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  }
+  .skills-grid {
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  }
+}
+
 /* ── Mobile responsive (< 768px) ─────────────────────────── */
 @media (max-width: 767px) {
+  /* Sidebar: slide-in with overlay */
   .sidebar {
     transform: translateX(-100%);
   }
   .sidebar.sidebar--open {
     transform: translateX(0);
   }
-  .main-content {
-    margin-left: 0;
-  }
-  .mobile-menu-btn {
+  .sidebar.sidebar--open + .sidebar-overlay,
+  .sidebar--open ~ .sidebar-overlay {
     display: block;
   }
+
+  .main-content {
+    margin-left: 0;
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
+  .mobile-menu-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* Tab panel: room for mobile menu button */
   .tab-panel {
     padding: 1rem;
     padding-top: 3.5rem;
+    max-width: 100%;
   }
+
+  /* Panel header: stack on very small screens */
+  .panel-header {
+    gap: 0.5rem;
+  }
+  .panel-title {
+    font-size: clamp(1.125rem, 5vw, 1.5rem);
+  }
+
+  /* Chat area: adapt to mobile viewport */
+  .chat-area {
+    max-height: calc(100vh - 300px);
+    max-height: calc(100dvh - 300px);
+    min-height: 150px;
+  }
+
+  .bubble {
+    max-width: 90%;
+    padding: 0.625rem 0.875rem;
+    font-size: 0.875rem;
+  }
+
+  .chat-textarea {
+    font-size: 1rem; /* prevent iOS zoom on focus */
+  }
+
+  /* Grids: single column stacking */
   .agents-grid {
     grid-template-columns: 1fr;
   }
@@ -1212,9 +1287,178 @@ body {
   .actions-grid {
     grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
   }
-  .bubble {
-    max-width: 90%;
+
+  /* Cards: tighter padding */
+  .card {
+    padding: 1rem;
   }
+
+  /* Touch targets: ensure min 44px for all interactive elements */
+  .btn--small {
+    min-height: 44px;
+    padding: 0.5rem 0.75rem;
+  }
+
+  .pill {
+    padding: 0.5rem 1rem;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .pill--tag {
+    min-height: 36px;
+    padding: 0.375rem 0.75rem;
+  }
+
+  .checkbox-label {
+    min-height: 44px;
+    align-items: center;
+  }
+  .checkbox-label input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+  }
+
+  .toggle-label {
+    min-height: 44px;
+  }
+  .toggle-label input[type="checkbox"] {
+    width: 22px;
+    height: 22px;
+  }
+
+  /* Nav items: larger touch targets */
+  .nav-item {
+    padding: 0.875rem 1.25rem;
+    min-height: 48px;
+  }
+
+  /* Skills toolbar: full width search */
+  .skills-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .search-input {
+    max-width: 100%;
+  }
+
+  /* Mac controls: stack labels above inputs */
+  .mac-control-row {
+    flex-wrap: wrap;
+  }
+  .mac-control-label {
+    min-width: 100%;
+    margin-bottom: 0.25rem;
+  }
+  .mac-control-row .input,
+  .mac-control-row .select,
+  .mac-control-row .slider {
+    min-width: 0;
+    flex: 1;
+  }
+
+  /* Git controls: full-width commit row */
+  .form-group .input[style*="flex:1"],
+  .form-group .input[style*="flex: 1"] {
+    width: 100%;
+  }
+
+  /* Modal: full-width on mobile */
+  .modal-overlay {
+    padding: 0.5rem;
+    align-items: flex-end;
+  }
+  .modal {
+    max-width: 100%;
+    max-height: 85vh;
+    max-height: 85dvh;
+    border-radius: 16px 16px 0 0;
+  }
+
+  /* Settings: tighter spacing */
+  .integration-block {
+    padding: 0.5rem 0;
+  }
+
+  /* Agent card tweaks */
+  .agent-card {
+    padding: 1rem;
+  }
+  .agent-card-header {
+    gap: 0.375rem;
+  }
+
+  /* Skill cards */
+  .skill-card {
+    padding: 1rem;
+  }
+
+  /* List items: wrap long paths */
+  .list-item {
+    flex-wrap: wrap;
+    gap: 0.375rem;
+  }
+  .list-item__key {
+    min-width: auto;
+  }
+  .list-item__val {
+    width: 100%;
+    order: 3;
+  }
+
+  /* Toast: respect safe areas */
+  .toast {
+    bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+    left: 1rem;
+    right: 1rem;
+    transform: none;
+    max-width: none;
+  }
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Result box: scrollable pre on mobile */
+  .result-box pre {
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* VS Code projects input row: wrap */
+  #tab-settings [style*="flex-wrap:wrap"] {
+    gap: 0.5rem;
+  }
+}
+
+/* ── Small phones (< 360px) ──────────────────────────────── */
+@media (max-width: 359px) {
+  .tab-panel {
+    padding: 0.75rem;
+    padding-top: 3.25rem;
+  }
+  .profile-pills {
+    gap: 0.25rem;
+  }
+  .pill {
+    padding: 0.375rem 0.625rem;
+    font-size: 0.75rem;
+  }
+  .actions-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .chat-input-row {
+    gap: 0.25rem;
+  }
+}
+
+/* ── Drag-over state for file drop ────────────────────────── */
+.drag-over {
+  outline: 2px dashed #3b82f6;
+  outline-offset: -4px;
+  border-radius: 12px;
 }
 
 /* ── Scrollbar styling ────────────────────────────────────── */

@@ -29,6 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   bindSidebarNav();
   bindMobileMenu();
+  initSidebarOverlay();
   bindChatEvents();
   bindAgentsEvents();
   bindSkillsEvents();
@@ -36,6 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
   bindSettingsEvents();
   initWebSocket();
   checkSetupStatus();
+  bindMobileDragDrop();
 });
 
 /* ============================================================
@@ -68,11 +70,34 @@ function switchTab(tabName) {
 
 function bindMobileMenu() {
   const btn = document.getElementById('mobile-menu-btn');
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('sidebar-overlay');
+
   if (btn) {
     btn.addEventListener('click', () => {
-      document.getElementById('sidebar').classList.toggle('sidebar--open');
+      sidebar.classList.toggle('sidebar--open');
     });
   }
+
+  // Close sidebar when tapping overlay
+  if (overlay) {
+    overlay.addEventListener('click', () => {
+      sidebar.classList.remove('sidebar--open');
+    });
+  }
+}
+
+/** Observe sidebar open/close to toggle overlay visibility */
+function initSidebarOverlay() {
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('sidebar-overlay');
+  if (!sidebar || !overlay) return;
+
+  const observer = new MutationObserver(() => {
+    const isOpen = sidebar.classList.contains('sidebar--open');
+    overlay.style.display = isOpen ? 'block' : 'none';
+  });
+  observer.observe(sidebar, { attributes: true, attributeFilter: ['class'] });
 }
 
 /* ============================================================
@@ -1239,4 +1264,26 @@ function debounce(fn, ms) {
     clearTimeout(timer);
     timer = setTimeout(() => fn(...args), ms);
   };
+}
+
+/* ============================================================
+   MOBILE DRAG & DROP FILE UPLOAD
+   ============================================================ */
+function bindMobileDragDrop() {
+  const chatArea = document.getElementById('tab-chat');
+  if (!chatArea) return;
+
+  chatArea.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    chatArea.classList.add('drag-over');
+  });
+  chatArea.addEventListener('dragleave', () => {
+    chatArea.classList.remove('drag-over');
+  });
+  chatArea.addEventListener('drop', (e) => {
+    e.preventDefault();
+    chatArea.classList.remove('drag-over');
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length) handleFiles(files);
+  });
 }
