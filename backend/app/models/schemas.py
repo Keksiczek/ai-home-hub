@@ -179,3 +179,37 @@ class NotificationRequest(BaseModel):
     title: str
     message: str
     priority: str = "default"  # low | default | high | urgent
+
+
+# ── Screenshot ──────────────────────────────────────────────
+
+class ScreenshotRequest(BaseModel):
+    mode: str = "clipboard"  # clipboard | file
+
+
+class ScreenshotResponse(BaseModel):
+    success: bool
+    image: Optional[str] = None  # base64 data
+    path: Optional[str] = None
+    error: Optional[str] = None
+
+
+# ── Multimodal Chat ─────────────────────────────────────────
+
+class MultimodalImageData(BaseModel):
+    filename: str
+    data: str  # base64-encoded
+    mime_type: str
+
+
+class MultimodalChatRequest(BaseModel):
+    session_id: Optional[str] = None
+    message: str
+    images: List[MultimodalImageData] = []
+    model: Optional[str] = None
+
+
+# ── KB File operations ──────────────────────────────────────
+
+class ReindexFileRequest(BaseModel):
+    path: str

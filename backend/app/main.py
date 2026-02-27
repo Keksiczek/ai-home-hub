@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.routers import actions, chat, files, knowledge
+from app.routers import actions, chat, chat_multimodal, files, knowledge
 from app.routers import agents, filesystem, integrations, settings, skills, tasks
 from app.routers.websocket_router import router as ws_router
 
@@ -67,6 +67,7 @@ app.add_middleware(
 # Core
 app.include_router(files.router, prefix="/api", tags=["files"])
 app.include_router(chat.router, prefix="/api", tags=["chat"])
+app.include_router(chat_multimodal.router, prefix="/api", tags=["chat"])
 app.include_router(actions.router, prefix="/api", tags=["actions"])
 
 # New
