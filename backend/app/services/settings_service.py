@@ -14,6 +14,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         "provider": "ollama",
         "model": "llama3.2",
         "temperature": 0.7,
+        "timeout_seconds": 180,
         "ollama_url": "http://localhost:11434",
     },
     "integrations": {
@@ -73,6 +74,14 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
             "Analyzuješ procesy, navrhuješ Kaizen akce, generuješ VSM diagramy. "
             "Ovládáš git pro verzování process dokumentace."
         ),
+    },
+    "knowledge_base": {
+        "external_paths": [],
+        "watch_for_changes": False,
+        "allowed_extensions": [
+            ".pdf", ".docx", ".xlsx", ".txt", ".md",
+            ".jpg", ".png", ".mp4", ".mov",
+        ],
     },
     "profiles": {
         "chat": {"model": "llama3.2", "temperature": 0.7},

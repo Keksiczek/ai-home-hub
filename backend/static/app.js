@@ -15,6 +15,7 @@ let wsReconnectTimer = null;
 let _currentSettings = null;
 let _settingsProjects = {};
 let _settingsAllowedDirs = [];
+let _settingsExternalPaths = [];
 let _allSkills = [];
 let _selectedTagFilter = null;
 let _selectedAgentSkills = new Set();
@@ -182,12 +183,29 @@ function bindChatEvents() {
   document.getElementById('chat-input').addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') sendMessage();
   });
-  document.getElementById('new-session-btn').addEventListener('click', () => {
+
+  // New chat button (sidebar)
+  document.getElementById('new-chat-btn').addEventListener('click', () => {
     currentSessionId = null;
     document.getElementById('chat-history').innerHTML = '';
     document.getElementById('session-label').textContent = 'Nova relace';
-    showToast('Nova relace zahajena', 'info');
+    document.querySelectorAll('.session-item').forEach(el => el.classList.remove('active'));
+    showToast('Novy chat zahajen', 'info');
   });
+
+  // Mobile sidebar toggle for chat history
+  const sidebarToggle = document.getElementById('chat-sidebar-toggle');
+  const chatBackdrop = document.getElementById('chat-sidebar-backdrop');
+  if (sidebarToggle) {
+    sidebarToggle.addEventListener('click', () => {
+      document.getElementById('chat-sidebar').classList.toggle('open');
+    });
+  }
+  if (chatBackdrop) {
+    chatBackdrop.addEventListener('click', () => {
+      document.getElementById('chat-sidebar').classList.remove('open');
+    });
+  }
 
   // File attach
   const attachBtn = document.getElementById('attach-btn');
@@ -199,6 +217,9 @@ function bindChatEvents() {
       fileInput.value = '';
     });
   }
+
+  // Load sessions list on init
+  loadSessions();
 }
 
 async function handleFiles(files) {
@@ -280,6 +301,9 @@ async function sendMessage() {
       document.getElementById('session-label').textContent = `Relace: ${data.session_id}`;
     }
     appendBubble('ai', data.reply, data.meta);
+
+    // Reload sessions list to show new/updated session
+    loadSessions();
   } catch (err) {
     showToast(`Chyba: ${err.message}`, 'error');
     // Remove last user bubble on error
@@ -304,6 +328,102 @@ function appendBubble(role, text, meta) {
   bubble.innerHTML = inner;
   chatHistoryEl.appendChild(bubble);
   chatHistoryEl.scrollTop = chatHistoryEl.scrollHeight;
+}
+
+/* ============================================================
+   CHAT SESSIONS SIDEBAR
+   ============================================================ */
+async function loadSessions() {
+  try {
+    const resp = await fetch('/api/chat/sessions');
+    const data = await resp.json();
+
+    const list = document.getElementById('sessions-list');
+    if (!data.sessions || data.sessions.length === 0) {
+      list.innerHTML = '<div class="empty-state">Zatim zadne konverzace</div>';
+      return;
+    }
+
+    list.innerHTML = data.sessions.map(s => `
+      <div class="session-item ${s.session_id === currentSessionId ? 'active' : ''}"
+           data-id="${escHtml(s.session_id)}">
+        <div class="session-preview">${escHtml(s.preview || 'Prazdna konverzace')}</div>
+        <div class="session-meta">
+          <span>${s.message_count} zprav</span>
+          <button class="btn-icon session-delete-btn" data-delete-session="${escHtml(s.session_id)}" title="Smazat">&#128465;</button>
+        </div>
+      </div>
+    `).join('');
+
+    // Bind click handlers
+    list.querySelectorAll('.session-item').forEach(el => {
+      el.addEventListener('click', (e) => {
+        if (e.target.closest('.session-delete-btn')) return;
+        loadSession(el.dataset.id);
+      });
+    });
+
+    list.querySelectorAll('.session-delete-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteSession(btn.dataset.deleteSession);
+      });
+    });
+  } catch (err) {
+    console.error('Failed to load sessions:', err);
+  }
+}
+
+async function loadSession(sessionId) {
+  try {
+    const resp = await fetch(`/api/chat/sessions/${sessionId}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+
+    currentSessionId = sessionId;
+    document.getElementById('session-label').textContent = `Relace: ${sessionId}`;
+
+    // Clear chat area and load messages
+    const chatHistory = document.getElementById('chat-history');
+    chatHistory.innerHTML = '';
+
+    (data.messages || []).forEach(msg => {
+      appendBubble(msg.role === 'assistant' ? 'ai' : msg.role, msg.content, msg.meta);
+    });
+
+    // Update active session in sidebar
+    document.querySelectorAll('.session-item').forEach(el => {
+      el.classList.toggle('active', el.dataset.id === sessionId);
+    });
+
+    chatHistory.scrollTop = chatHistory.scrollHeight;
+
+    // Close mobile sidebar
+    document.getElementById('chat-sidebar').classList.remove('open');
+  } catch (err) {
+    console.error('Failed to load session:', err);
+    showToast('Chyba pri nacitani konverzace', 'error');
+  }
+}
+
+async function deleteSession(sessionId) {
+  if (!confirm('Opravdu smazat tuto konverzaci?')) return;
+
+  try {
+    await fetch(`/api/chat/sessions/${sessionId}`, { method: 'DELETE' });
+
+    if (currentSessionId === sessionId) {
+      currentSessionId = null;
+      document.getElementById('chat-history').innerHTML = '';
+      document.getElementById('session-label').textContent = 'Nova relace';
+    }
+
+    await loadSessions();
+    showToast('Konverzace smazana', 'success');
+  } catch (err) {
+    console.error('Failed to delete session:', err);
+    showToast('Chyba pri mazani', 'error');
+  }
 }
 
 /* ============================================================
@@ -962,6 +1082,17 @@ function bindSettingsEvents() {
   document.getElementById('check-ollama-btn').addEventListener('click', checkOllama);
   document.getElementById('add-project-btn').addEventListener('click', addProject);
   document.getElementById('add-dir-btn').addEventListener('click', addAllowedDir);
+  document.getElementById('add-external-path-btn').addEventListener('click', addExternalPath);
+  document.getElementById('scan-storage-btn').addEventListener('click', scanExternalStorage);
+
+  // LLM timeout slider live update
+  const timeoutSlider = document.getElementById('s-llm-timeout');
+  if (timeoutSlider) {
+    timeoutSlider.addEventListener('input', (e) => {
+      const label = document.getElementById('s-llm-timeout-value');
+      if (label) label.textContent = e.target.value + 's';
+    });
+  }
 }
 
 async function loadSettings() {
@@ -975,6 +1106,12 @@ async function loadSettings() {
     setVal('s-llm-provider', s.llm?.provider || 'ollama');
     setVal('s-llm-temp', s.llm?.temperature ?? 0.7);
     setVal('s-llm-url', s.llm?.ollama_url || 'http://localhost:11434');
+
+    // LLM timeout
+    const timeoutVal = s.llm?.timeout_seconds || 180;
+    setVal('s-llm-timeout', timeoutVal);
+    const timeoutLabel = document.getElementById('s-llm-timeout-value');
+    if (timeoutLabel) timeoutLabel.textContent = timeoutVal + 's';
 
     // Model – set after models are loaded
     const modelSelect = document.getElementById('s-llm-model');
@@ -1013,6 +1150,10 @@ async function loadSettings() {
     _settingsAllowedDirs = [...(s.filesystem?.allowed_directories || [])];
     renderAllowedDirsList();
 
+    // Knowledge base external paths
+    _settingsExternalPaths = [...(s.knowledge_base?.external_paths || [])];
+    renderExternalPaths();
+
     // Update model badge
     updateModelBadge();
   } catch (err) {
@@ -1032,6 +1173,7 @@ async function saveSettings() {
       provider: getVal('s-llm-provider'),
       model: getVal('s-llm-model'),
       temperature: parseFloat(getVal('s-llm-temp') || '0.7'),
+      timeout_seconds: Math.max(60, Math.min(600, parseInt(getVal('s-llm-timeout')) || 180)),
       ollama_url: getVal('s-llm-url'),
     },
     integrations: {
@@ -1069,6 +1211,10 @@ async function saveSettings() {
     filesystem: {
       ...((_currentSettings && _currentSettings.filesystem) || {}),
       allowed_directories: _settingsAllowedDirs,
+    },
+    knowledge_base: {
+      ...((_currentSettings && _currentSettings.knowledge_base) || {}),
+      external_paths: _settingsExternalPaths,
     },
   };
 
@@ -1175,6 +1321,96 @@ function renderAllowedDirsList() {
   el.querySelectorAll('[data-remove-dir]').forEach(btn => {
     btn.addEventListener('click', () => removeAllowedDir(btn.dataset.removeDir));
   });
+}
+
+/* ============================================================
+   KNOWLEDGE BASE
+   ============================================================ */
+function renderExternalPaths() {
+  const el = document.getElementById('external-paths-list');
+  if (!el) return;
+  if (!_settingsExternalPaths.length) {
+    el.innerHTML = '<p class="hint-text">Zatim zadne cesty.</p>';
+    return;
+  }
+  el.innerHTML = _settingsExternalPaths.map((p, idx) => `
+    <div class="list-item">
+      <code class="list-item__val" style="flex:1">${escHtml(p)}</code>
+      <button class="btn btn--ghost btn--small" data-remove-ext-path="${idx}">Odebrat</button>
+    </div>
+  `).join('');
+  el.querySelectorAll('[data-remove-ext-path]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _settingsExternalPaths.splice(parseInt(btn.dataset.removeExtPath), 1);
+      renderExternalPaths();
+    });
+  });
+}
+
+function addExternalPath() {
+  const input = document.getElementById('new-external-path');
+  const path = input.value.trim();
+  if (!path) { showToast('Zadej cestu', 'warning'); return; }
+  if (_settingsExternalPaths.includes(path)) {
+    showToast('Cesta uz existuje', 'warning');
+    return;
+  }
+  _settingsExternalPaths.push(path);
+  input.value = '';
+  renderExternalPaths();
+}
+
+async function scanExternalStorage() {
+  const btn = document.getElementById('scan-storage-btn');
+  const results = document.getElementById('scan-results');
+
+  btn.disabled = true;
+  btn.textContent = 'Skenuji...';
+  results.innerHTML = '';
+  show(results);
+
+  try {
+    const resp = await fetch('/api/knowledge/scan', { method: 'POST' });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ detail: `HTTP ${resp.status}` }));
+      throw new Error(err.detail || `HTTP ${resp.status}`);
+    }
+    const data = await resp.json();
+
+    results.innerHTML = `
+      <div class="scan-summary">
+        <strong>Nalezeno souboru:</strong> ${data.total_count}
+        ${data.warning ? `<div style="color:#fbbf24;margin-top:0.5rem">${escHtml(data.warning)}</div>` : ''}
+      </div>
+      ${data.errors.length > 0 ? `
+        <div class="scan-errors">
+          <strong>Chyby:</strong>
+          ${data.errors.map(e => `<div>${escHtml(e)}</div>`).join('')}
+        </div>
+      ` : ''}
+      ${data.discovered_files.length > 0 ? `
+        <details>
+          <summary>Detail (${data.discovered_files.length} souboru)</summary>
+          <ul class="file-list">
+            ${data.discovered_files.slice(0, 50).map(f => `
+              <li>${escHtml(f.name)} (${(f.size_bytes / 1024).toFixed(1)} KB)</li>
+            `).join('')}
+            ${data.discovered_files.length > 50
+              ? `<li>... a ${data.discovered_files.length - 50} dalsich</li>` : ''}
+          </ul>
+        </details>
+      ` : ''}
+    `;
+
+    showToast(`Nalezeno ${data.total_count} souboru`, 'success');
+  } catch (err) {
+    console.error('Scan failed:', err);
+    results.innerHTML = `<div class="scan-errors">${escHtml(err.message)}</div>`;
+    showToast('Scan selhal', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '&#128269; Skenovat uloziste';
+  }
 }
 
 /* ============================================================

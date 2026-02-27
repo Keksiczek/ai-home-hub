@@ -1,9 +1,12 @@
 """Session service – persists conversation history as JSON files."""
 import json
+import logging
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 SESSIONS_DIR = Path(__file__).parent.parent.parent / "data" / "sessions"
 
@@ -31,24 +34,33 @@ class SessionService:
         return self._path(session_id).exists()
 
     def list_sessions(self) -> List[Dict[str, Any]]:
-        """Return metadata for all sessions, sorted by creation time (newest first)."""
+        """Return metadata for all sessions, sorted by modification time (newest first)."""
         result = []
-        for f in SESSIONS_DIR.glob("*.json"):
+        for f in sorted(SESSIONS_DIR.glob("*.json"),
+                        key=lambda p: p.stat().st_mtime,
+                        reverse=True):
             try:
                 data = self._read_raw(f.stem)
                 messages = data.get("messages", [])
-                last_msg = messages[-1].get("content", "") if messages else None
-                result.append(
-                    {
-                        "session_id": data["session_id"],
-                        "created_at": data.get("created_at", ""),
-                        "message_count": len(messages),
-                        "last_message": (last_msg[:80] if last_msg else None),
-                    }
-                )
-            except Exception:
-                pass
-        result.sort(key=lambda x: x["created_at"], reverse=True)
+
+                # Find first user message for preview
+                preview = ""
+                for msg in messages:
+                    if msg.get("role") == "user":
+                        content = msg.get("content", "").strip()
+                        preview = content[:50]
+                        break
+
+                result.append({
+                    "session_id": data["session_id"],
+                    "created_at": data.get("created_at", ""),
+                    "updated_at": f.stat().st_mtime,
+                    "message_count": len(messages),
+                    "preview": preview + ("..." if len(preview) == 50 else ""),
+                })
+            except Exception as e:
+                logger.warning("Failed to load session %s: %s", f, e)
+                continue
         return result
 
     def delete_session(self, session_id: str) -> bool:

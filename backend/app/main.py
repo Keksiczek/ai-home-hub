@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.routers import actions, chat, files
+from app.routers import actions, chat, files, knowledge
 from app.routers import agents, filesystem, integrations, settings, skills, tasks
 from app.routers.websocket_router import router as ws_router
 
@@ -76,6 +76,7 @@ app.include_router(settings.router, prefix="/api", tags=["settings"])
 app.include_router(filesystem.router, prefix="/api", tags=["filesystem"])
 app.include_router(integrations.router, prefix="/api", tags=["integrations"])
 app.include_router(skills.router, prefix="/api", tags=["skills"])
+app.include_router(knowledge.router, prefix="/api", tags=["knowledge"])
 
 # WebSocket (no /api prefix – connects at /ws)
 app.include_router(ws_router)
