@@ -1,4 +1,5 @@
 """Embeddings service – generate embeddings via Ollama."""
+import asyncio
 import logging
 from typing import List, Optional
 
@@ -43,19 +44,25 @@ class EmbeddingsService:
             return None
 
     async def generate_embeddings_batch(
-        self, texts: List[str]
+        self, texts: List[str], concurrency: int = 8
     ) -> List[Optional[List[float]]]:
         """
-        Generate embeddings for multiple texts.
+        Generate embeddings for multiple texts in parallel.
+
+        Args:
+            texts: List of texts to embed.
+            concurrency: Max parallel requests (avoid overwhelming Ollama).
 
         Returns:
             List of embeddings (None for failed items).
         """
-        embeddings = []
-        for text in texts:
-            emb = await self.generate_embedding(text)
-            embeddings.append(emb)
-        return embeddings
+        semaphore = asyncio.Semaphore(concurrency)
+
+        async def _limited(text: str) -> Optional[List[float]]:
+            async with semaphore:
+                return await self.generate_embedding(text)
+
+        return list(await asyncio.gather(*[_limited(t) for t in texts]))
 
 
 # Singleton

@@ -1180,6 +1180,21 @@ body {
   margin-top: 0.75rem;
 }
 
+.ingest-progress-bar {
+  margin-top: 0.5rem;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.ingest-progress-fill {
+  height: 100%;
+  background: #22c55e;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
 /* ── Spinner ──────────────────────────────────────────────── */
 @keyframes spin {
   to { transform: rotate(360deg); }

@@ -133,6 +133,22 @@ function setWsStatus(connected) {
 function handleWsMessage(msg) {
   if (msg.type === 'agent_update') updateAgentCard(msg.agent);
   else if (msg.type === 'notification') showToast(msg.message, 'info');
+  else if (msg.type === 'ingest_progress') handleIngestProgress(msg);
+}
+
+function handleIngestProgress(msg) {
+  const results = document.getElementById('ingest-results');
+  if (!results) return;
+  results.innerHTML = `
+    <div class="scan-summary">
+      <strong>Indexuji...</strong> ${msg.current} / ${msg.total}<br>
+      Soubor: ${escHtml(msg.file)} | Chunku: ${msg.chunks}
+      <div class="ingest-progress-bar">
+        <div class="ingest-progress-fill" style="width:${Math.round((msg.current / msg.total) * 100)}%"></div>
+      </div>
+    </div>
+  `;
+  show(results);
 }
 
 function wsPing() {

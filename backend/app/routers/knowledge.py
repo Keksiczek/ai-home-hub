@@ -9,6 +9,7 @@ from app.services.embeddings_service import get_embeddings_service
 from app.services.file_parser_service import get_file_parser_service
 from app.services.settings_service import get_settings_service
 from app.services.vector_store_service import get_vector_store_service
+from app.services.ws_manager import get_ws_manager
 from app.utils.text_chunker import chunk_text
 
 logger = logging.getLogger(__name__)
@@ -128,12 +129,14 @@ async def ingest_files(
     # Only ingest parseable file types
     parseable_exts = parser.SUPPORTED_EXTENSIONS
 
+    ws_manager = get_ws_manager()
     ingested_count = 0
     failed_count = 0
     total_chunks = 0
     errors: List[str] = []
+    total_files = len(files)
 
-    for file_path in files:
+    for file_idx, file_path in enumerate(files):
         if file_path.suffix.lower() not in parseable_exts:
             continue
 
@@ -198,6 +201,16 @@ async def ingest_files(
             ingested_count += 1
             total_chunks += len(valid_items)
 
+            # Broadcast progress via WebSocket
+            await ws_manager.broadcast({
+                "type": "ingest_progress",
+                "current": file_idx + 1,
+                "total": total_files,
+                "file": file_path.name,
+                "ingested": ingested_count,
+                "chunks": total_chunks,
+            })
+
         except Exception as exc:
             logger.error("Failed to ingest %s: %s", file_path, exc)
             errors.append(f"{file_path.name}: {exc}")
@@ -240,18 +253,22 @@ async def search_knowledge(
         top_k=top_k,
     )
 
-    # Format results
+    # Format results, filter out low-quality matches
+    MIN_SCORE = 0.3  # cosine similarity threshold (1 - distance)
     results = []
     for doc, metadata, distance in zip(
         search_results["documents"],
         search_results["metadatas"],
         search_results["distances"],
     ):
+        score = round(1 - distance, 4)
+        if score < MIN_SCORE:
+            continue
         results.append({
             "text": doc,
             "file_name": metadata.get("file_name", ""),
             "file_path": metadata.get("file_path", ""),
-            "score": round(1 - distance, 4),
+            "score": score,
             "metadata": metadata,
         })
 

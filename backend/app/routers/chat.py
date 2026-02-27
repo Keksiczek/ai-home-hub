@@ -43,11 +43,16 @@ async def _get_kb_context(message: str) -> str:
         if not search_results["documents"]:
             return ""
 
+        # Filter out low-quality matches (cosine similarity threshold)
+        MIN_SCORE = 0.3
         context_parts = []
-        for doc, metadata in zip(
+        for doc, metadata, distance in zip(
             search_results["documents"],
             search_results["metadatas"],
+            search_results["distances"],
         ):
+            if (1 - distance) < MIN_SCORE:
+                continue
             file_name = metadata.get("file_name", "Unknown")
             context_parts.append(f"[From {file_name}]\n{doc}")
 
