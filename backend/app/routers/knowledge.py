@@ -36,11 +36,17 @@ async def scan_external_storage(
             detail="No external paths configured. Add paths in Settings → Knowledge Base.",
         )
 
+    MAX_FILES = 10000
+
     allowed_exts = set(kb_config.get("allowed_extensions", []))
     discovered: List[Dict[str, Any]] = []
     errors: List[str] = []
+    limit_reached = False
 
     for path_str in scan_paths:
+        if limit_reached:
+            break
+
         path = Path(path_str).expanduser()
 
         if not path.exists():
@@ -55,6 +61,13 @@ async def scan_external_storage(
             pattern = "**/*" if recursive else "*"
             for file in path.glob(pattern):
                 if file.is_file() and file.suffix.lower() in allowed_exts:
+                    if len(discovered) >= MAX_FILES:
+                        errors.append(
+                            f"Limit reached: stopped at {MAX_FILES} files in {path_str}. "
+                            "Consider narrowing external paths or use batch scan (coming soon)."
+                        )
+                        limit_reached = True
+                        break
                     discovered.append({
                         "path": str(file),
                         "name": file.name,
@@ -71,6 +84,7 @@ async def scan_external_storage(
         "total_count": len(discovered),
         "errors": errors,
         "scanned_paths": scan_paths,
+        "warning": f"Results limited to {MAX_FILES:,} files" if limit_reached else None,
     }
 
 

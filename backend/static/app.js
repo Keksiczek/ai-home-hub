@@ -195,9 +195,15 @@ function bindChatEvents() {
 
   // Mobile sidebar toggle for chat history
   const sidebarToggle = document.getElementById('chat-sidebar-toggle');
+  const chatBackdrop = document.getElementById('chat-sidebar-backdrop');
   if (sidebarToggle) {
     sidebarToggle.addEventListener('click', () => {
       document.getElementById('chat-sidebar').classList.toggle('open');
+    });
+  }
+  if (chatBackdrop) {
+    chatBackdrop.addEventListener('click', () => {
+      document.getElementById('chat-sidebar').classList.remove('open');
     });
   }
 
@@ -1167,7 +1173,7 @@ async function saveSettings() {
       provider: getVal('s-llm-provider'),
       model: getVal('s-llm-model'),
       temperature: parseFloat(getVal('s-llm-temp') || '0.7'),
-      timeout_seconds: parseInt(getVal('s-llm-timeout') || '180'),
+      timeout_seconds: Math.max(60, Math.min(600, parseInt(getVal('s-llm-timeout')) || 180)),
       ollama_url: getVal('s-llm-url'),
     },
     integrations: {
@@ -1374,6 +1380,7 @@ async function scanExternalStorage() {
     results.innerHTML = `
       <div class="scan-summary">
         <strong>Nalezeno souboru:</strong> ${data.total_count}
+        ${data.warning ? `<div style="color:#fbbf24;margin-top:0.5rem">${escHtml(data.warning)}</div>` : ''}
       </div>
       ${data.errors.length > 0 ? `
         <div class="scan-errors">

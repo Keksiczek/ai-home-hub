@@ -47,7 +47,8 @@ class SessionService:
                 preview = ""
                 for msg in messages:
                     if msg.get("role") == "user":
-                        preview = msg.get("content", "")[:50]
+                        content = msg.get("content", "").strip()
+                        preview = content[:50]
                         break
 
                 result.append({

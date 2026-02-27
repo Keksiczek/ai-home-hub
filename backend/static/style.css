@@ -1417,6 +1417,19 @@ body {
   .chat-sidebar.open {
     transform: translateX(0);
   }
+  .chat-sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 240;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+  }
+  .chat-sidebar.open ~ .chat-sidebar-backdrop {
+    opacity: 1;
+    pointer-events: auto;
+  }
   .chat-main {
     padding: 1rem;
     padding-top: 3.5rem;
