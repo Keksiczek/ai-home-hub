@@ -1161,6 +1161,25 @@ body {
   color: #94a3b8;
 }
 
+/* ── KB Context Badge ────────────────────────────────────── */
+.kb-context-badge {
+  position: absolute;
+  top: -0.375rem;
+  right: -0.375rem;
+  background: #6366f1;
+  color: #fff;
+  font-size: 0.6875rem;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.75rem;
+  font-weight: 600;
+  cursor: default;
+}
+
+.ingest-results,
+.kb-stats {
+  margin-top: 0.75rem;
+}
+
 /* ── Spinner ──────────────────────────────────────────────── */
 @keyframes spin {
   to { transform: rotate(360deg); }

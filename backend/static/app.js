@@ -318,6 +318,7 @@ function appendBubble(role, text, meta) {
   const chatHistoryEl = document.getElementById('chat-history');
   const bubble = document.createElement('div');
   bubble.className = `bubble bubble--${role}`;
+  bubble.style.position = 'relative';
 
   let inner = `<p class="bubble__text">${escHtml(text)}</p>`;
   if (meta) {
@@ -326,6 +327,15 @@ function appendBubble(role, text, meta) {
     inner += `<p class="bubble__meta">Provider: <strong>${escHtml(provider)}</strong> · ${latency} ms</p>`;
   }
   bubble.innerHTML = inner;
+
+  if (role === 'ai' && meta && meta.kb_context_used) {
+    const badge = document.createElement('span');
+    badge.className = 'kb-context-badge';
+    badge.textContent = '\u{1F4DA} KB';
+    badge.title = 'Odpoved vyuziva kontext z knowledge base';
+    bubble.appendChild(badge);
+  }
+
   chatHistoryEl.appendChild(bubble);
   chatHistoryEl.scrollTop = chatHistoryEl.scrollHeight;
 }
@@ -1084,6 +1094,8 @@ function bindSettingsEvents() {
   document.getElementById('add-dir-btn').addEventListener('click', addAllowedDir);
   document.getElementById('add-external-path-btn').addEventListener('click', addExternalPath);
   document.getElementById('scan-storage-btn').addEventListener('click', scanExternalStorage);
+  document.getElementById('ingest-files-btn').addEventListener('click', ingestAllFiles);
+  document.getElementById('kb-stats-btn').addEventListener('click', loadKnowledgeStats);
 
   // LLM timeout slider live update
   const timeoutSlider = document.getElementById('s-llm-timeout');
@@ -1410,6 +1422,72 @@ async function scanExternalStorage() {
   } finally {
     btn.disabled = false;
     btn.innerHTML = '&#128269; Skenovat uloziste';
+  }
+}
+
+async function ingestAllFiles() {
+  const btn = document.getElementById('ingest-files-btn');
+  const results = document.getElementById('ingest-results');
+
+  btn.disabled = true;
+  btn.textContent = 'Indexuji...';
+  results.innerHTML = '';
+  show(results);
+
+  try {
+    const resp = await fetch('/api/knowledge/ingest', { method: 'POST' });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ detail: `HTTP ${resp.status}` }));
+      throw new Error(err.detail || `HTTP ${resp.status}`);
+    }
+    const data = await resp.json();
+
+    results.innerHTML = `
+      <div class="scan-summary">
+        <strong>Indexace dokoncena</strong><br>
+        Indexovano souboru: ${data.ingested_count} |
+        Celkem chunku: ${data.total_chunks}
+        ${data.failed_count > 0 ? ` | Selhalo: ${data.failed_count}` : ''}
+      </div>
+      ${data.errors.length > 0 ? `
+        <div class="scan-errors">
+          <strong>Chyby:</strong>
+          ${data.errors.map(e => `<div>${escHtml(e)}</div>`).join('')}
+        </div>
+      ` : ''}
+    `;
+
+    showToast(`Indexovano ${data.ingested_count} souboru (${data.total_chunks} chunku)`, 'success');
+  } catch (err) {
+    console.error('Ingest failed:', err);
+    results.innerHTML = `<div class="scan-errors">${escHtml(err.message)}</div>`;
+    showToast('Indexace selhala', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '&#128260; Indexovat vsechny soubory';
+  }
+}
+
+async function loadKnowledgeStats() {
+  const display = document.getElementById('kb-stats-display');
+
+  try {
+    const resp = await fetch('/api/knowledge/stats');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+
+    display.innerHTML = `
+      <div class="scan-summary">
+        <strong>Knowledge Base statistiky</strong><br>
+        Celkem chunku: ${data.total_chunks} |
+        Kolekce: ${escHtml(data.collection_name)}
+      </div>
+    `;
+    show(display);
+  } catch (err) {
+    console.error('Stats failed:', err);
+    display.innerHTML = `<div class="scan-errors">${escHtml(err.message)}</div>`;
+    show(display);
   }
 }
 
