@@ -16,6 +16,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         "temperature": 0.7,
         "timeout_seconds": 180,
         "ollama_url": "http://localhost:11434",
+        "embeddings_model": "nomic-embed-text",
     },
     "integrations": {
         "claude_mcp": {
@@ -82,6 +83,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
             ".pdf", ".docx", ".xlsx", ".txt", ".md",
             ".jpg", ".png", ".mp4", ".mov",
         ],
+        "enabled": True,
     },
     "profiles": {
         "chat": {"model": "llama3.2", "temperature": 0.7},

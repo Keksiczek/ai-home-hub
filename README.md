@@ -15,6 +15,7 @@
 | **Git** | Status, commit, push, pull, log – all from the UI |
 | **Filesystem** | Browse, read, write, search, mkdir (sandboxed to configured allowed directories) |
 | **File Upload** | Upload context files and reference them in chat |
+| **Knowledge Base** | Semantic search over PDF/DOCX/XLSX/TXT/MD files with ChromaDB + Ollama embeddings |
 | **Quick Actions** | One-click multi-step sequences combining any service |
 | **Integrations** | Claude MCP, Google Antigravity IDE, OpenClaw screen control, ntfy.sh push notifications |
 | **Real-time UI** | WebSocket feed for live agent/task status updates |
@@ -78,18 +79,24 @@ ai-home-hub/
 │   │   │   ├── chat.py
 │   │   │   ├── filesystem.py
 │   │   │   ├── integrations.py
+│   │   │   ├── knowledge.py
 │   │   │   ├── settings.py
 │   │   │   ├── tasks.py
 │   │   │   └── websocket_router.py
 │   │   ├── services/            # Business logic
 │   │   │   ├── agent_orchestrator.py
+│   │   │   ├── embeddings_service.py
+│   │   │   ├── file_parser_service.py
 │   │   │   ├── llm_service.py
 │   │   │   ├── macos_service.py
 │   │   │   ├── vscode_service.py
 │   │   │   ├── git_service.py
 │   │   │   ├── filesystem_service.py
 │   │   │   ├── settings_service.py
+│   │   │   ├── vector_store_service.py
 │   │   │   └── ws_manager.py
+│   │   ├── utils/
+│   │   │   └── text_chunker.py
 │   │   └── models/
 │   ├── static/                  # Frontend SPA (served by FastAPI)
 │   │   ├── index.html
@@ -109,6 +116,34 @@ ai-home-hub/
 
 ---
 
+## Knowledge Base
+
+AI Home Hub supports semantic search across your documents.
+
+### Supported Formats
+- PDF, DOCX, XLSX
+- TXT, Markdown
+- Images (OCR coming soon)
+
+### Setup
+1. Add external paths in Settings → Knowledge Base
+2. Click "Scan storage" to discover files
+3. Click "Index all files" to parse & embed
+4. Chat queries automatically search KB for relevant context
+
+### Requirements
+- Ollama with embeddings model: `ollama pull nomic-embed-text`
+- Python packages: see `requirements.txt`
+
+### How It Works
+1. Files are parsed and chunked (500 chars, 50 char overlap)
+2. Embeddings generated via Ollama (`nomic-embed-text`)
+3. Stored in ChromaDB vector store (`backend/data/chroma/`)
+4. Chat queries search top-3 relevant chunks (cosine similarity > 0.3)
+5. Context injected into LLM prompt automatically
+
+---
+
 ## API Overview
 
 Base URL: `http://localhost:8000/api`
@@ -124,6 +159,7 @@ WebSocket: `ws://localhost:8000/ws`
 | Tasks | `GET /api/tasks`, `POST /api/tasks/{id}/cancel` |
 | Settings | `GET/POST /api/settings` |
 | Filesystem | `GET /api/filesystem/read`, `POST /api/filesystem/write`, … |
+| Knowledge Base | `POST /api/knowledge/ingest`, `POST /api/knowledge/search`, `GET /api/knowledge/stats` |
 | Integrations | `/api/integrations/macos/action`, `/api/integrations/vscode/…`, … |
 
 See [`docs/api-contract.md`](docs/api-contract.md) for the full reference.
