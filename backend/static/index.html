@@ -57,45 +57,58 @@
   <main class="main-content" id="main-content">
 
     <!-- ======================== CHAT TAB ======================== -->
-    <div class="tab-panel" id="tab-chat" role="tabpanel">
+    <div class="tab-panel tab-panel--chat" id="tab-chat" role="tabpanel">
 
-      <div class="panel-header">
-        <h1 class="panel-title">Chat</h1>
-        <div class="chat-session-bar">
-          <span class="session-badge" id="session-label">Nov&aacute; relace</span>
-          <button class="btn btn--ghost btn--small" id="new-session-btn">+ Nov&aacute;</button>
+      <!-- Chat sessions sidebar -->
+      <div class="chat-sidebar" id="chat-sidebar">
+        <button class="btn btn--primary" id="new-chat-btn" style="margin:1rem;display:flex;align-items:center;gap:0.5rem;justify-content:center">
+          + Nov&yacute; chat
+        </button>
+        <div class="sessions-list" id="sessions-list">
+          <div class="empty-state">Na&#269;&iacute;t&aacute;m...</div>
         </div>
       </div>
 
-      <!-- Profile pills -->
-      <div class="profile-pills" id="profile-pills">
-        <button class="pill pill--active" data-profile="chat">CHAT</button>
-        <button class="pill" data-profile="tech">TECH</button>
-        <button class="pill" data-profile="vision">VISION</button>
-        <button class="pill" data-profile="dolphin">DOLPHIN</button>
-      </div>
-      <div class="model-badge" id="model-badge">llama3.2</div>
-
-      <!-- Chat history -->
-      <div class="chat-area">
-        <div class="chat-history" id="chat-history" role="log" aria-live="polite"></div>
-      </div>
-
-      <!-- Chat input -->
-      <div class="chat-input-area">
-        <div class="chat-input-row">
-          <button class="btn-icon attach-btn" id="attach-btn" title="Pridat soubor">
-            &#128206;
-          </button>
-          <input type="file" id="file-input" multiple hidden />
-          <textarea class="chat-textarea" id="chat-input" rows="2"
-                    placeholder="Napi&#353; zpr&aacute;vu... (Ctrl+Enter pro odesl&aacute;n&iacute;)"></textarea>
-          <button class="btn btn--primary btn--send" id="send-btn">
-            &#10148;
-            <span class="spinner spinner--small hidden" id="chat-spinner" aria-label="Odes&iacute;l&aacute;m..."></span>
-          </button>
+      <!-- Chat main area -->
+      <div class="chat-main">
+        <div class="panel-header">
+          <h1 class="panel-title">Chat</h1>
+          <div class="chat-session-bar">
+            <span class="session-badge" id="session-label">Nov&aacute; relace</span>
+            <button class="btn btn--ghost btn--small" id="chat-sidebar-toggle" title="Historie">&#9776; Historie</button>
+          </div>
         </div>
-        <div id="attached-files" class="attached-files hidden"></div>
+
+        <!-- Profile pills -->
+        <div class="profile-pills" id="profile-pills">
+          <button class="pill pill--active" data-profile="chat">CHAT</button>
+          <button class="pill" data-profile="tech">TECH</button>
+          <button class="pill" data-profile="vision">VISION</button>
+          <button class="pill" data-profile="dolphin">DOLPHIN</button>
+        </div>
+        <div class="model-badge" id="model-badge">llama3.2</div>
+
+        <!-- Chat history -->
+        <div class="chat-area">
+          <div class="chat-history" id="chat-history" role="log" aria-live="polite"></div>
+        </div>
+
+        <!-- Chat input -->
+        <div class="chat-input-area">
+          <div class="chat-input-row">
+            <button class="btn-icon attach-btn" id="attach-btn" title="Pridat soubor">
+              &#128206;
+            </button>
+            <input type="file" id="file-input" multiple hidden />
+            <textarea class="chat-textarea" id="chat-input" rows="2"
+                      placeholder="Napi&#353; zpr&aacute;vu... (Ctrl+Enter pro odesl&aacute;n&iacute;)"></textarea>
+            <button class="btn btn--primary btn--send" id="send-btn">
+              &#10148;
+              <span class="spinner spinner--small hidden" id="chat-spinner" aria-label="Odes&iacute;l&aacute;m..."></span>
+            </button>
+          </div>
+          <div id="attached-files" class="attached-files hidden"></div>
+        </div>
       </div>
 
     </div><!-- /tab-chat -->
@@ -354,6 +367,13 @@
           <label class="form-label" for="s-llm-url">Ollama URL:</label>
           <input type="text" class="input" id="s-llm-url" placeholder="http://localhost:11434" />
         </div>
+        <div class="form-group">
+          <label class="form-label" for="s-llm-timeout">Request Timeout:</label>
+          <div style="display:flex;align-items:center;gap:0.75rem;flex:1">
+            <input type="range" class="slider" id="s-llm-timeout" min="60" max="600" step="30" value="180" style="flex:1" />
+            <span id="s-llm-timeout-value" style="min-width:3rem;text-align:right;font-family:monospace;color:#e2e8f0">180s</span>
+          </div>
+        </div>
         <div class="form-group form-group--right">
           <button class="btn btn--ghost btn--small" id="check-ollama-btn">Zkontrolovat Ollama</button>
         </div>
@@ -444,6 +464,29 @@
         <div style="display:flex;gap:0.5rem;margin-top:0.75rem">
           <input type="text" class="input" id="new-allowed-dir" placeholder="/Users/you/projects" style="flex:1" />
           <button class="btn btn--secondary btn--small" id="add-dir-btn">+ P&#345;idat</button>
+        </div>
+      </section>
+
+      <!-- Knowledge Base section -->
+      <section class="card settings-section">
+        <h2 class="card-title"><span class="section-icon">&#128218;</span> Knowledge Base</h2>
+        <p class="hint-text">Extern&iacute; cesty k soubor&#367;m pro budouc&iacute; indexaci a sémantické vyhled&aacute;v&aacute;n&iacute;.</p>
+
+        <div class="form-group" style="margin-top:0.75rem">
+          <label class="form-label">Extern&iacute; cesty:</label>
+          <div id="external-paths-list" class="kb-path-list"></div>
+          <div style="display:flex;gap:0.5rem;margin-top:0.5rem">
+            <input type="text" class="input" id="new-external-path"
+                   placeholder="/Volumes/KnowledgeBase/Documents" style="flex:1" />
+            <button class="btn btn--secondary btn--small" id="add-external-path-btn">+ P&#345;idat</button>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top:1rem">
+          <button class="btn btn--primary btn--small" id="scan-storage-btn">
+            &#128269; Skenovat &uacute;lo&#382;i&#353;t&#283;
+          </button>
+          <div id="scan-results" class="scan-results hidden"></div>
         </div>
       </section>
 

@@ -63,8 +63,9 @@ class LLMService:
             "stream": False,
         }
 
+        timeout = cfg.get("timeout_seconds", 180)
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=float(timeout)) as client:
                 resp = await client.post(f"{ollama_url}/api/chat", json=payload)
                 resp.raise_for_status()
                 data = resp.json()
