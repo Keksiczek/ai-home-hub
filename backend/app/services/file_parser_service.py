@@ -1,4 +1,4 @@
-"""File parser service – extract text from various file formats."""
+"""File parser service – extract text from various file formats with OCR support."""
 import logging
 from pathlib import Path
 from typing import Any, Dict
@@ -7,11 +7,11 @@ logger = logging.getLogger(__name__)
 
 
 class FileParserService:
-    """Parse text content from various file formats."""
+    """Parse text content from various file formats including OCR for images."""
 
     SUPPORTED_EXTENSIONS = {
         ".pdf", ".docx", ".xlsx", ".txt", ".md",
-        ".jpg", ".jpeg", ".png",  # For future OCR
+        ".jpg", ".jpeg", ".png", ".gif", ".bmp",
     }
 
     def parse_file(self, file_path: Path) -> Dict[str, Any]:
@@ -40,7 +40,7 @@ class FileParserService:
                 return self._parse_xlsx(file_path)
             elif ext in {".txt", ".md"}:
                 return self._parse_text(file_path)
-            elif ext in {".jpg", ".jpeg", ".png"}:
+            elif ext in {".jpg", ".jpeg", ".png", ".gif", ".bmp"}:
                 return self._parse_image(file_path)
             else:
                 return {"error": f"Unsupported file type: {ext}"}
@@ -150,23 +150,63 @@ class FileParserService:
             "page_count": 1,
         }
 
-    # ── Images (placeholder for future OCR) ──────────────────────
+    # ── Images with OCR ──────────────────────────────────────────
 
     def _parse_image(self, file_path: Path) -> Dict[str, Any]:
+        """Parse image file with OCR text extraction using Tesseract."""
         from PIL import Image
 
         img = Image.open(file_path)
-
-        return {
-            "text": f"[Image: {file_path.name}, {img.size[0]}x{img.size[1]}]",
-            "metadata": {
-                "format": img.format,
-                "size": img.size,
-                "mode": img.mode,
-            },
-            "page_count": 1,
-            "error": "OCR not implemented yet. Install pytesseract for text extraction.",
+        metadata: Dict[str, Any] = {
+            "format": str(img.format or ""),
+            "width": img.size[0],
+            "height": img.size[1],
+            "mode": img.mode,
+            "type": "image",
         }
+
+        # Try OCR with pytesseract
+        ocr_text = self._ocr_tesseract(file_path)
+
+        if ocr_text and ocr_text.strip():
+            metadata["ocr_method"] = "tesseract"
+            metadata["ocr_text_length"] = len(ocr_text)
+            return {
+                "text": ocr_text.strip(),
+                "metadata": metadata,
+                "page_count": 1,
+            }
+
+        # Fallback: return image description without OCR text
+        metadata["ocr_method"] = "none"
+        return {
+            "text": f"[Image: {file_path.name}, {img.size[0]}x{img.size[1]}, no text extracted]",
+            "metadata": metadata,
+            "page_count": 1,
+        }
+
+    def _ocr_tesseract(self, file_path: Path) -> str:
+        """Extract text from image using Tesseract OCR. Returns empty string on failure."""
+        try:
+            import pytesseract
+            from PIL import Image
+
+            img = Image.open(file_path)
+            text = pytesseract.image_to_string(img, lang="eng+ces", timeout=30)
+            return text
+        except ImportError:
+            logger.warning("pytesseract not installed – OCR skipped for %s", file_path.name)
+            return ""
+        except Exception as exc:
+            logger.warning("OCR failed for %s: %s", file_path.name, exc)
+            return ""
+
+    def parse_image_ocr(self, file_path: str) -> Dict[str, Any]:
+        """Public OCR method for external use. Returns {text, metadata, ocr_method}."""
+        path = Path(file_path)
+        if not path.exists():
+            return {"text": "", "metadata": {}, "ocr_method": "error", "error": "File not found"}
+        return self._parse_image(path)
 
 
 # Singleton

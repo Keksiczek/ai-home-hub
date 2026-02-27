@@ -8,6 +8,7 @@
    STATE
    ============================================================ */
 const uploadedFiles = [];
+const attachedImages = []; // {filename, data (base64), mime_type, previewUrl}
 let currentSessionId = null;
 let currentProfile = 'chat';
 let ws = null;
@@ -21,6 +22,10 @@ let _selectedTagFilter = null;
 let _selectedAgentSkills = new Set();
 let _ollamaModels = [];
 let toast, toastTimer;
+
+const MAX_IMAGES = 5;
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
+const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 
 /* ============================================================
    INIT
@@ -134,6 +139,19 @@ function handleWsMessage(msg) {
   if (msg.type === 'agent_update') updateAgentCard(msg.agent);
   else if (msg.type === 'notification') showToast(msg.message, 'info');
   else if (msg.type === 'ingest_progress') handleIngestProgress(msg);
+  else if (msg.type === 'kb_update') {
+    if (msg.action === 'file_deleted') {
+      showToast(`Soubor smazan z KB (${msg.deleted_chunks} chunku)`, 'info');
+    } else if (msg.action === 'file_reindexed') {
+      showToast('Soubor re-indexovan', 'info');
+    }
+  }
+  else if (msg.type === 'chat_message') {
+    // Chat message notification (e.g., from multimodal)
+    if (msg.has_images) {
+      // Optional: could refresh session list or show indicator
+    }
+  }
 }
 
 function handleIngestProgress(msg) {
@@ -234,6 +252,40 @@ function bindChatEvents() {
     });
   }
 
+  // Image attach
+  const imageAttachBtn = document.getElementById('image-attach-btn');
+  const imageInput = document.getElementById('image-input');
+  if (imageAttachBtn && imageInput) {
+    imageAttachBtn.addEventListener('click', () => imageInput.click());
+    imageInput.addEventListener('change', () => {
+      handleImageFiles(Array.from(imageInput.files));
+      imageInput.value = '';
+    });
+  }
+
+  // Screenshot button
+  const screenshotBtn = document.getElementById('screenshot-btn');
+  if (screenshotBtn) {
+    screenshotBtn.addEventListener('click', takeScreenshot);
+  }
+
+  // Paste image support (Ctrl+V)
+  document.addEventListener('paste', (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const imageFiles = [];
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) imageFiles.push(file);
+      }
+    }
+    if (imageFiles.length) {
+      e.preventDefault();
+      handleImageFiles(imageFiles);
+    }
+  });
+
   // Load sessions list on init
   loadSessions();
 }
@@ -283,6 +335,116 @@ function renderAttachedFiles() {
   }
 }
 
+/* ── Image handling ──────────────────────────────────────── */
+
+async function handleImageFiles(files) {
+  for (const file of files) {
+    if (attachedImages.length >= MAX_IMAGES) {
+      showToast(`Max ${MAX_IMAGES} obrazku na zpravu`, 'warning');
+      break;
+    }
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      showToast(`Nepodporovany typ: ${file.type}`, 'warning');
+      continue;
+    }
+    if (file.size > MAX_IMAGE_SIZE) {
+      showToast(`Obrazek ${file.name} presahuje 10MB`, 'warning');
+      continue;
+    }
+
+    try {
+      const base64 = await fileToBase64(file);
+      attachedImages.push({
+        filename: file.name,
+        data: base64,
+        mime_type: file.type,
+        previewUrl: URL.createObjectURL(file),
+      });
+    } catch (err) {
+      showToast(`Chyba nahravani: ${err.message}`, 'error');
+    }
+  }
+  renderImagePreviews();
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      // Strip the data:...;base64, prefix
+      const base64 = result.split(',')[1];
+      resolve(base64);
+    };
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function renderImagePreviews() {
+  const previewEl = document.getElementById('image-preview');
+  const visionBadge = document.getElementById('vision-mode-indicator');
+  if (!previewEl) return;
+
+  if (attachedImages.length > 0) {
+    show(previewEl);
+    if (visionBadge) show(visionBadge);
+    previewEl.innerHTML = attachedImages.map((img, idx) => `
+      <div class="chat-image-preview-item">
+        <img src="${img.previewUrl}" alt="${escHtml(img.filename)}" title="${escHtml(img.filename)}" />
+        <button class="remove-image-btn" data-idx="${idx}" title="Odebrat">&#10005;</button>
+      </div>
+    `).join('');
+    previewEl.querySelectorAll('.remove-image-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.dataset.idx);
+        URL.revokeObjectURL(attachedImages[idx].previewUrl);
+        attachedImages.splice(idx, 1);
+        renderImagePreviews();
+      });
+    });
+  } else {
+    hide(previewEl);
+    if (visionBadge) hide(visionBadge);
+    previewEl.innerHTML = '';
+  }
+}
+
+async function takeScreenshot() {
+  const btn = document.getElementById('screenshot-btn');
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch('/api/integrations/macos/screenshot?mode=file', { method: 'POST' });
+    const data = await res.json();
+    if (data.success && data.image) {
+      if (attachedImages.length >= MAX_IMAGES) {
+        showToast(`Max ${MAX_IMAGES} obrazku na zpravu`, 'warning');
+        return;
+      }
+      // Create a blob for preview
+      const byteChars = atob(data.image);
+      const byteArray = new Uint8Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) byteArray[i] = byteChars.charCodeAt(i);
+      const blob = new Blob([byteArray], { type: 'image/png' });
+
+      attachedImages.push({
+        filename: 'screenshot.png',
+        data: data.image,
+        mime_type: 'image/png',
+        previewUrl: URL.createObjectURL(blob),
+      });
+      renderImagePreviews();
+      showToast('Screenshot prilozen', 'success');
+    } else {
+      showToast(data.error || 'Screenshot selhal (vyzaduje macOS)', 'error');
+    }
+  } catch (err) {
+    showToast(`Screenshot chyba: ${err.message}`, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 async function sendMessage() {
   const chatInput = document.getElementById('chat-input');
   const message = chatInput.value.trim();
@@ -297,26 +459,69 @@ async function sendMessage() {
   const sendBtn = document.getElementById('send-btn');
   const chatSpinner = document.getElementById('chat-spinner');
   setLoading(sendBtn, chatSpinner, true);
-  appendBubble('user', message);
+
+  // Store image data for bubble display before clearing
+  const sentImages = attachedImages.map(img => ({ ...img }));
+  appendBubble('user', message, null, sentImages.length > 0 ? sentImages : null);
   chatInput.value = '';
 
   try {
-    const body = { message, mode, context_file_ids: contextFileIds };
-    if (currentSessionId) body.session_id = currentSessionId;
+    let data;
 
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+    if (attachedImages.length > 0) {
+      // Multimodal chat with images
+      const body = {
+        message,
+        images: attachedImages.map(img => ({
+          filename: img.filename,
+          data: img.data,
+          mime_type: img.mime_type,
+        })),
+      };
+      if (currentSessionId) body.session_id = currentSessionId;
 
-    const data = await res.json();
-    if (data.session_id) {
-      currentSessionId = data.session_id;
-      document.getElementById('session-label').textContent = `Relace: ${data.session_id}`;
+      const res = await fetch('/api/chat/multimodal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      data = await res.json();
+
+      if (data.session_id) {
+        currentSessionId = data.session_id;
+        document.getElementById('session-label').textContent = `Relace: ${data.session_id}`;
+      }
+      appendBubble('ai', data.response, {
+        provider: 'ollama',
+        model: data.model_used,
+        kb_context_used: data.kb_context_used,
+        images_processed: data.images_processed,
+      });
+
+      // Clear images
+      attachedImages.forEach(img => URL.revokeObjectURL(img.previewUrl));
+      attachedImages.length = 0;
+      renderImagePreviews();
+    } else {
+      // Text-only chat
+      const body = { message, mode, context_file_ids: contextFileIds };
+      if (currentSessionId) body.session_id = currentSessionId;
+
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+
+      data = await res.json();
+      if (data.session_id) {
+        currentSessionId = data.session_id;
+        document.getElementById('session-label').textContent = `Relace: ${data.session_id}`;
+      }
+      appendBubble('ai', data.reply, data.meta);
     }
-    appendBubble('ai', data.reply, data.meta);
 
     // Reload sessions list to show new/updated session
     loadSessions();
@@ -330,17 +535,35 @@ async function sendMessage() {
   }
 }
 
-function appendBubble(role, text, meta) {
+function appendBubble(role, text, meta, images) {
   const chatHistoryEl = document.getElementById('chat-history');
   const bubble = document.createElement('div');
   bubble.className = `bubble bubble--${role}`;
   bubble.style.position = 'relative';
 
   let inner = `<p class="bubble__text">${escHtml(text)}</p>`;
+
+  // Show images in bubble if provided
+  if (images && images.length > 0) {
+    inner += '<div class="bubble-images">';
+    for (const img of images) {
+      if (img.previewUrl) {
+        inner += `<img src="${img.previewUrl}" alt="${escHtml(img.filename || 'image')}" />`;
+      } else if (img.data) {
+        inner += `<img src="data:${img.mime_type || 'image/png'};base64,${img.data}" alt="${escHtml(img.filename || 'image')}" />`;
+      }
+    }
+    inner += '</div>';
+  }
+
   if (meta) {
-    const provider = meta.provider || '—';
-    const latency = meta.latency_ms ?? '—';
-    inner += `<p class="bubble__meta">Provider: <strong>${escHtml(provider)}</strong> · ${latency} ms</p>`;
+    const provider = meta.provider || '\u2014';
+    const latency = meta.latency_ms ?? '\u2014';
+    let metaStr = `Provider: <strong>${escHtml(provider)}</strong>`;
+    if (meta.model) metaStr += ` · ${escHtml(meta.model)}`;
+    if (latency !== '\u2014') metaStr += ` · ${latency} ms`;
+    if (meta.images_processed) metaStr += ` · ${meta.images_processed} img`;
+    inner += `<p class="bubble__meta">${metaStr}</p>`;
   }
   bubble.innerHTML = inner;
 
@@ -589,12 +812,15 @@ function renderAgentCard(agent) {
 
   const isActive = agent.status === 'running' || agent.status === 'pending';
   const elapsed = agent.created_at ? getElapsed(agent.created_at) : '';
+  const isSubAgent = !!agent.parent_agent_id;
+  const subAgentClass = isSubAgent ? ' agent-card--sub-agent' : '';
 
   return `
-    <div class="agent-card" id="agent-${escHtml(agent.agent_id)}">
+    <div class="agent-card${subAgentClass}" id="agent-${escHtml(agent.agent_id)}">
       <div class="agent-card-header">
         <span class="agent-type-badge">${escHtml(agent.agent_type)}</span>
         <span class="agent-id">${escHtml(agent.agent_id)}</span>
+        ${isSubAgent ? `<span class="sub-agent-badge">sub-agent</span>` : ''}
         <span class="agent-status ${statusClass}">${escHtml(agent.status)}</span>
       </div>
       <p class="agent-goal">${escHtml(agent.task?.goal || 'Zadny cil')}</p>
@@ -606,10 +832,11 @@ function renderAgentCard(agent) {
         <span class="agent-elapsed">${elapsed}</span>
         <div class="agent-actions">
           ${isActive ? `<button class="btn btn--ghost btn--small" data-interrupt="${escHtml(agent.agent_id)}">Stop</button>` : ''}
+          ${agent.artifacts.length ? `<button class="btn btn--ghost btn--small" data-view-artifacts="${escHtml(agent.agent_id)}">Artefakty (${agent.artifacts.length})</button>` : ''}
           <button class="btn btn--ghost btn--small" data-delete-agent="${escHtml(agent.agent_id)}">Smazat</button>
         </div>
       </div>
-      ${agent.artifacts.length ? `<p class="agent-artifacts">Artefakty: ${agent.artifacts.length}</p>` : ''}
+      <div id="artifacts-${escHtml(agent.agent_id)}" class="hidden"></div>
     </div>`;
 }
 
@@ -628,6 +855,49 @@ function bindAgentCardButtons(container) {
       await refreshAgents();
     });
   });
+  container.querySelectorAll('[data-view-artifacts]').forEach(btn => {
+    btn.addEventListener('click', () => loadAgentArtifacts(btn.dataset.viewArtifacts));
+  });
+}
+
+async function loadAgentArtifacts(agentId) {
+  const container = document.getElementById(`artifacts-${agentId}`);
+  if (!container) return;
+
+  if (!container.classList.contains('hidden')) {
+    hide(container);
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/agents/${agentId}/artifacts`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const artifacts = data.artifacts || [];
+
+    if (!artifacts.length) {
+      container.innerHTML = '<p class="hint-text">Zadne artefakty</p>';
+    } else {
+      container.innerHTML = '<div class="artifact-preview-list">' +
+        artifacts.map(art => {
+          const icon = art.type === 'markdown' ? '\u{1F4DD}' : art.type === 'image' ? '\u{1F5BC}' : '\u{1F4C4}';
+          const sizeStr = art.size ? `${(art.size / 1024).toFixed(1)} KB` : '';
+          return `
+            <div class="artifact-preview-card">
+              <div class="artifact-preview-card__header">
+                <span class="artifact-preview-card__icon">${icon}</span>
+                <span class="artifact-preview-card__name">${escHtml(art.filename || art.artifact_id)}</span>
+                <span class="artifact-preview-card__size">${sizeStr}</span>
+              </div>
+              ${art.preview ? `<div class="artifact-preview-card__content">${escHtml(art.preview)}</div>` : ''}
+            </div>`;
+        }).join('') + '</div>';
+    }
+    show(container);
+  } catch (err) {
+    container.innerHTML = `<p class="hint-text">Chyba: ${escHtml(err.message)}</p>`;
+    show(container);
+  }
 }
 
 function updateAgentCard(agent) {
@@ -1111,7 +1381,9 @@ function bindSettingsEvents() {
   document.getElementById('add-external-path-btn').addEventListener('click', addExternalPath);
   document.getElementById('scan-storage-btn').addEventListener('click', scanExternalStorage);
   document.getElementById('ingest-files-btn').addEventListener('click', ingestAllFiles);
+  document.getElementById('incremental-ingest-btn').addEventListener('click', incrementalIngest);
   document.getElementById('kb-stats-btn').addEventListener('click', loadKnowledgeStats);
+  document.getElementById('kb-export-btn').addEventListener('click', exportKbMetadata);
 
   // LLM timeout slider live update
   const timeoutSlider = document.getElementById('s-llm-timeout');
@@ -1486,25 +1758,138 @@ async function ingestAllFiles() {
 
 async function loadKnowledgeStats() {
   const display = document.getElementById('kb-stats-display');
+  const filesDisplay = document.getElementById('kb-files-display');
 
   try {
     const resp = await fetch('/api/knowledge/stats');
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
 
-    display.innerHTML = `
-      <div class="scan-summary">
-        <strong>Knowledge Base statistiky</strong><br>
-        Celkem chunku: ${data.total_chunks} |
-        Kolekce: ${escHtml(data.collection_name)}
-      </div>
-    `;
+    // Stats dashboard cards
+    let html = '<div class="kb-stats-dashboard">';
+    html += `<div class="kb-stat-card"><div class="kb-stat-card__value">${data.total_documents || 0}</div><div class="kb-stat-card__label">Dokumenty</div></div>`;
+    html += `<div class="kb-stat-card"><div class="kb-stat-card__value">${data.total_chunks || 0}</div><div class="kb-stat-card__label">Chunky</div></div>`;
+    html += `<div class="kb-stat-card"><div class="kb-stat-card__value">${data.storage_size_mb || 0} MB</div><div class="kb-stat-card__label">Uloziste</div></div>`;
+    html += '</div>';
+
+    // File type bars
+    const fileTypes = data.indexed_files_by_type || {};
+    const maxCount = Math.max(...Object.values(fileTypes), 1);
+    if (Object.keys(fileTypes).length > 0) {
+      html += '<div class="kb-file-types">';
+      html += '<strong style="color:#94a3b8;font-size:0.8125rem">Typy souboru:</strong>';
+      for (const [type, count] of Object.entries(fileTypes).sort((a, b) => b[1] - a[1])) {
+        const pct = Math.round((count / maxCount) * 100);
+        html += `
+          <div class="kb-file-type-bar">
+            <span class="kb-file-type-bar__label">${escHtml(type)}</span>
+            <div class="kb-file-type-bar__fill"><div class="kb-file-type-bar__fill-inner" style="width:${pct}%"></div></div>
+            <span class="kb-file-type-bar__count">${count}</span>
+          </div>`;
+      }
+      html += '</div>';
+    }
+
+    if (data.last_indexed_at) {
+      html += `<p class="hint-text" style="margin-top:0.75rem">Posledni indexace: ${escHtml(data.last_indexed_at)}</p>`;
+    }
+
+    display.innerHTML = html;
     show(display);
+
+    // Show file list with delete buttons
+    if (data.top_sources && data.top_sources.length > 0 && filesDisplay) {
+      let filesHtml = '<strong style="color:#94a3b8;font-size:0.8125rem">Soubory v KB (top 20):</strong>';
+      filesHtml += '<div class="kb-files-list">';
+      for (const src of data.top_sources) {
+        filesHtml += `
+          <div class="kb-file-item">
+            <span class="kb-file-item__path" title="${escHtml(src.path)}">${escHtml(src.path)}</span>
+            <span class="kb-file-item__chunks">${src.chunks} ch.</span>
+            <button class="btn btn--ghost btn--small" data-delete-kb-file="${escHtml(src.path)}" title="Smazat z KB">&#128465;</button>
+          </div>`;
+      }
+      filesHtml += '</div>';
+      filesDisplay.innerHTML = filesHtml;
+      show(filesDisplay);
+
+      // Bind delete buttons
+      filesDisplay.querySelectorAll('[data-delete-kb-file]').forEach(btn => {
+        btn.addEventListener('click', () => deleteKbFile(btn.dataset.deleteKbFile));
+      });
+    }
   } catch (err) {
     console.error('Stats failed:', err);
     display.innerHTML = `<div class="scan-errors">${escHtml(err.message)}</div>`;
     show(display);
   }
+}
+
+async function incrementalIngest() {
+  const btn = document.getElementById('incremental-ingest-btn');
+  const results = document.getElementById('ingest-results');
+
+  btn.disabled = true;
+  btn.textContent = 'Synkuji...';
+  results.innerHTML = '';
+  show(results);
+
+  try {
+    const resp = await fetch('/api/knowledge/incremental-ingest', { method: 'POST' });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ detail: `HTTP ${resp.status}` }));
+      throw new Error(err.detail || `HTTP ${resp.status}`);
+    }
+    const data = await resp.json();
+
+    results.innerHTML = `
+      <div class="scan-summary">
+        <strong>Inkrementalni sync dokoncen</strong><br>
+        Novych: ${data.new_indexed} |
+        Re-indexovano: ${data.re_indexed} |
+        Preskoceno: ${data.skipped} |
+        Chunky: ${data.total_chunks}
+        ${data.failed > 0 ? ` | Selhalo: ${data.failed}` : ''}
+      </div>
+      ${data.errors.length > 0 ? `
+        <div class="scan-errors">
+          <strong>Chyby:</strong>
+          ${data.errors.map(e => `<div>${escHtml(e)}</div>`).join('')}
+        </div>
+      ` : ''}
+    `;
+
+    showToast(`Sync: ${data.new_indexed} novych, ${data.re_indexed} aktualizovanych, ${data.skipped} preskoceno`, 'success');
+  } catch (err) {
+    results.innerHTML = `<div class="scan-errors">${escHtml(err.message)}</div>`;
+    showToast('Sync selhal', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '&#128260; Sync soubory';
+  }
+}
+
+async function deleteKbFile(filePath) {
+  if (!confirm(`Opravdu smazat "${filePath}" z Knowledge Base?`)) return;
+
+  try {
+    const resp = await fetch(`/api/knowledge/files?path=${encodeURIComponent(filePath)}`, { method: 'DELETE' });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ detail: `HTTP ${resp.status}` }));
+      throw new Error(err.detail || `HTTP ${resp.status}`);
+    }
+    const data = await resp.json();
+    showToast(`Smazano: ${data.deleted_chunks} chunku`, 'success');
+    // Reload stats
+    loadKnowledgeStats();
+  } catch (err) {
+    showToast(`Chyba mazani: ${err.message}`, 'error');
+  }
+}
+
+function exportKbMetadata() {
+  window.open('/api/knowledge/export-metadata', '_blank');
+  showToast('Stahuji export CSV...', 'info');
 }
 
 /* ============================================================
@@ -1614,6 +1999,13 @@ function bindMobileDragDrop() {
     e.preventDefault();
     chatArea.classList.remove('drag-over');
     const files = Array.from(e.dataTransfer.files);
-    if (files.length) handleFiles(files);
+    if (!files.length) return;
+
+    // Separate images from other files
+    const imageFiles = files.filter(f => ALLOWED_IMAGE_TYPES.includes(f.type));
+    const otherFiles = files.filter(f => !ALLOWED_IMAGE_TYPES.includes(f.type));
+
+    if (imageFiles.length) handleImageFiles(imageFiles);
+    if (otherFiles.length) handleFiles(otherFiles);
   });
 }

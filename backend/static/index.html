@@ -96,6 +96,19 @@
 
         <!-- Chat input -->
         <div class="chat-input-area">
+          <div class="chat-image-controls">
+            <button class="btn btn--ghost btn--small" id="image-attach-btn" title="Pridat obrazek">
+              &#128247; Obr&aacute;zek
+            </button>
+            <button class="btn btn--ghost btn--small" id="screenshot-btn" title="Screenshot">
+              &#128248; Screenshot
+            </button>
+            <input type="file" id="image-input" multiple accept="image/png,image/jpeg,image/gif,image/webp" hidden />
+          </div>
+          <div id="image-preview" class="chat-image-preview hidden"></div>
+          <div id="vision-mode-indicator" class="vision-mode-badge hidden">
+            &#128270; Vision mode aktivn&iacute;
+          </div>
           <div class="chat-input-row">
             <button class="btn-icon attach-btn" id="attach-btn" title="Pridat soubor">
               &#128206;
@@ -492,16 +505,23 @@
 
         <div class="form-group" style="margin-top:1rem;border-top:1px solid #2d3348;padding-top:1rem">
           <label class="form-label">Indexace soubor&#367;:</label>
-          <div style="display:flex;gap:0.5rem;align-items:center">
+          <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
             <button class="btn btn--primary btn--small" id="ingest-files-btn">
               &#128260; Indexovat v&#353;echny soubory
+            </button>
+            <button class="btn btn--primary btn--small" id="incremental-ingest-btn">
+              &#128260; Sync soubory
             </button>
             <button class="btn btn--ghost btn--small" id="kb-stats-btn">
               &#128202; Statistiky
             </button>
+            <button class="btn btn--ghost btn--small" id="kb-export-btn">
+              &#128229; Export CSV
+            </button>
           </div>
           <div id="ingest-results" class="ingest-results hidden"></div>
           <div id="kb-stats-display" class="kb-stats hidden"></div>
+          <div id="kb-files-display" class="hidden" style="margin-top:0.75rem"></div>
         </div>
       </section>
 
