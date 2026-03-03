@@ -31,6 +31,11 @@
         <span class="nav-label">Skills</span>
       </button>
       <button class="nav-item" role="tab" aria-selected="false"
+              data-tab="status" title="Status">
+        <span class="nav-icon">&#128994;</span>
+        <span class="nav-label">Status</span>
+      </button>
+      <button class="nav-item" role="tab" aria-selected="false"
               data-tab="actions" title="Actions">
         <span class="nav-icon">&#9881;</span>
         <span class="nav-label">Akce</span>
@@ -239,6 +244,32 @@
 
     </div><!-- /tab-skills -->
 
+    <!-- ======================== STATUS TAB ======================== -->
+    <div class="tab-panel hidden" id="tab-status" role="tabpanel">
+
+      <div class="panel-header">
+        <h1 class="panel-title">System Status</h1>
+        <div style="display:flex;gap:0.5rem;align-items:center">
+          <span id="status-timestamp" class="status-timestamp"></span>
+          <button class="btn btn--ghost btn--small" id="refresh-status-btn">Obnovit</button>
+        </div>
+      </div>
+
+      <div id="overall-status-card" class="card" style="margin-bottom:1rem">
+        <div style="display:flex;align-items:center;gap:1rem">
+          <h2 class="card-title" style="margin:0">Overall Status</h2>
+          <span id="overall-status-badge" class="status-badge">--</span>
+        </div>
+      </div>
+
+      <div class="status-grid" id="status-grid">
+        <p class="empty-state">Na&#269;&iacute;t&aacute;m status...</p>
+      </div>
+
+      <div id="status-alerts" class="status-alerts"></div>
+
+    </div><!-- /tab-status -->
+
     <!-- ======================== ACTIONS TAB ======================== -->
     <div class="tab-panel hidden" id="tab-actions" role="tabpanel">
 
@@ -247,8 +278,13 @@
       </div>
 
       <section class="card">
-        <h2 class="card-title">Rychl&eacute; akce</h2>
-        <p class="hint-text">P&#345;ednastaven&eacute; sekvence akc&iacute; ze settings.</p>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
+          <div>
+            <h2 class="card-title">Rychl&eacute; akce</h2>
+            <p class="hint-text">P&#345;ednastaven&eacute; sekvence akc&iacute;.</p>
+          </div>
+          <button class="btn btn--primary btn--small" id="add-action-btn">+ Nov&aacute; akce</button>
+        </div>
         <div id="quick-actions-list" class="actions-grid"></div>
       </section>
 
@@ -325,6 +361,17 @@
             </button>
           </div>
           <div id="action-result" class="result-box hidden"></div>
+        </div>
+      </section>
+
+      <!-- Run History -->
+      <section class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
+          <h2 class="card-title">Historie b&#283;h&#367;</h2>
+          <button class="btn btn--ghost btn--small" id="refresh-history-btn">Obnovit</button>
+        </div>
+        <div id="action-history-list">
+          <p class="empty-state">&#381;&aacute;dn&aacute; historie.</p>
         </div>
       </section>
 
@@ -549,6 +596,35 @@
     </div><!-- /tab-settings -->
 
   </main>
+
+  <!-- ===== QUICK ACTION EDITOR MODAL ===== -->
+  <div class="modal-overlay hidden" id="action-editor-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-title" id="action-modal-title">Nov&aacute; rychl&aacute; akce</h2>
+        <button class="btn-icon modal-close" id="action-modal-close">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="action-edit-id" value="" />
+        <div class="form-group">
+          <label class="form-label" for="action-name-input">N&aacute;zev:</label>
+          <input type="text" class="input" id="action-name-input" placeholder="N&aacute;zev akce" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="action-icon-input">Ikona (emoji):</label>
+          <input type="text" class="input" id="action-icon-input" placeholder="&#9889;" style="max-width:80px" />
+        </div>
+
+        <h3 style="margin-top:1rem;margin-bottom:0.5rem;color:#e2e8f0">Kroky</h3>
+        <div id="action-steps-list"></div>
+        <button class="btn btn--ghost btn--small" id="add-step-btn" style="margin-top:0.5rem">+ P&#345;idat krok</button>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn--ghost" id="action-modal-cancel">Zru&#353;it</button>
+        <button class="btn btn--primary" id="action-modal-save">Ulo&#382;it</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ===== TOAST ===== -->
   <div class="toast hidden" id="toast" role="alert" aria-live="assertive"></div>
