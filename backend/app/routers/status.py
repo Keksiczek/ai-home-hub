@@ -70,13 +70,23 @@ async def _check_knowledge_base() -> Dict[str, Any]:
         vs = get_vector_store_service()
         stats = vs.get_stats()
 
-        # Calculate storage size
+        # Calculate storage size and last_indexed_at from data files
         storage_mb = 0.0
+        last_indexed_at = None
         if CHROMA_DIR.exists():
-            total_size = sum(
-                f.stat().st_size for f in CHROMA_DIR.rglob("*") if f.is_file()
-            )
+            latest_mtime = 0.0
+            total_size = 0
+            for f in CHROMA_DIR.rglob("*"):
+                if f.is_file():
+                    st = f.stat()
+                    total_size += st.st_size
+                    if f.suffix in (".bin", ".parquet") and st.st_mtime > latest_mtime:
+                        latest_mtime = st.st_mtime
             storage_mb = round(total_size / (1024 * 1024), 1)
+            if latest_mtime > 0:
+                last_indexed_at = datetime.fromtimestamp(
+                    latest_mtime, tz=timezone.utc
+                ).isoformat()
 
         return {
             "status": "healthy",
@@ -84,6 +94,7 @@ async def _check_knowledge_base() -> Dict[str, Any]:
                 "total_chunks": stats.get("total_chunks", 0),
                 "collection_name": stats.get("collection_name", ""),
                 "storage_size_mb": storage_mb,
+                "last_indexed_at": last_indexed_at,
                 "chroma_db_path": str(CHROMA_DIR),
             },
         }
@@ -153,16 +164,18 @@ async def _check_integrations(settings: Dict[str, Any]) -> Dict[str, Any]:
 
     # Git
     try:
-        proc = await asyncio.wait_for(
-            asyncio.create_subprocess_exec(
+        async def _run_git_version() -> str | None:
+            proc = await asyncio.create_subprocess_exec(
                 "git", "--version",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-            ),
-            timeout=HEALTH_CHECK_TIMEOUT,
+            )
+            stdout, _ = await proc.communicate()
+            return stdout.decode().strip() if proc.returncode == 0 else None
+
+        git_version = await asyncio.wait_for(
+            _run_git_version(), timeout=HEALTH_CHECK_TIMEOUT
         )
-        stdout, _ = await proc.communicate()
-        git_version = stdout.decode().strip() if proc.returncode == 0 else None
         git_exec = shutil.which("git")
         result["git"] = {
             "status": "healthy" if git_version else "unhealthy",

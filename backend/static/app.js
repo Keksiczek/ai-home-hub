@@ -1088,11 +1088,34 @@ async function loadQuickActions() {
 
     // Run action on card click
     list.querySelectorAll('.action-card').forEach(card => {
-      card.addEventListener('click', (e) => {
+      card.addEventListener('click', async (e) => {
         // Ignore clicks on edit/delete buttons
         if (e.target.closest('[data-edit-action]') || e.target.closest('[data-delete-action]')) return;
         const actionId = card.dataset.actionId;
-        showToast(`Akce "${card.querySelector('.action-card__name').textContent}" spustena`, 'info');
+        const actionName = card.querySelector('.action-card__name').textContent;
+        card.style.opacity = '0.5';
+        card.style.pointerEvents = 'none';
+        showToast(`Spoustim "${actionName}"...`, 'info');
+        try {
+          const res = await fetch('/api/actions/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action_id: actionId }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+          if (data.status === 'success') {
+            showToast(`Akce "${actionName}" dokoncena`, 'success');
+          } else {
+            showToast(`Akce "${actionName}" selhala: ${data.error || ''}`, 'error');
+          }
+          loadActionHistory();
+        } catch (err) {
+          showToast(`Chyba: ${err.message}`, 'error');
+        } finally {
+          card.style.opacity = '';
+          card.style.pointerEvents = '';
+        }
       });
     });
 
