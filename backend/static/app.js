@@ -36,6 +36,7 @@ document.addEventListener('DOMContentLoaded', () => {
   bindSkillsEvents();
   bindActionsEvents();
   bindSettingsEvents();
+  bindStatusEvents();
   initWebSocket();
   checkSetupStatus();
   bindMobileDragDrop();
@@ -63,9 +64,10 @@ function switchTab(tabName) {
   document.getElementById('sidebar').classList.remove('sidebar--open');
 
   // Lazy-load tab data
+  if (tabName === 'status') loadSystemStatus();
   if (tabName === 'agents') { refreshAgents(); loadAgentSkillSelect(); }
   if (tabName === 'skills') loadSkills();
-  if (tabName === 'actions') { loadQuickActions(); loadVSCodeProjects(); }
+  if (tabName === 'actions') { loadQuickActions(); loadVSCodeProjects(); loadActionHistory(); }
   if (tabName === 'settings') { loadSettings(); loadOllamaModels(); }
 }
 
@@ -134,6 +136,7 @@ function handleWsMessage(msg) {
   if (msg.type === 'agent_update') updateAgentCard(msg.agent);
   else if (msg.type === 'notification') showToast(msg.message, 'info');
   else if (msg.type === 'ingest_progress') handleIngestProgress(msg);
+  else if (msg.type === 'status_alert') handleStatusAlert(msg);
 }
 
 function handleIngestProgress(msg) {
@@ -956,6 +959,13 @@ function bindActionsEvents() {
 
   const actionBtn = document.getElementById('action-btn');
   if (actionBtn) actionBtn.addEventListener('click', triggerAction);
+
+  // Quick Actions editor
+  bindQuickActionsEditor();
+
+  // History refresh
+  const refreshHistoryBtn = document.getElementById('refresh-history-btn');
+  if (refreshHistoryBtn) refreshHistoryBtn.addEventListener('click', loadActionHistory);
 }
 
 async function macOSAction(action, params) {
@@ -1057,25 +1067,87 @@ async function loadQuickActions() {
   const list = document.getElementById('quick-actions-list');
   if (!list) return;
   try {
-    const res = await fetch('/api/settings');
+    const res = await fetch('/api/settings/quick-actions');
     const data = await res.json();
-    const actions = data.settings?.quick_actions || [];
+    const actions = data.actions || [];
     if (!actions.length) {
-      list.innerHTML = '<p class="empty-state">Zadne rychle akce. Pridej je v settings.json.</p>';
+      list.innerHTML = '<p class="empty-state">Zadne rychle akce. Klikni "+ Nova akce".</p>';
       return;
     }
     list.innerHTML = actions.map(a => `
       <button class="action-card" data-action-id="${escHtml(a.id)}">
-        <span class="action-card__icon">${escHtml(a.icon || '⚡')}</span>
+        <div class="action-card-controls">
+          <button data-edit-action="${escHtml(a.id)}" title="Upravit">&#9998;</button>
+          <button data-delete-action="${escHtml(a.id)}" title="Smazat">&#10005;</button>
+        </div>
+        <span class="action-card__icon">${escHtml(a.icon || '\u26A1')}</span>
         <span class="action-card__name">${escHtml(a.name)}</span>
         <span class="action-card__desc">${a.steps?.length || 0} kroku</span>
       </button>
     `).join('');
-    list.querySelectorAll('[data-action-id]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        showToast(`Akce "${btn.querySelector('.action-card__name').textContent}" spustena`, 'info');
+
+    // Run action on card click
+    list.querySelectorAll('.action-card').forEach(card => {
+      card.addEventListener('click', (e) => {
+        // Ignore clicks on edit/delete buttons
+        if (e.target.closest('[data-edit-action]') || e.target.closest('[data-delete-action]')) return;
+        const actionId = card.dataset.actionId;
+        showToast(`Akce "${card.querySelector('.action-card__name').textContent}" spustena`, 'info');
       });
     });
+
+    // Edit buttons
+    list.querySelectorAll('[data-edit-action]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const actionId = btn.dataset.editAction;
+        const action = actions.find(a => a.id === actionId);
+        if (action) openActionEditorModal(action);
+      });
+    });
+
+    // Delete buttons
+    list.querySelectorAll('[data-delete-action]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const actionId = btn.dataset.deleteAction;
+        if (!confirm('Smazat tuto akci?')) return;
+        try {
+          await fetch(`/api/settings/quick-actions/${encodeURIComponent(actionId)}`, { method: 'DELETE' });
+          showToast('Akce smazana', 'success');
+          loadQuickActions();
+        } catch (err) {
+          showToast('Chyba pri mazani: ' + err.message, 'error');
+        }
+      });
+    });
+  } catch (err) {
+    list.innerHTML = `<p class="empty-state">Chyba: ${escHtml(err.message)}</p>`;
+  }
+}
+
+async function loadActionHistory() {
+  const list = document.getElementById('action-history-list');
+  if (!list) return;
+  try {
+    const res = await fetch('/api/actions/history?limit=10');
+    const data = await res.json();
+    const history = data.history || [];
+    if (!history.length) {
+      list.innerHTML = '<p class="empty-state">Zadna historie.</p>';
+      return;
+    }
+    list.innerHTML = history.reverse().map(h => {
+      const statusClass = h.status === 'success' ? 'result-box--ok' : 'result-box--error';
+      const time = h.started_at ? new Date(h.started_at).toLocaleString() : '-';
+      return `
+        <div class="result-box ${statusClass}" style="margin-bottom:0.4rem;padding:0.5rem 0.75rem;font-size:0.85rem">
+          <strong>${escHtml(h.action_name || 'Unknown')}</strong>
+          <span style="color:#64748b;margin-left:0.5rem">${escHtml(time)}</span>
+          <span style="float:right;text-transform:uppercase;font-size:0.75rem">${escHtml(h.status || '-')}</span>
+        </div>
+      `;
+    }).join('');
   } catch (err) {
     list.innerHTML = `<p class="empty-state">Chyba: ${escHtml(err.message)}</p>`;
   }
@@ -1504,6 +1576,445 @@ async function loadKnowledgeStats() {
     console.error('Stats failed:', err);
     display.innerHTML = `<div class="scan-errors">${escHtml(err.message)}</div>`;
     show(display);
+  }
+}
+
+/* ============================================================
+   STATUS DASHBOARD
+   ============================================================ */
+let _statusRefreshInterval = null;
+
+function bindStatusEvents() {
+  const refreshBtn = document.getElementById('refresh-status-btn');
+  if (refreshBtn) refreshBtn.addEventListener('click', loadSystemStatus);
+}
+
+async function loadSystemStatus() {
+  const grid = document.getElementById('status-grid');
+  const badge = document.getElementById('overall-status-badge');
+  const timestamp = document.getElementById('status-timestamp');
+  if (!grid) return;
+
+  try {
+    const response = await fetch('/api/status');
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+
+    // Overall status badge
+    if (badge) {
+      badge.textContent = data.overall_status.toUpperCase();
+      badge.className = `status-badge status-badge--${data.overall_status}`;
+    }
+
+    // Timestamp
+    if (timestamp) {
+      timestamp.textContent = `Aktualizovano: ${new Date(data.timestamp).toLocaleTimeString()}`;
+    }
+
+    // Render component cards
+    grid.innerHTML = '';
+    const components = data.components || {};
+    for (const [key, component] of Object.entries(components)) {
+      if (key === 'integrations') {
+        // Integrations get a special card with sub-cards
+        const card = createIntegrationsCard(component);
+        grid.appendChild(card);
+      } else {
+        const card = createStatusCard(key, component);
+        grid.appendChild(card);
+      }
+    }
+
+    // Start auto-refresh if not already running
+    if (!_statusRefreshInterval) {
+      _statusRefreshInterval = setInterval(() => {
+        // Only auto-refresh if status tab is visible
+        const statusTab = document.getElementById('tab-status');
+        if (statusTab && !statusTab.classList.contains('hidden')) {
+          loadSystemStatus();
+        }
+      }, 30000);
+    }
+  } catch (err) {
+    grid.innerHTML = `<p class="empty-state">Chyba: ${escHtml(err.message)}</p>`;
+  }
+}
+
+function createStatusCard(name, component) {
+  const card = document.createElement('div');
+  card.className = 'status-card';
+
+  const status = component.status || 'unknown';
+  const details = component.details || {};
+
+  card.innerHTML = `
+    <div class="status-card-header">
+      <span class="status-card-title">${escHtml(formatComponentName(name))}</span>
+      <span class="status-indicator status-indicator--${escHtml(status)}" title="${escHtml(status)}"></span>
+    </div>
+    <div class="status-details">
+      ${renderStatusDetails(details)}
+    </div>
+  `;
+  return card;
+}
+
+function createIntegrationsCard(integrations) {
+  const card = document.createElement('div');
+  card.className = 'status-card';
+  card.style.gridColumn = '1 / -1';  // full width for integrations
+
+  let subcardsHtml = '';
+  for (const [name, sub] of Object.entries(integrations)) {
+    const status = sub.status || 'unknown';
+    subcardsHtml += `
+      <div class="status-subcard">
+        <div class="status-subcard-title">${escHtml(formatComponentName(name))}</div>
+        <span class="status-indicator status-indicator--${escHtml(status)}" title="${escHtml(status)}"></span>
+        <div style="margin-top:0.35rem">${renderStatusDetails(sub.details || {}, true)}</div>
+      </div>
+    `;
+  }
+
+  card.innerHTML = `
+    <div class="status-card-header">
+      <span class="status-card-title">Integrace</span>
+    </div>
+    <div class="status-subgrid">${subcardsHtml}</div>
+  `;
+  return card;
+}
+
+function renderStatusDetails(details, compact) {
+  const entries = Object.entries(details);
+  if (!entries.length) return '<span class="status-detail">Zadne detaily</span>';
+
+  return entries.map(([key, value]) => {
+    let displayValue = value;
+    if (typeof value === 'boolean') displayValue = value ? 'Ano' : 'Ne';
+    else if (value === null || value === undefined) displayValue = '-';
+    else if (Array.isArray(value)) displayValue = value.length ? value.join(', ') : '(prazdne)';
+
+    if (compact) {
+      return `<div class="status-detail" style="font-size:0.7rem;justify-content:center"><span>${escHtml(String(displayValue))}</span></div>`;
+    }
+    return `<div class="status-detail"><strong>${escHtml(formatDetailKey(key))}:</strong> <span class="status-detail-value">${escHtml(String(displayValue))}</span></div>`;
+  }).join('');
+}
+
+function formatComponentName(name) {
+  const names = {
+    'ollama': 'Ollama LLM',
+    'knowledge_base': 'Knowledge Base',
+    'filesystem': 'Filesystem',
+    'integrations': 'Integrace',
+    'agents': 'Agenti',
+    'websocket': 'WebSocket',
+    'vscode': 'VS Code',
+    'git': 'Git',
+    'macos': 'macOS',
+    'claude_mcp': 'Claude MCP',
+    'antigravity': 'Antigravity',
+  };
+  return names[name] || name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+function formatDetailKey(key) {
+  return key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function handleStatusAlert(msg) {
+  addStatusAlert(msg);
+  // Auto-refresh status if status tab is active
+  const statusTab = document.getElementById('tab-status');
+  if (statusTab && !statusTab.classList.contains('hidden')) {
+    loadSystemStatus();
+  }
+}
+
+function addStatusAlert(alert) {
+  const container = document.getElementById('status-alerts');
+  if (!container) return;
+
+  const alertEl = document.createElement('div');
+  const severity = alert.severity || 'info';
+  alertEl.className = `status-alert status-alert--${escHtml(severity)}`;
+  alertEl.innerHTML = `
+    <strong>${escHtml((alert.component || '').toUpperCase())}</strong>: ${escHtml(alert.message || '')}
+    <span class="status-alert-time">${new Date().toLocaleTimeString()}</span>
+  `;
+  container.prepend(alertEl);
+
+  // Auto-remove after 30 seconds
+  setTimeout(() => alertEl.remove(), 30000);
+}
+
+/* ============================================================
+   QUICK ACTIONS EDITOR
+   ============================================================ */
+let _editingActionId = null;
+
+function bindQuickActionsEditor() {
+  const addBtn = document.getElementById('add-action-btn');
+  if (addBtn) addBtn.addEventListener('click', () => openActionEditorModal(null));
+
+  const closeBtn = document.getElementById('action-modal-close');
+  const cancelBtn = document.getElementById('action-modal-cancel');
+  const saveBtn = document.getElementById('action-modal-save');
+  const addStepBtn = document.getElementById('add-step-btn');
+
+  if (closeBtn) closeBtn.addEventListener('click', closeActionEditorModal);
+  if (cancelBtn) cancelBtn.addEventListener('click', closeActionEditorModal);
+  if (saveBtn) saveBtn.addEventListener('click', saveQuickAction);
+  if (addStepBtn) addStepBtn.addEventListener('click', addStepToEditor);
+}
+
+function openActionEditorModal(action) {
+  const modal = document.getElementById('action-editor-modal');
+  const title = document.getElementById('action-modal-title');
+  const nameInput = document.getElementById('action-name-input');
+  const iconInput = document.getElementById('action-icon-input');
+  const stepsList = document.getElementById('action-steps-list');
+
+  if (action) {
+    // Editing existing action
+    _editingActionId = action.id;
+    title.textContent = 'Upravit akci';
+    nameInput.value = action.name || '';
+    iconInput.value = action.icon || '';
+    stepsList.innerHTML = '';
+    (action.steps || []).forEach(step => addStepToEditor(step));
+  } else {
+    // Creating new action
+    _editingActionId = null;
+    title.textContent = 'Nova rychla akce';
+    nameInput.value = '';
+    iconInput.value = '\u26A1';
+    stepsList.innerHTML = '';
+  }
+
+  show(modal);
+}
+
+function closeActionEditorModal() {
+  hide(document.getElementById('action-editor-modal'));
+  _editingActionId = null;
+}
+
+function addStepToEditor(existingStep) {
+  const stepsList = document.getElementById('action-steps-list');
+  const stepNum = stepsList.children.length + 1;
+
+  const stepEl = document.createElement('div');
+  stepEl.className = 'action-step-editor';
+
+  const stepType = existingStep?.type || existingStep?.service || '';
+  const stepAction = existingStep?.action || '';
+  const stepParams = existingStep?.params || {};
+
+  stepEl.innerHTML = `
+    <div class="step-header">
+      <span class="step-number">${stepNum}.</span>
+      <select class="select step-type" style="flex:1">
+        <option value="">-- Vyber typ --</option>
+        <option value="git" ${stepType === 'git' ? 'selected' : ''}>Git</option>
+        <option value="vscode" ${stepType === 'vscode' ? 'selected' : ''}>VS Code</option>
+        <option value="macos" ${stepType === 'macos' ? 'selected' : ''}>macOS</option>
+        <option value="filesystem" ${stepType === 'filesystem' ? 'selected' : ''}>Filesystem</option>
+        <option value="knowledge" ${stepType === 'knowledge' ? 'selected' : ''}>Knowledge Search</option>
+        <option value="chat" ${stepType === 'chat' ? 'selected' : ''}>Chat Message</option>
+      </select>
+    </div>
+    <div class="step-params"></div>
+    <button class="btn-remove-step" title="Odebrat krok">&times;</button>
+  `;
+
+  stepEl.querySelector('.step-type').addEventListener('change', (e) => {
+    renderStepParams(stepEl, e.target.value, {});
+    updateStepNumbers();
+  });
+
+  stepEl.querySelector('.btn-remove-step').addEventListener('click', () => {
+    stepEl.remove();
+    updateStepNumbers();
+  });
+
+  stepsList.appendChild(stepEl);
+
+  // If we have existing data, render params
+  if (stepType) {
+    renderStepParams(stepEl, stepType, stepParams, stepAction);
+  }
+}
+
+function updateStepNumbers() {
+  document.querySelectorAll('.action-step-editor .step-number').forEach((el, i) => {
+    el.textContent = `${i + 1}.`;
+  });
+}
+
+function renderStepParams(stepEl, type, params, action) {
+  const paramsDiv = stepEl.querySelector('.step-params');
+  params = params || {};
+  action = action || '';
+
+  switch (type) {
+    case 'git':
+      paramsDiv.innerHTML = `
+        <div class="form-group">
+          <label class="form-label">Repo cesta:</label>
+          <input type="text" class="input step-param" name="repo_path" value="${escHtml(params.repo_path || '')}" placeholder="/cesta/k/repo" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Prikaz:</label>
+          <select class="select step-param" name="command">
+            <option value="status" ${(action || params.command) === 'status' ? 'selected' : ''}>Status</option>
+            <option value="pull" ${(action || params.command) === 'pull' ? 'selected' : ''}>Pull</option>
+            <option value="commit" ${(action || params.command) === 'commit' ? 'selected' : ''}>Commit</option>
+            <option value="push" ${(action || params.command) === 'push' ? 'selected' : ''}>Push</option>
+            <option value="fetch" ${(action || params.command) === 'fetch' ? 'selected' : ''}>Fetch</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Commit zprava (pro commit):</label>
+          <input type="text" class="input step-param" name="message" value="${escHtml(params.message || '')}" placeholder="Auto-commit" />
+        </div>
+      `;
+      break;
+    case 'vscode':
+      paramsDiv.innerHTML = `
+        <div class="form-group">
+          <label class="form-label">Akce:</label>
+          <select class="select step-param" name="action">
+            <option value="open_project" ${(action || params.action) === 'open_project' ? 'selected' : ''}>Otevrit projekt</option>
+            <option value="open_file" ${(action || params.action) === 'open_file' ? 'selected' : ''}>Otevrit soubor</option>
+            <option value="run_task" ${(action || params.action) === 'run_task' ? 'selected' : ''}>Spustit task</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Cesta / Projekt:</label>
+          <input type="text" class="input step-param" name="path" value="${escHtml(params.path || params.project_key || '')}" placeholder="/cesta nebo klic projektu" />
+        </div>
+      `;
+      break;
+    case 'macos':
+      paramsDiv.innerHTML = `
+        <div class="form-group">
+          <label class="form-label">Akce:</label>
+          <select class="select step-param" name="action">
+            <option value="notification" ${(action || params.action) === 'notification' ? 'selected' : ''}>Notifikace</option>
+            <option value="launch_app" ${(action || params.action) === 'launch_app' ? 'selected' : ''}>Spustit aplikaci</option>
+            <option value="quit_app" ${(action || params.action) === 'quit_app' ? 'selected' : ''}>Zavrit aplikaci</option>
+            <option value="volume_set" ${(action || params.action) === 'volume_set' ? 'selected' : ''}>Nastavit hlasitost</option>
+            <option value="safari_open" ${(action || params.action) === 'safari_open' ? 'selected' : ''}>Otevrit Safari</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Parametry (JSON):</label>
+          <textarea class="textarea step-param" name="params" rows="2" placeholder='{"level": 50}'>${escHtml(typeof params.params === 'object' ? JSON.stringify(params.params) : (params.params || ''))}</textarea>
+        </div>
+      `;
+      break;
+    case 'filesystem':
+      paramsDiv.innerHTML = `
+        <div class="form-group">
+          <label class="form-label">Operace:</label>
+          <select class="select step-param" name="action">
+            <option value="read" ${(action || params.action) === 'read' ? 'selected' : ''}>Precist soubor</option>
+            <option value="write" ${(action || params.action) === 'write' ? 'selected' : ''}>Zapsat soubor</option>
+            <option value="list" ${(action || params.action) === 'list' ? 'selected' : ''}>Vypsat adresar</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Cesta:</label>
+          <input type="text" class="input step-param" name="path" value="${escHtml(params.path || '')}" placeholder="/cesta/k/souboru" />
+        </div>
+      `;
+      break;
+    case 'knowledge':
+      paramsDiv.innerHTML = `
+        <div class="form-group">
+          <label class="form-label">Vyhledavaci dotaz:</label>
+          <input type="text" class="input step-param" name="query" value="${escHtml(params.query || '')}" placeholder="Co hledat v knowledge base..." />
+        </div>
+      `;
+      break;
+    case 'chat':
+      paramsDiv.innerHTML = `
+        <div class="form-group">
+          <label class="form-label">Zprava:</label>
+          <textarea class="textarea step-param" name="message" rows="2" placeholder="Zprava pro chat...">${escHtml(params.message || '')}</textarea>
+        </div>
+      `;
+      break;
+    default:
+      paramsDiv.innerHTML = '';
+  }
+}
+
+async function saveQuickAction() {
+  const name = document.getElementById('action-name-input').value.trim();
+  const icon = document.getElementById('action-icon-input').value.trim() || '\u26A1';
+
+  if (!name) {
+    showToast('Zadej nazev akce', 'warning');
+    return;
+  }
+
+  const steps = [];
+  document.querySelectorAll('.action-step-editor').forEach(stepEl => {
+    const type = stepEl.querySelector('.step-type').value;
+    if (!type) return;
+
+    const params = {};
+    let action = '';
+    stepEl.querySelectorAll('.step-param').forEach(input => {
+      const val = input.value.trim();
+      if (!val) return;
+      if (input.name === 'action' || input.name === 'command') {
+        action = val;
+      } else {
+        params[input.name] = val;
+      }
+    });
+
+    steps.push({ service: type, action: action, params });
+  });
+
+  const actionData = { name, icon, steps };
+
+  try {
+    if (_editingActionId) {
+      // Update existing
+      actionData.id = _editingActionId;
+      const res = await fetch(`/api/settings/quick-actions/${encodeURIComponent(_editingActionId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(actionData),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || 'Update failed');
+      }
+      showToast('Akce upravena', 'success');
+    } else {
+      // Create new
+      const res = await fetch('/api/settings/quick-actions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(actionData),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || 'Create failed');
+      }
+      showToast('Akce vytvorena', 'success');
+    }
+
+    closeActionEditorModal();
+    loadQuickActions();
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
   }
 }
 

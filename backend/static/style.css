@@ -1663,6 +1663,256 @@ body {
   }
 }
 
+/* ── Status Dashboard ─────────────────────────────────────── */
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.status-card {
+  background: #222635;
+  border: 1px solid #2d3348;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.status-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.status-card-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+}
+
+.status-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.status-indicator--healthy { background: #22c55e; box-shadow: 0 0 6px rgba(34, 197, 94, 0.4); }
+.status-indicator--unhealthy { background: #ef4444; box-shadow: 0 0 6px rgba(239, 68, 68, 0.4); }
+.status-indicator--warning { background: #f59e0b; box-shadow: 0 0 6px rgba(245, 158, 11, 0.4); }
+.status-indicator--configured { background: #22c55e; }
+.status-indicator--unconfigured { background: #94a3b8; }
+.status-indicator--degraded { background: #f59e0b; box-shadow: 0 0 6px rgba(245, 158, 11, 0.4); }
+
+.status-detail {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  padding: 0.15rem 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.status-detail strong {
+  color: #cbd5e1;
+  font-weight: 500;
+}
+
+.status-detail-value {
+  text-align: right;
+  word-break: break-all;
+  max-width: 60%;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 0.35rem 0.85rem;
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.status-badge--healthy {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.status-badge--degraded {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.status-badge--unhealthy {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.status-timestamp {
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+/* Sub-component cards (e.g. integrations nested inside) */
+.status-subgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.status-subcard {
+  background: #1a1d27;
+  border: 1px solid #2d3348;
+  border-radius: 6px;
+  padding: 0.6rem;
+  text-align: center;
+}
+
+.status-subcard-title {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #94a3b8;
+  margin-bottom: 0.35rem;
+}
+
+/* Status alerts */
+.status-alerts {
+  margin-top: 1rem;
+}
+
+.status-alert {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.85rem;
+  border-radius: 6px;
+  margin-bottom: 0.4rem;
+  font-size: 0.85rem;
+  animation: fadeInUp 0.2s ease;
+}
+
+.status-alert--error {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: #fca5a5;
+}
+
+.status-alert--warning {
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  color: #fcd34d;
+}
+
+.status-alert--info {
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  color: #93c5fd;
+}
+
+.status-alert-time {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+/* ── Quick Action Editor ─────────────────────────────────── */
+.action-step-editor {
+  background: #1a1d27;
+  border: 1px solid #2d3348;
+  border-radius: 6px;
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
+  position: relative;
+}
+
+.action-step-editor .step-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.action-step-editor .step-number {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #64748b;
+  min-width: 1.5rem;
+}
+
+.action-step-editor .step-params {
+  margin-top: 0.5rem;
+}
+
+.action-step-editor .step-params .form-group {
+  margin-bottom: 0.4rem;
+}
+
+.action-step-editor .step-params .form-label {
+  font-size: 0.8rem;
+}
+
+.btn-remove-step {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 0.2rem;
+  line-height: 1;
+}
+
+.btn-remove-step:hover {
+  color: #ef4444;
+}
+
+/* Action card enhancements (edit/delete controls) */
+.action-card {
+  position: relative;
+}
+
+.action-card-controls {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  display: flex;
+  gap: 0.2rem;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.action-card:hover .action-card-controls {
+  opacity: 1;
+}
+
+.action-card-controls button {
+  background: rgba(0,0,0,0.3);
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 0.15rem 0.3rem;
+  border-radius: 3px;
+  line-height: 1;
+}
+
+.action-card-controls button:hover {
+  color: #e2e8f0;
+  background: rgba(0,0,0,0.5);
+}
+
 /* ── Drag-over state for file drop ────────────────────────── */
 .drag-over {
   outline: 2px dashed #3b82f6;
