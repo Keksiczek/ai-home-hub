@@ -29,6 +29,7 @@ async def spawn_agent(body: SpawnAgentRequest) -> Dict[str, Any]:
             task=body.task,
             workspace=body.workspace,
             skill_ids=body.skill_ids,
+            skill_names=body.skill_names,
         )
         return {
             "agent_id": agent_id,

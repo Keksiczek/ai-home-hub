@@ -114,6 +114,10 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         "tech": {"model": "qwen2.5-coder:3b", "params": {"temperature": 0.3}},
         "dolphin": {"model": "dolphin-llama3:8b", "params": {"temperature": 0.8}},
     },
+    "agent_skills": {
+        "skills_directories": [],
+        "use_default_skill_paths": True,
+    },
     "quick_actions": [],
 }
 

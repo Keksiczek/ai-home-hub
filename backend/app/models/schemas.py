@@ -46,6 +46,7 @@ class SpawnAgentRequest(BaseModel):
     task: Dict[str, Any]
     workspace: Optional[str] = None
     skill_ids: List[str] = []
+    skill_names: List[str] = []  # filesystem-based agent skills (SKILL.md)
 
 
 class AgentStatusResponse(BaseModel):
