@@ -1589,16 +1589,38 @@ async function loadKnowledgeStats() {
   const display = document.getElementById('kb-stats-display');
 
   try {
-    const resp = await fetch('/api/knowledge/stats');
+    const resp = await fetch('/api/knowledge/stats?detailed=true');
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
+
+    const fileTypesHtml = data.file_types
+      ? Object.entries(data.file_types)
+          .sort((a, b) => b[1] - a[1])
+          .map(([ext, cnt]) => `${escHtml(ext || 'unknown')}: ${cnt}`)
+          .join(' | ')
+      : '';
+
+    const topSourcesHtml = data.top_sources && data.top_sources.length
+      ? `<br><small>Top soubory: ${data.top_sources.slice(0, 5)
+            .map(s => `${escHtml(s.path.split('/').pop())} (${s.chunks})`)
+            .join(', ')}</small>`
+      : '';
+
+    const warningHtml = data.warning
+      ? `<div class="scan-errors" style="margin-top:0.5rem">
+           &#9432; ${escHtml(data.warning)}
+         </div>`
+      : '';
 
     display.innerHTML = `
       <div class="scan-summary">
         <strong>Knowledge Base statistiky</strong><br>
-        Celkem chunku: ${data.total_chunks} |
+        Celkem chunk&#367;: ${data.total_chunks}${data.total_documents !== undefined ? ` | Soubor&#367;: ${data.total_documents}` : ''} |
         Kolekce: ${escHtml(data.collection_name)}
+        ${fileTypesHtml ? `<br><small>Typy soubor&#367;: ${fileTypesHtml}</small>` : ''}
+        ${topSourcesHtml}
       </div>
+      ${warningHtml}
     `;
     show(display);
   } catch (err) {

@@ -381,7 +381,16 @@ async def reindex_file(body: ReindexFileRequest) -> Dict[str, Any]:
 
 
 @router.get("/knowledge/stats", tags=["knowledge"])
-async def get_knowledge_stats() -> Dict[str, Any]:
-    """Get knowledge base statistics."""
+async def get_knowledge_stats(detailed: bool = True) -> Dict[str, Any]:
+    """Get knowledge base statistics.
+
+    Args:
+        detailed: When ``false``, returns only ``total_chunks`` and
+                  ``collection_name`` (fast, no metadata scan).
+                  When ``true`` (default), also returns ``total_documents``,
+                  ``file_types``, and ``top_sources``.  For collections with
+                  more than 50 000 chunks the analysis is based on a sample
+                  and a ``warning`` field is included in the response.
+    """
     vector_store = get_vector_store_service()
-    return vector_store.get_stats()
+    return vector_store.get_stats(detailed=detailed)

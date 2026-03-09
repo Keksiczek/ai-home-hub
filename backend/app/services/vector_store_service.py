@@ -93,17 +93,82 @@ class VectorStoreService:
             logger.error("Failed to delete file chunks: %s", exc)
             return 0
 
-    def get_stats(self) -> Dict[str, Any]:
-        """Get collection statistics."""
+    def get_stats(self, detailed: bool = True, sample_limit: int = 10_000) -> Dict[str, Any]:
+        """Get collection statistics.
+
+        For large collections (>100k chunks), ``detailed=True`` analyses only
+        the first *sample_limit* metadata records and sets ``sampled=True`` in
+        the response so callers can warn the user.
+
+        Args:
+            detailed: When False return only lightweight counts (no metadata
+                      scan).  When True also return ``file_types`` and
+                      ``top_sources`` breakdowns.
+            sample_limit: Maximum number of metadata records to analyse for
+                          detailed breakdowns.  Has no effect when
+                          ``detailed=False``.
+        """
+        LARGE_THRESHOLD = 50_000
+
         try:
-            count = self.collection.count()
-            return {
-                "total_chunks": count,
-                "collection_name": self.COLLECTION_NAME,
-            }
+            total_chunks = self.collection.count()
         except Exception as exc:
-            logger.error("Failed to get stats: %s", exc)
-            return {"total_chunks": 0, "collection_name": self.COLLECTION_NAME}
+            logger.error("Failed to count collection: %s", exc)
+            return {
+                "total_chunks": 0,
+                "collection_name": self.COLLECTION_NAME,
+                "detailed": detailed,
+            }
+
+        base: Dict[str, Any] = {
+            "total_chunks": total_chunks,
+            "collection_name": self.COLLECTION_NAME,
+            "detailed": detailed,
+        }
+
+        if not detailed:
+            return base
+
+        # --- detailed pass: fetch a bounded sample of metadatas ---
+        sampled = total_chunks > LARGE_THRESHOLD
+        fetch_limit = sample_limit if sampled else total_chunks
+
+        try:
+            result = self.collection.get(
+                limit=fetch_limit,
+                include=["metadatas"],
+            )
+            metadatas: List[Dict[str, Any]] = result.get("metadatas") or []
+        except Exception as exc:
+            logger.warning("Metadata fetch for stats failed: %s", exc)
+            metadatas = []
+
+        # file_types breakdown  (by extension)
+        file_types: Dict[str, int] = {}
+        source_chunks: Dict[str, int] = {}
+
+        for meta in metadatas:
+            file_path = meta.get("file_path", "")
+            ext = Path(file_path).suffix.lower() if file_path else ""
+            file_types[ext or "unknown"] = file_types.get(ext or "unknown", 0) + 1
+            source_chunks[file_path] = source_chunks.get(file_path, 0) + 1
+
+        unique_files = len(source_chunks)
+        top_sources = sorted(source_chunks.items(), key=lambda x: x[1], reverse=True)[:20]
+
+        base.update({
+            "total_documents": unique_files,
+            "file_types": file_types,
+            "top_sources": [{"path": p, "chunks": c} for p, c in top_sources],
+            "sample_size": len(metadatas),
+            "sampled": sampled,
+        })
+        if sampled:
+            base["warning"] = (
+                f"Stats are based on a sample of {len(metadatas):,} / {total_chunks:,} chunks. "
+                "Re-index to get exact file counts."
+            )
+        return base
 
 
 def _sanitize_metadata(meta: Dict[str, Any]) -> Dict[str, Any]:
