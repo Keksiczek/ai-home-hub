@@ -1,4 +1,4 @@
-"""Chat router – LLM chat with session persistence and knowledge base context."""
+"""Chat router – LLM chat with session persistence, knowledge base context, and shared memory."""
 import logging
 from typing import Any, Dict, List
 
@@ -12,6 +12,9 @@ from app.utils.constants import MIN_KB_SEARCH_SCORE
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Maximum cosine distance to consider a memory relevant for chat context
+MAX_MEMORY_DISTANCE = 0.7
 
 
 async def _get_kb_context(message: str) -> str:
@@ -63,6 +66,34 @@ async def _get_kb_context(message: str) -> str:
         return ""
 
 
+async def _get_memory_context(message: str) -> str:
+    """Search shared memory for relevant user notes/preferences."""
+    try:
+        from app.services.memory_service import get_memory_service
+        svc = get_memory_service()
+        if svc.collection.count() == 0:
+            return ""
+
+        results = await svc.search_memory(message, top_k=3)
+        if not results:
+            return ""
+
+        notes = []
+        for r in results:
+            if r.distance is not None and r.distance > MAX_MEMORY_DISTANCE:
+                continue
+            notes.append(f'  <note importance="{r.importance}">{r.text}</note>')
+
+        if not notes:
+            return ""
+
+        return "<user_memory>\n" + "\n".join(notes) + "\n</user_memory>"
+
+    except Exception as exc:
+        logger.warning("Memory search failed: %s", exc)
+        return ""
+
+
 @router.post("/chat", response_model=ChatResponse, tags=["chat"])
 async def chat(request: ChatRequest) -> ChatResponse:
     """
@@ -85,6 +116,9 @@ async def chat(request: ChatRequest) -> ChatResponse:
     # Search knowledge base for relevant context
     kb_context = await _get_kb_context(request.message)
 
+    # Search shared memory for relevant user notes/preferences
+    memory_context = await _get_memory_context(request.message)
+
     # Build the message with KB context if available
     llm_message = request.message
     if kb_context:
@@ -92,6 +126,10 @@ async def chat(request: ChatRequest) -> ChatResponse:
             f"{request.message}\n\n"
             f"# Relevant Context from Knowledge Base:\n{kb_context}"
         )
+
+    # Prepend memory context to the message so the LLM sees user preferences
+    if memory_context:
+        llm_message = f"{memory_context}\n\n{llm_message}"
 
     # Generate response
     reply, meta = await llm_svc.generate(
@@ -102,8 +140,9 @@ async def chat(request: ChatRequest) -> ChatResponse:
         history=history,
     )
 
-    # Flag whether KB context was used
+    # Flag whether KB/memory context was used
     meta["kb_context_used"] = bool(kb_context)
+    meta["memory_context_used"] = bool(memory_context)
 
     # Persist both turns (store original message, not the one with KB context)
     session_svc.save_message(session_id, "user", request.message)
