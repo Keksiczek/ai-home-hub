@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Body, HTTPException
 
 from app.models.schemas import ReindexFileRequest
 from app.services.embeddings_service import get_embeddings_service
@@ -184,6 +184,7 @@ async def ingest_files(
                     "file_name": file_path.name,
                     "chunk_index": idx,
                     "page_count": parsed.get("page_count", 1),
+                    "mtime": file_path.stat().st_mtime,
                     **parsed.get("metadata", {}),
                 }
                 for _, _, idx in valid_items
@@ -277,6 +278,85 @@ async def search_knowledge(
         "results": results,
         "query": query,
     }
+
+
+# ── Incremental ingestion ────────────────────────────────────────
+
+
+def get_file_metadata(file_path: str) -> Optional[Dict[str, Any]]:
+    """Retrieve stored metadata for a file from its first indexed chunk.
+
+    Returns the metadata dict (which includes ``mtime``) or ``None`` if
+    the file has never been indexed.
+    """
+    try:
+        vector_store = get_vector_store_service()
+        results = vector_store.collection.get(
+            where={"file_path": file_path},
+            limit=1,
+        )
+        if results and results.get("metadatas"):
+            return results["metadatas"][0]
+    except Exception as exc:
+        logger.warning("Could not retrieve metadata for %s: %s", file_path, exc)
+    return None
+
+
+@router.post("/knowledge/ingest/incremental", tags=["knowledge"])
+async def incremental_ingest(
+    file_paths: List[str] = Body(...),
+) -> Dict[str, Any]:
+    """
+    Ingest only files that have been modified since their last indexing.
+
+    Compares each file's current ``mtime`` against the value stored in the
+    vector DB.  Unchanged files are counted in ``skipped_count``; modified
+    or new files are re-indexed and counted in ``re_indexed``.
+    """
+    skipped_count = 0
+    re_indexed = 0
+    errors: List[str] = []
+
+    for fp in file_paths:
+        path = Path(fp)
+        if not path.exists():
+            errors.append(f"Not found: {fp}")
+            continue
+
+        current_mtime = path.stat().st_mtime
+        stored = get_file_metadata(fp)
+
+        if stored is not None and stored.get("mtime") == current_mtime:
+            skipped_count += 1
+            continue
+
+        result = await ingest_files(file_paths=[fp])
+        if result["ingested_count"] > 0:
+            re_indexed += 1
+        else:
+            errors.extend(result["errors"])
+
+    return {"skipped_count": skipped_count, "re_indexed": re_indexed, "errors": errors}
+
+
+# ── File deletion ────────────────────────────────────────────────
+
+
+@router.delete("/knowledge/files", tags=["knowledge"])
+async def delete_kb_file(path: str) -> Dict[str, Any]:
+    """
+    Remove all indexed chunks for a specific file path.
+
+    Returns HTTP 404 if no chunks are found for the given path.
+    """
+    vector_store = get_vector_store_service()
+    deleted_chunks = vector_store.delete_by_file_path(path)
+    if deleted_chunks == 0:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No indexed chunks found for: {path}",
+        )
+    return {"path": path, "deleted_chunks": deleted_chunks}
 
 
 # ── Reindex ───────────────────────────────────────────────────────
