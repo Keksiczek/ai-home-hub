@@ -179,3 +179,23 @@ class NotificationRequest(BaseModel):
     title: str
     message: str
     priority: str = "default"  # low | default | high | urgent
+
+
+# ── Multimodal chat ──────────────────────────────────────────
+
+class MultimodalImageData(BaseModel):
+    data: str        # base64-encoded image bytes
+    media_type: str  # e.g. "image/jpeg"
+
+
+class MultimodalChatRequest(BaseModel):
+    message: str
+    images: List[MultimodalImageData] = []
+    mode: str = "general"
+    session_id: Optional[str] = None
+
+
+# ── Knowledge base management ────────────────────────────────
+
+class ReindexFileRequest(BaseModel):
+    file_path: str
