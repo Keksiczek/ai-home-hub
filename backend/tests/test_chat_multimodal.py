@@ -30,9 +30,9 @@ def test_multimodal_chat_no_images_calls_chat_endpoint(client, mock_ollama):
     data = resp.json()
     assert data["reply"] == "mocked chat reply"
 
-    # Exactly one Ollama call and it went to /api/chat (not /api/generate)
-    assert len(mock_ollama["calls"]) == 1
-    assert "/api/chat" in mock_ollama["calls"][0]["url"]
+    # With memory/KB context enrichment, there may be an embeddings call too
+    chat_calls = [c for c in mock_ollama["calls"] if "/api/chat" in c["url"]]
+    assert len(chat_calls) == 1, "Expected exactly one /api/chat call"
 
 
 def test_multimodal_chat_with_images_calls_generate_endpoint(client, mock_ollama):
