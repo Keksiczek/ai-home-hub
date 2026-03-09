@@ -415,14 +415,10 @@
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label" for="s-llm-model">Model:</label>
+          <label class="form-label" for="s-llm-model">V&yacute;choz&iacute; model:</label>
           <select class="select" id="s-llm-model">
             <option value="">Na&#269;&iacute;t&aacute;m modely...</option>
           </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="s-llm-temp">Teplota:</label>
-          <input type="number" class="input" id="s-llm-temp" min="0" max="2" step="0.1" style="max-width:100px" />
         </div>
         <div class="form-group">
           <label class="form-label" for="s-llm-url">Ollama URL:</label>
@@ -439,6 +435,51 @@
           <button class="btn btn--ghost btn--small" id="check-ollama-btn">Zkontrolovat Ollama</button>
         </div>
         <div id="ollama-status" class="result-box hidden"></div>
+
+        <!-- Advanced: per-profile LLM settings -->
+        <details style="margin-top:1.25rem">
+          <summary style="cursor:pointer;font-weight:600;color:#94a3b8;font-size:0.85rem;letter-spacing:.05em;text-transform:uppercase;padding:0.25rem 0">
+            &#9881; Pokro&#269;il&eacute; nastaven&iacute; &ndash; profily
+          </summary>
+          <div style="margin-top:1rem;padding:1rem;background:#1a1f2e;border-radius:0.5rem;border:1px solid #2d3348">
+            <p class="hint-text" style="margin-bottom:1rem">Nastaven&iacute; modelu a sampling parametr&#367; pro ka&#382;d&yacute; profil. Parametry profilu p&#345;ep&iacute;&#353;ou v&yacute;choz&iacute; hodnoty.</p>
+            <div class="form-group">
+              <label class="form-label" for="s-llm-profile-select">Profil:</label>
+              <select class="select" id="s-llm-profile-select" style="max-width:200px">
+                <option value="chat">chat</option>
+                <option value="powerbi">powerbi</option>
+                <option value="lean">lean</option>
+                <option value="vision">vision</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="s-profile-model">Model:</label>
+              <select class="select" id="s-profile-model">
+                <option value="">Na&#269;&iacute;t&aacute;m modely...</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="s-profile-temp">Temperature:</label>
+              <div style="display:flex;align-items:center;gap:0.75rem;flex:1">
+                <input type="range" class="slider" id="s-profile-temp-slider" min="0" max="2" step="0.05" value="0.3" style="flex:1" />
+                <input type="number" class="input" id="s-profile-temp" min="0" max="2" step="0.05" value="0.3" style="max-width:80px" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="s-profile-top-p">Top P:</label>
+              <input type="number" class="input" id="s-profile-top-p" min="0" max="1" step="0.01" value="0.9" style="max-width:100px" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="s-profile-top-k">Top K:</label>
+              <input type="number" class="input" id="s-profile-top-k" min="1" max="200" step="1" value="40" style="max-width:100px" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="s-profile-max-tokens">Max tokens:</label>
+              <input type="number" class="input" id="s-profile-max-tokens" min="64" max="32768" step="64" value="2048" style="max-width:120px" />
+            </div>
+            <p class="hint-text" id="s-profile-save-hint" style="color:#4ade80;display:none">&#10003; Ulo&#382;eno spole&#269;n&#283; s ostatn&iacute;mi nastaven&iacute;mi.</p>
+          </div>
+        </details>
       </section>
 
       <!-- Integrations section -->

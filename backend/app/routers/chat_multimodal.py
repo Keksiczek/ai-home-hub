@@ -61,10 +61,22 @@ async def _call_ollama_generate(
     model = cfg.get("model", "llava")
     timeout = float(cfg.get("timeout_seconds", 180))
 
+    # Build sampling options from config
+    options: Dict[str, Any] = {}
+    if cfg.get("temperature") is not None:
+        options["temperature"] = float(cfg["temperature"])
+    if cfg.get("top_p") is not None:
+        options["top_p"] = float(cfg["top_p"])
+    if cfg.get("top_k") is not None:
+        options["top_k"] = int(cfg["top_k"])
+    if cfg.get("max_tokens") is not None:
+        options["num_predict"] = int(cfg["max_tokens"])
+
     payload = {
         "model": model,
         "prompt": message,
         "images": [img.data for img in images],
+        "options": options,
         "stream": False,
     }
 
@@ -107,13 +119,16 @@ async def multimodal_chat(request: MultimodalChatRequest) -> ChatResponse:
         session_id = session_svc.create_session()
 
     if request.images:
-        cfg = get_settings_service().get_llm_config()
+        # Default to "vision" profile when images are attached; allow explicit override
+        profile = request.profile or "vision"
+        cfg = get_settings_service().get_llm_config(profile=profile)
         reply, meta = await _call_ollama_generate(request.message, request.images, cfg)
     else:
         history = session_svc.get_history_for_llm(session_id, limit=20)
         reply, meta = await get_llm_service().generate(
             message=request.message,
             mode=request.mode,
+            profile=request.profile,
             history=history,
         )
 

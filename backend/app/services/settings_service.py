@@ -13,10 +13,18 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "llm": {
         "provider": "ollama",
         "model": "llama3.2",
-        "temperature": 0.7,
+        "default_model": "llama3.2",
+        "temperature": 0.3,
         "timeout_seconds": 180,
         "ollama_url": "http://localhost:11434",
+        "base_url": "http://localhost:11434",
         "embeddings_model": "nomic-embed-text",
+        "default_params": {
+            "temperature": 0.3,
+            "top_p": 0.9,
+            "top_k": 40,
+            "max_tokens": 2048,
+        },
     },
     "integrations": {
         "claude_mcp": {
@@ -86,10 +94,25 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         "enabled": True,
     },
     "profiles": {
-        "chat": {"model": "llama3.2", "temperature": 0.7},
-        "tech": {"model": "qwen2.5-coder:3b", "temperature": 0.3},
-        "vision": {"model": "llava:7b", "temperature": 0.5},
-        "dolphin": {"model": "dolphin-llama3:8b", "temperature": 0.8},
+        "chat": {
+            "model": "llama3.2",
+            "params": {"temperature": 0.3, "top_p": 0.9, "top_k": 40, "max_tokens": 2048},
+        },
+        "powerbi": {
+            "model": "qwen2.5-coder:3b",
+            "params": {"temperature": 0.1, "top_p": 0.95, "top_k": 20, "max_tokens": 4096},
+        },
+        "lean": {
+            "model": "llama3.2",
+            "params": {"temperature": 0.3, "top_p": 0.9, "top_k": 40, "max_tokens": 2048},
+        },
+        "vision": {
+            "model": "llava:7b",
+            "params": {"temperature": 0.5, "top_p": 0.9, "top_k": 40, "max_tokens": 2048},
+        },
+        # Legacy profiles kept for backward compatibility
+        "tech": {"model": "qwen2.5-coder:3b", "params": {"temperature": 0.3}},
+        "dolphin": {"model": "dolphin-llama3:8b", "params": {"temperature": 0.8}},
     },
     "quick_actions": [],
 }
@@ -127,8 +150,63 @@ class SettingsService:
         prompts = settings.get("system_prompts", {})
         return prompts.get(mode, prompts.get("general", "You are a helpful assistant."))
 
-    def get_llm_config(self) -> Dict[str, Any]:
-        return self.load().get("llm", DEFAULT_SETTINGS["llm"])
+    def get_llm_config(self, profile: str = None) -> Dict[str, Any]:
+        """Return LLM config, optionally merged with per-profile overrides.
+
+        If *profile* is given, the profile's model and params are merged on top
+        of llm.default_params so that only the keys the profile specifies are
+        overridden.
+        """
+        settings = self.load()
+        llm_cfg = settings.get("llm", DEFAULT_SETTINGS["llm"])
+
+        # Resolve ollama URL (support both field names)
+        ollama_url = llm_cfg.get("ollama_url") or llm_cfg.get(
+            "base_url", "http://localhost:11434"
+        )
+
+        # Build base sampling params – prefer explicit default_params block, else
+        # fall back to flat fields for backward compatibility with old settings.json
+        default_params_block = llm_cfg.get("default_params", {})
+        base_params = {
+            "temperature": default_params_block.get(
+                "temperature", llm_cfg.get("temperature", 0.3)
+            ),
+            "top_p": default_params_block.get("top_p", 0.9),
+            "top_k": default_params_block.get("top_k", 40),
+            "max_tokens": default_params_block.get("max_tokens", 2048),
+        }
+
+        result: Dict[str, Any] = {
+            "provider": llm_cfg.get("provider", "ollama"),
+            "ollama_url": ollama_url,
+            "model": llm_cfg.get("default_model") or llm_cfg.get("model", "llama3.2"),
+            "timeout_seconds": llm_cfg.get("timeout_seconds", 180),
+            "embeddings_model": llm_cfg.get("embeddings_model", "nomic-embed-text"),
+            **base_params,
+        }
+
+        if profile:
+            profiles = settings.get("profiles", {})
+            profile_cfg = profiles.get(profile, {})
+
+            if "model" in profile_cfg:
+                result["model"] = profile_cfg["model"]
+
+            # Merge profile-level params over base params
+            profile_params = profile_cfg.get("params", {})
+            result.update(profile_params)
+
+            # Legacy: temperature stored directly on profile (no nested params)
+            if "temperature" in profile_cfg and not profile_params:
+                result["temperature"] = profile_cfg["temperature"]
+
+            logger.debug(
+                "LLM config for profile '%s': model=%s temperature=%.2f",
+                profile, result["model"], result.get("temperature", 0.0),
+            )
+
+        return result
 
     def get_integration_config(self, name: str) -> Dict[str, Any]:
         integrations = self.load().get("integrations", {})
@@ -162,11 +240,15 @@ class SettingsService:
                 "to use 'open_project' actions."
             )
 
-        ollama_url = s.get("llm", {}).get("ollama_url", "http://localhost:11434")
-        provider = s.get("llm", {}).get("provider", "ollama")
+        llm_s = s.get("llm", {})
+        ollama_url = llm_s.get("ollama_url") or llm_s.get("base_url", "http://localhost:11434")
+        provider = llm_s.get("provider", "ollama")
         if provider == "ollama":
-            logger.info("ℹ️  LLM: using Ollama at %s (model: %s). Run 'ollama serve' if not started.",
-                        ollama_url, s.get("llm", {}).get("model", "llama3.2"))
+            model = llm_s.get("default_model") or llm_s.get("model", "llama3.2")
+            logger.info(
+                "ℹ️  LLM: using Ollama at %s (model: %s). Run 'ollama serve' if not started.",
+                ollama_url, model,
+            )
 
 
 def _deep_copy(obj: Any) -> Any:
