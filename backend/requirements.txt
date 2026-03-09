@@ -11,5 +11,6 @@ PyPDF2==3.0.1
 python-docx==1.1.0
 openpyxl==3.1.2
 Pillow==10.2.0
+pytesseract==0.3.10
 python-magic==0.4.27
 chromadb==0.4.22

@@ -67,6 +67,7 @@ app.add_middleware(
 # Core
 app.include_router(files.router, prefix="/api", tags=["files"])
 app.include_router(chat.router, prefix="/api", tags=["chat"])
+app.include_router(chat_multimodal.router, prefix="/api", tags=["chat"])
 app.include_router(actions.router, prefix="/api", tags=["actions"])
 
 # New

@@ -1,4 +1,4 @@
-"""Agent orchestrator – multi-agent spawning, monitoring, and artifact generation."""
+"""Agent orchestrator – multi-agent spawning, monitoring, artifact generation, KB search, and sub-agents."""
 import asyncio
 import json
 import logging
@@ -24,6 +24,9 @@ AGENT_STATUS_INTERRUPTED = "interrupted"
 # Valid agent types
 AGENT_TYPES = {"code", "research", "testing", "devops", "general"}
 
+# Sub-agent depth limit
+MAX_SUB_AGENT_DEPTH = 2
+
 
 class AgentRecord:
     def __init__(
@@ -33,16 +36,21 @@ class AgentRecord:
         task: Dict[str, Any],
         workspace: Optional[str],
         skill_ids: Optional[List[str]] = None,
+        parent_agent_id: Optional[str] = None,
+        depth: int = 0,
     ) -> None:
         self.agent_id = agent_id
         self.agent_type = agent_type
         self.task = task
         self.workspace = workspace
         self.skill_ids = skill_ids or []
+        self.parent_agent_id = parent_agent_id
+        self.depth = depth
         self.status = AGENT_STATUS_PENDING
         self.progress = 0
         self.message: Optional[str] = None
         self.artifacts: List[str] = []
+        self.sub_agent_ids: List[str] = []
         self.created_at = _now()
         self.updated_at = _now()
         self._asyncio_task: Optional[asyncio.Task] = None
@@ -54,10 +62,13 @@ class AgentRecord:
             "task": self.task,
             "workspace": self.workspace,
             "skill_ids": self.skill_ids,
+            "parent_agent_id": self.parent_agent_id,
+            "depth": self.depth,
             "status": self.status,
             "progress": self.progress,
             "message": self.message,
             "artifacts": self.artifacts,
+            "sub_agent_ids": self.sub_agent_ids,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -99,6 +110,8 @@ class AgentOrchestrator:
         task: Dict[str, Any],
         workspace: Optional[str] = None,
         skill_ids: Optional[List[str]] = None,
+        parent_agent_id: Optional[str] = None,
+        depth: int = 0,
     ) -> str:
         """Spawn a new agent. Returns agent_id."""
         cfg = self._settings.load().get("agents", {})
@@ -126,15 +139,24 @@ class AgentOrchestrator:
                 task["_skill_prompt"] = "\n\n".join(skill_prompts)
 
         agent_id = str(uuid.uuid4())[:8]
-        record = AgentRecord(agent_id, agent_type, task, workspace, skill_ids=skill_ids)
+        record = AgentRecord(
+            agent_id, agent_type, task, workspace,
+            skill_ids=skill_ids,
+            parent_agent_id=parent_agent_id,
+            depth=depth,
+        )
         self._agents[agent_id] = record
+
+        # Track sub-agent in parent
+        if parent_agent_id and parent_agent_id in self._agents:
+            self._agents[parent_agent_id].sub_agent_ids.append(agent_id)
 
         # Start agent coroutine
         timeout_min = cfg.get("timeout_minutes", 30)
         record._asyncio_task = asyncio.create_task(
             self._run_agent(record, timeout_min)
         )
-        logger.info("Spawned agent %s (%s)", agent_id, agent_type)
+        logger.info("Spawned agent %s (%s) depth=%d parent=%s", agent_id, agent_type, depth, parent_agent_id)
         await self._broadcast(record)
         return agent_id
 
@@ -344,6 +366,173 @@ class AgentOrchestrator:
         for aid in done:
             del self._agents[aid]
         return len(done)
+
+    # ── Agent tools: KB Search ────────────────────────────────
+
+    async def search_knowledge_base(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
+        """
+        Tool for agents to search the knowledge base.
+
+        Returns list of {text, file_name, file_path, score} dicts.
+        """
+        try:
+            from app.services.vector_store_service import get_vector_store_service
+            from app.services.embeddings_service import get_embeddings_service
+
+            vector_store = get_vector_store_service()
+            embeddings_svc = get_embeddings_service()
+
+            stats = vector_store.get_stats()
+            if stats["total_chunks"] == 0:
+                return []
+
+            query_embedding = await embeddings_svc.generate_embedding(query)
+            if not query_embedding:
+                return []
+
+            search_results = vector_store.search(
+                query_embedding=query_embedding,
+                top_k=top_k,
+            )
+
+            MIN_SCORE = 0.3
+            results = []
+            for doc, metadata, distance in zip(
+                search_results["documents"],
+                search_results["metadatas"],
+                search_results["distances"],
+            ):
+                score = round(1 - distance, 4)
+                if score < MIN_SCORE:
+                    continue
+                results.append({
+                    "text": doc,
+                    "file_name": metadata.get("file_name", ""),
+                    "file_path": metadata.get("file_path", ""),
+                    "score": score,
+                })
+
+            return results
+        except Exception as exc:
+            logger.error("Agent KB search failed: %s", exc)
+            return []
+
+    # ── Sub-agent spawning (chaining) ─────────────────────────
+
+    async def spawn_sub_agent(
+        self,
+        parent_agent_id: str,
+        task: str,
+        agent_type: str = "general",
+    ) -> Optional[str]:
+        """
+        Spawn a sub-agent from a parent agent.
+
+        Returns sub_agent_id or None if depth limit exceeded.
+        """
+        parent = self._agents.get(parent_agent_id)
+        if not parent:
+            logger.warning("Parent agent %s not found for sub-agent", parent_agent_id)
+            return None
+
+        if parent.depth >= MAX_SUB_AGENT_DEPTH:
+            logger.warning(
+                "Sub-agent depth limit (%d) reached for agent %s",
+                MAX_SUB_AGENT_DEPTH, parent_agent_id,
+            )
+            return None
+
+        sub_agent_id = await self.spawn_agent(
+            agent_type=agent_type,
+            task={"goal": task},
+            workspace=parent.workspace,
+            parent_agent_id=parent_agent_id,
+            depth=parent.depth + 1,
+        )
+
+        # Broadcast sub-agent creation
+        if self._broadcast_fn:
+            try:
+                await self._broadcast_fn({
+                    "type": "agent_update",
+                    "agent_id": sub_agent_id,
+                    "parent_id": parent_agent_id,
+                })
+            except Exception:
+                pass
+
+        return sub_agent_id
+
+    # ── Artifact preview generation ───────────────────────────
+
+    def get_agent_artifacts_with_preview(self, agent_id: str) -> List[Dict[str, Any]]:
+        """Get artifacts with preview information for frontend display."""
+        record = self._agents.get(agent_id)
+        if not record:
+            return []
+
+        artifacts = []
+        for artifact_id in record.artifacts:
+            art = self.get_artifact(artifact_id)
+            if not art:
+                continue
+
+            content = art.get("content", {})
+            artifact_type = art.get("artifact_type", "unknown")
+
+            # Generate preview based on type
+            preview_info = self._generate_preview(content, artifact_type, artifact_id)
+
+            artifacts.append({
+                **art,
+                **preview_info,
+            })
+
+        return artifacts
+
+    def _generate_preview(
+        self, content: Any, artifact_type: str, artifact_id: str,
+    ) -> Dict[str, Any]:
+        """Generate preview metadata for an artifact."""
+        if isinstance(content, dict):
+            text_content = content.get("content", "")
+        elif isinstance(content, str):
+            text_content = content
+        else:
+            text_content = str(content)
+
+        filename = f"{artifact_id}.json"
+        file_type = "json"
+        size = len(json.dumps(content, default=str).encode("utf-8")) if content else 0
+
+        # Type-specific previews
+        if artifact_type in ("plan", "report"):
+            file_type = "markdown"
+            preview = text_content[:500] if text_content else ""
+            return {
+                "filename": f"{artifact_id}.md",
+                "type": file_type,
+                "size": size,
+                "preview": preview,
+                "download_url": f"/api/agents/artifacts/{artifact_id}",
+            }
+        elif artifact_type == "screenshot":
+            return {
+                "filename": f"{artifact_id}.png",
+                "type": "image",
+                "size": size,
+                "preview": "",  # thumbnail would go here
+                "download_url": f"/api/agents/artifacts/{artifact_id}",
+            }
+        else:
+            preview = text_content[:500] if text_content else json.dumps(content, default=str)[:500]
+            return {
+                "filename": filename,
+                "type": file_type,
+                "size": size,
+                "preview": preview,
+                "download_url": f"/api/agents/artifacts/{artifact_id}",
+            }
 
 
 def _now() -> str:
