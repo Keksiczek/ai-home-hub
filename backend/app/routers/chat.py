@@ -8,6 +8,7 @@ from app.models.schemas import ChatRequest, ChatResponse
 from app.services.llm_service import get_llm_service
 from app.services.session_service import get_session_service
 from app.services.settings_service import get_settings_service
+from app.utils.constants import MIN_KB_SEARCH_SCORE
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -44,14 +45,13 @@ async def _get_kb_context(message: str) -> str:
             return ""
 
         # Filter out low-quality matches (cosine similarity threshold)
-        MIN_SCORE = 0.3
         context_parts = []
         for doc, metadata, distance in zip(
             search_results["documents"],
             search_results["metadatas"],
             search_results["distances"],
         ):
-            if (1 - distance) < MIN_SCORE:
+            if (1 - distance) < MIN_KB_SEARCH_SCORE:
                 continue
             file_name = metadata.get("file_name", "Unknown")
             context_parts.append(f"[From {file_name}]\n{doc}")

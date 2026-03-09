@@ -10,6 +10,7 @@ from app.services.file_parser_service import get_file_parser_service
 from app.services.settings_service import get_settings_service
 from app.services.vector_store_service import get_vector_store_service
 from app.services.ws_manager import get_ws_manager
+from app.utils.constants import DEFAULT_CHUNK_OVERLAP, DEFAULT_CHUNK_SIZE, MIN_KB_SEARCH_SCORE
 from app.utils.text_chunker import chunk_text
 
 logger = logging.getLogger(__name__)
@@ -155,7 +156,7 @@ async def ingest_files(
                 continue
 
             # 2. Chunk text
-            chunks = chunk_text(text, chunk_size=500, overlap=50)
+            chunks = chunk_text(text, chunk_size=DEFAULT_CHUNK_SIZE, overlap=DEFAULT_CHUNK_OVERLAP)
 
             # 3. Generate embeddings
             embeddings = await embeddings_svc.generate_embeddings_batch(chunks)
@@ -254,7 +255,6 @@ async def search_knowledge(
     )
 
     # Format results, filter out low-quality matches
-    MIN_SCORE = 0.3  # cosine similarity threshold (1 - distance)
     results = []
     for doc, metadata, distance in zip(
         search_results["documents"],
@@ -262,7 +262,7 @@ async def search_knowledge(
         search_results["distances"],
     ):
         score = round(1 - distance, 4)
-        if score < MIN_SCORE:
+        if score < MIN_KB_SEARCH_SCORE:
             continue
         results.append({
             "text": doc,
