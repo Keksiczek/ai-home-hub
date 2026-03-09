@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
 
+from app.models.schemas import ReindexFileRequest
 from app.services.embeddings_service import get_embeddings_service
 from app.services.file_parser_service import get_file_parser_service
 from app.services.settings_service import get_settings_service
@@ -276,6 +277,20 @@ async def search_knowledge(
         "results": results,
         "query": query,
     }
+
+
+# ── Reindex ───────────────────────────────────────────────────────
+
+
+@router.post("/knowledge/reindex", tags=["knowledge"])
+async def reindex_file(body: ReindexFileRequest) -> Dict[str, Any]:
+    """
+    Re-index a single file: delete its existing chunks then re-ingest.
+
+    Useful after the file content has changed on disk.
+    Returns the same shape as ingest_files for a single file.
+    """
+    return await ingest_files(file_paths=[body.file_path])
 
 
 # ── Stats ────────────────────────────────────────────────────────

@@ -4,11 +4,17 @@ from typing import Any, Dict, List
 from fastapi import APIRouter, HTTPException
 
 from app.models.schemas import (
+    AgentSearchKBRequest,
+    AgentSearchKBResponse,
+    AgentSearchKBResult,
     AgentStatusResponse,
     ArtifactResponse,
     SpawnAgentRequest,
+    SpawnSubAgentRequest,
+    SpawnSubAgentResponse,
 )
 from app.services.agent_orchestrator import get_agent_orchestrator
+from app.utils.constants import MAX_SUB_AGENT_DEPTH
 
 router = APIRouter()
 
@@ -101,3 +107,78 @@ async def cleanup_agents() -> Dict[str, Any]:
     orchestrator = get_agent_orchestrator()
     count = orchestrator.cleanup_finished()
     return {"removed": count}
+
+
+@router.post("/agents/search-kb", response_model=AgentSearchKBResponse, tags=["agents"])
+async def agent_search_kb(body: AgentSearchKBRequest) -> AgentSearchKBResponse:
+    """
+    Search the knowledge base on behalf of an agent.
+
+    - query length: 1–500 characters
+    - top_k: 1–20 results (default 3)
+    """
+    from app.services.embeddings_service import get_embeddings_service
+    from app.services.vector_store_service import get_vector_store_service
+    from app.utils.constants import MIN_KB_SEARCH_SCORE
+
+    embeddings_svc = get_embeddings_service()
+    vector_store = get_vector_store_service()
+
+    query_embedding = await embeddings_svc.generate_embedding(body.query)
+    if not query_embedding:
+        raise HTTPException(status_code=500, detail="Failed to generate query embedding")
+
+    raw = vector_store.search(query_embedding=query_embedding, top_k=body.top_k)
+
+    results = [
+        AgentSearchKBResult(
+            text=doc,
+            file_name=meta.get("file_name", ""),
+            file_path=meta.get("file_path", ""),
+            score=round(1 - dist, 4),
+        )
+        for doc, meta, dist in zip(raw["documents"], raw["metadatas"], raw["distances"])
+        if (1 - dist) >= MIN_KB_SEARCH_SCORE
+    ]
+
+    return AgentSearchKBResponse(results=results, query=body.query, count=len(results))
+
+
+@router.post("/agents/spawn-sub", response_model=SpawnSubAgentResponse, tags=["agents"])
+async def spawn_sub_agent(body: SpawnSubAgentRequest) -> SpawnSubAgentResponse:
+    """
+    Spawn a sub-agent from within an agent task.
+
+    Enforces MAX_SUB_AGENT_DEPTH to prevent runaway agent trees.
+    - task length: 1–2000 characters
+    - agent_type: general | code | research | testing | devops
+    """
+    orchestrator = get_agent_orchestrator()
+
+    active = [
+        a for a in orchestrator.list_agents()
+        if a["status"] in ("pending", "running")
+    ]
+    if len(active) >= MAX_SUB_AGENT_DEPTH:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"Sub-agent depth limit ({MAX_SUB_AGENT_DEPTH}) reached. "
+                "Wait for active sub-agents to complete before spawning more."
+            ),
+        )
+
+    try:
+        agent_id = await orchestrator.spawn_agent(
+            agent_type=body.agent_type,
+            task={"goal": body.task},
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=429, detail=str(exc))
+
+    return SpawnSubAgentResponse(
+        agent_id=agent_id,
+        agent_type=body.agent_type,
+        status="pending",
+        message="Sub-agent spawned successfully",
+    )
