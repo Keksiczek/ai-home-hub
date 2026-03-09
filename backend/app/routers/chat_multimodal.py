@@ -14,6 +14,7 @@ from app.utils.constants import (
     MAX_IMAGE_SIZE_BYTES,
     MAX_IMAGES_PER_MESSAGE,
 )
+from app.utils.i18n import get_message
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -75,7 +76,8 @@ async def _call_ollama_generate(
             return data.get("response", ""), {"provider": "ollama", "model": model}
     except httpx.ConnectError:
         logger.warning("Ollama not available for vision, falling back to stub")
-        return f"[Stub] {message}", {
+        reply = get_message("ollama_not_available")
+        return reply, {
             "provider": "stub",
             "model": "stub",
             "fallback_reason": "Ollama not reachable",

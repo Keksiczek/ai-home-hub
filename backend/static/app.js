@@ -23,6 +23,91 @@ let _ollamaModels = [];
 let toast, toastTimer;
 
 /* ============================================================
+   I18N – Czech UI strings
+   Add new keys here; never hard-code Czech strings elsewhere.
+   API error details (HTTPException) stay in English.
+   ============================================================ */
+const TEXTS = {
+  cs: {
+    // Image / vision
+    attach_image: 'Přidat obrázek',
+    screenshot: 'Screenshot',
+    vision_mode_active: 'Vision mode aktivní',
+
+    // Session / chat
+    new_chat: 'Nový chat zahájen',
+    new_session: 'Nová relace',
+    msg_empty: 'Zpráva nemůže být prázdná.',
+    conversation_load_error: 'Chyba při načítání konverzace',
+    conversation_deleted: 'Konverzace smazána',
+    conversation_delete_confirm: 'Opravdu smazat tuto konverzaci?',
+    delete_error: 'Chyba při mazání',
+
+    // Agents
+    goal_required: 'Cíl je povinný.',
+    agent_stopped: 'zastaven',
+    agent_deleted: 'smazán',
+    agents_cleared: 'dokončených agentů odstraněno',
+
+    // Skills
+    skill_deleted: 'Skill smazán',
+    skill_name_required: 'Název je povinný',
+    skill_updated: 'Skill upraven',
+    skill_created: 'Skill vytvořen',
+    edit_skill: 'Upravit Skill',
+    new_skill: 'Nový Skill',
+
+    // Actions
+    action_deleted: 'Akce smazána',
+    action_updated: 'Akce upravena',
+    action_created: 'Akce vytvořena',
+    enter_action_name: 'Zadej název akce',
+    edit_action: 'Upravit akci',
+    new_action: 'Nová rychlá akce',
+    action_delete_confirm: 'Smazat tuto akci?',
+
+    // Settings
+    settings_saved: 'Nastavení uloženo!',
+    settings_load_error: 'Chyba načítání nastavení',
+    settings_save_error: 'Chyba ukládání',
+    key_path_required: 'Klíč a cesta jsou povinné',
+
+    // Knowledge base
+    enter_dir_path: 'Zadej cestu k adresáři',
+    enter_path: 'Zadej cestu',
+    path_exists: 'Cesta již existuje',
+    files_found_label: 'Nalezeno souborů',
+    scan_failed: 'Scan selhal',
+    ingest_failed: 'Indexace selhala',
+    ingest_done_title: 'Indexace dokončena',
+    ingest_files_label: 'Indexováno souborů',
+    total_chunks_label: 'Celkem chunků',
+    failed_label: 'Selhalo',
+    errors_title: 'Chyby',
+
+    // Git / integrations
+    enter_url: 'Zadej URL',
+    select_project: 'Vyber projekt',
+    enter_repo_path: 'Zadej cestu k repo',
+    enter_commit_msg: 'Zadej commit zprávu',
+
+    // Generic UI
+    delete: 'Smazat',
+    close: 'Zavřít',
+    scanning: 'Skenuji...',
+    indexing: 'Indexuji...',
+    checking: 'Kontroluji...',
+    error_prefix: 'Chyba',
+    error_generic: 'Chyba',
+  },
+};
+
+/** Return the Czech translation for *key*, falling back to *key* itself. */
+function t(key) {
+  return TEXTS.cs[key] || key;
+}
+
+/* ============================================================
    INIT
    ============================================================ */
 document.addEventListener('DOMContentLoaded', () => {
@@ -144,8 +229,8 @@ function handleIngestProgress(msg) {
   if (!results) return;
   results.innerHTML = `
     <div class="scan-summary">
-      <strong>Indexuji...</strong> ${msg.current} / ${msg.total}<br>
-      Soubor: ${escHtml(msg.file)} | Chunku: ${msg.chunks}
+      <strong>${t('indexing')}</strong> ${msg.current} / ${msg.total}<br>
+      Soubor: ${escHtml(msg.file)} | Chunků: ${msg.chunks}
       <div class="ingest-progress-bar">
         <div class="ingest-progress-fill" style="width:${Math.round((msg.current / msg.total) * 100)}%"></div>
       </div>
@@ -207,9 +292,9 @@ function bindChatEvents() {
   document.getElementById('new-chat-btn').addEventListener('click', () => {
     currentSessionId = null;
     document.getElementById('chat-history').innerHTML = '';
-    document.getElementById('session-label').textContent = 'Nova relace';
+    document.getElementById('session-label').textContent = t('new_session');
     document.querySelectorAll('.session-item').forEach(el => el.classList.remove('active'));
-    showToast('Novy chat zahajen', 'info');
+    showToast(t('new_chat'), 'info');
   });
 
   // Mobile sidebar toggle for chat history
@@ -289,7 +374,7 @@ function renderAttachedFiles() {
 async function sendMessage() {
   const chatInput = document.getElementById('chat-input');
   const message = chatInput.value.trim();
-  if (!message) { showToast('Zprava nemuze byt prazdna.', 'warning'); return; }
+  if (!message) { showToast(t('msg_empty'), 'warning'); return; }
 
   // Map profile to mode
   const modeMap = { chat: 'general', tech: 'general', vision: 'general', dolphin: 'general' };
@@ -379,7 +464,7 @@ async function loadSessions() {
         <div class="session-preview">${escHtml(s.preview || 'Prazdna konverzace')}</div>
         <div class="session-meta">
           <span>${s.message_count} zprav</span>
-          <button class="btn-icon session-delete-btn" data-delete-session="${escHtml(s.session_id)}" title="Smazat">&#128465;</button>
+          <button class="btn-icon session-delete-btn" data-delete-session="${escHtml(s.session_id)}" title="${t('delete')}">&#128465;</button>
         </div>
       </div>
     `).join('');
@@ -431,12 +516,12 @@ async function loadSession(sessionId) {
     document.getElementById('chat-sidebar').classList.remove('open');
   } catch (err) {
     console.error('Failed to load session:', err);
-    showToast('Chyba pri nacitani konverzace', 'error');
+    showToast(t('conversation_load_error'), 'error');
   }
 }
 
 async function deleteSession(sessionId) {
-  if (!confirm('Opravdu smazat tuto konverzaci?')) return;
+  if (!confirm(t('conversation_delete_confirm'))) return;
 
   try {
     await fetch(`/api/chat/sessions/${sessionId}`, { method: 'DELETE' });
@@ -444,14 +529,14 @@ async function deleteSession(sessionId) {
     if (currentSessionId === sessionId) {
       currentSessionId = null;
       document.getElementById('chat-history').innerHTML = '';
-      document.getElementById('session-label').textContent = 'Nova relace';
+      document.getElementById('session-label').textContent = t('new_session');
     }
 
     await loadSessions();
-    showToast('Konverzace smazana', 'success');
+    showToast(t('conversation_deleted'), 'success');
   } catch (err) {
     console.error('Failed to delete session:', err);
-    showToast('Chyba pri mazani', 'error');
+    showToast(t('delete_error'), 'error');
   }
 }
 
@@ -524,7 +609,7 @@ async function spawnAgent() {
   const goal = document.getElementById('agent-goal').value.trim();
   const workspace = document.getElementById('agent-workspace').value.trim() || null;
 
-  if (!goal) { showToast('Cil je povinny.', 'warning'); return; }
+  if (!goal) { showToast(t('goal_required'), 'warning'); return; }
 
   const spawnBtn = document.getElementById('spawn-btn');
   const spawnSpinner = document.getElementById('spawn-spinner');
@@ -609,7 +694,7 @@ function renderAgentCard(agent) {
         <span class="agent-elapsed">${elapsed}</span>
         <div class="agent-actions">
           ${isActive ? `<button class="btn btn--ghost btn--small" data-interrupt="${escHtml(agent.agent_id)}">Stop</button>` : ''}
-          <button class="btn btn--ghost btn--small" data-delete-agent="${escHtml(agent.agent_id)}">Smazat</button>
+          <button class="btn btn--ghost btn--small" data-delete-agent="${escHtml(agent.agent_id)}">${t('delete')}</button>
         </div>
       </div>
       ${agent.artifacts.length ? `<p class="agent-artifacts">Artefakty: ${agent.artifacts.length}</p>` : ''}
@@ -620,14 +705,14 @@ function bindAgentCardButtons(container) {
   container.querySelectorAll('[data-interrupt]').forEach(btn => {
     btn.addEventListener('click', async () => {
       await fetch(`/api/agents/${btn.dataset.interrupt}/interrupt`, { method: 'POST' });
-      showToast(`Agent ${btn.dataset.interrupt} zastaven`, 'info');
+      showToast(`Agent ${btn.dataset.interrupt} ${t('agent_stopped')}`, 'info');
       await refreshAgents();
     });
   });
   container.querySelectorAll('[data-delete-agent]').forEach(btn => {
     btn.addEventListener('click', async () => {
       await fetch(`/api/agents/${btn.dataset.deleteAgent}`, { method: 'DELETE' });
-      showToast(`Agent ${btn.dataset.deleteAgent} smazan`, 'info');
+      showToast(`Agent ${btn.dataset.deleteAgent} ${t('agent_deleted')}`, 'info');
       await refreshAgents();
     });
   });
@@ -651,7 +736,7 @@ async function cleanupAgents() {
   try {
     const res = await fetch('/api/agents/cleanup', { method: 'POST' });
     const data = await res.json();
-    showToast(`Odstraneno ${data.removed} dokoncenych agentu`, 'success');
+    showToast(`${data.removed} ${t('agents_cleared')}`, 'success');
     await refreshAgents();
   } catch (err) {
     showToast(`Chyba: ${err.message}`, 'error');
@@ -732,7 +817,7 @@ function renderSkillsGrid(skills) {
       </div>
       <div class="skill-card-actions">
         <button class="btn btn--ghost btn--small" data-edit-skill="${escHtml(s.id)}">Upravit</button>
-        <button class="btn btn--ghost btn--small" data-delete-skill="${escHtml(s.id)}">Smazat</button>
+        <button class="btn btn--ghost btn--small" data-delete-skill="${escHtml(s.id)}">${t('delete')}</button>
       </div>
     </div>
   `).join('');
@@ -750,7 +835,7 @@ function renderSkillsGrid(skills) {
       try {
         const res = await fetch(`/api/skills/${id}`, { method: 'DELETE' });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        showToast('Skill smazan', 'success');
+        showToast(t('skill_deleted'), 'success');
         loadSkills();
       } catch (err) {
         showToast(`Chyba: ${err.message}`, 'error');
@@ -781,7 +866,7 @@ function openSkillModal(skill = null) {
   const title = document.getElementById('skill-modal-title');
 
   if (skill) {
-    title.textContent = 'Upravit Skill';
+    title.textContent = t('edit_skill');
     document.getElementById('skill-edit-id').value = skill.id;
     document.getElementById('skill-name').value = skill.name || '';
     document.getElementById('skill-description').value = skill.description || '';
@@ -795,7 +880,7 @@ function openSkillModal(skill = null) {
       cb.checked = tools.includes(cb.value);
     });
   } else {
-    title.textContent = 'Novy Skill';
+    title.textContent = t('new_skill');
     document.getElementById('skill-edit-id').value = '';
     document.getElementById('skill-name').value = '';
     document.getElementById('skill-description').value = '';
@@ -822,7 +907,7 @@ async function saveSkill() {
   const tags = tagsStr ? tagsStr.split(',').map(t => t.trim()).filter(Boolean) : [];
   const tools = Array.from(document.querySelectorAll('.skill-tool-cb:checked')).map(cb => cb.value);
 
-  if (!name) { showToast('Nazev je povinny', 'warning'); return; }
+  if (!name) { showToast(t('skill_name_required'), 'warning'); return; }
 
   const body = { name, description, icon, system_prompt_addition: systemPrompt, tools, tags };
 
@@ -842,7 +927,7 @@ async function saveSkill() {
       });
     }
     if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
-    showToast(editId ? 'Skill upraven' : 'Skill vytvoren', 'success');
+    showToast(t(editId ? 'skill_updated' : 'skill_created'), 'success');
     closeSkillModal();
     loadSkills();
   } catch (err) {
@@ -905,7 +990,7 @@ function bindActionsEvents() {
   if (safariBtn) {
     safariBtn.addEventListener('click', async () => {
       const url = document.getElementById('safari-url').value.trim();
-      if (!url) { showToast('Zadej URL', 'warning'); return; }
+      if (!url) { showToast(t('enter_url'), 'warning'); return; }
       const r = await macOSAction('safari_open', { url });
       showMacResult(r);
     });
@@ -917,7 +1002,7 @@ function bindActionsEvents() {
     vcBtn.addEventListener('click', async () => {
       const sel = document.getElementById('vscode-project-select');
       const key = sel.value;
-      if (!key) { showToast('Vyber projekt', 'warning'); return; }
+      if (!key) { showToast(t('select_project'), 'warning'); return; }
       try {
         const res = await fetch('/api/integrations/vscode/open-project', {
           method: 'POST',
@@ -936,7 +1021,7 @@ function bindActionsEvents() {
   if (finderBtn) {
     finderBtn.addEventListener('click', async () => {
       const path = document.getElementById('finder-path').value.trim();
-      if (!path) { showToast('Zadej cestu', 'warning'); return; }
+      if (!path) { showToast(t('enter_path'), 'warning'); return; }
       const r = await macOSAction('finder_open', { path });
       showMacResult(r);
     });
@@ -992,13 +1077,13 @@ function showMacResult(data) {
 
 async function handleGitAction(action) {
   const repoPath = document.getElementById('git-repo-path').value.trim();
-  if (!repoPath) { showToast('Zadej cestu k repo', 'warning'); return; }
+  if (!repoPath) { showToast(t('enter_repo_path'), 'warning'); return; }
 
   const params = { repo_path: repoPath };
 
   if (action === 'commit') {
     params.message = document.getElementById('git-commit-msg').value.trim();
-    if (!params.message) { showToast('Zadej commit zpravu', 'warning'); return; }
+    if (!params.message) { showToast(t('enter_commit_msg'), 'warning'); return; }
   }
 
   try {
@@ -1078,7 +1163,7 @@ async function loadQuickActions() {
       <button class="action-card" data-action-id="${escHtml(a.id)}">
         <div class="action-card-controls">
           <button data-edit-action="${escHtml(a.id)}" title="Upravit">&#9998;</button>
-          <button data-delete-action="${escHtml(a.id)}" title="Smazat">&#10005;</button>
+          <button data-delete-action="${escHtml(a.id)}" title="${t('delete')}">&#10005;</button>
         </div>
         <span class="action-card__icon">${escHtml(a.icon || '\u26A1')}</span>
         <span class="action-card__name">${escHtml(a.name)}</span>
@@ -1134,13 +1219,13 @@ async function loadQuickActions() {
       btn.addEventListener('click', async (e) => {
         e.stopPropagation();
         const actionId = btn.dataset.deleteAction;
-        if (!confirm('Smazat tuto akci?')) return;
+        if (!confirm(t('action_delete_confirm'))) return;
         try {
           await fetch(`/api/settings/quick-actions/${encodeURIComponent(actionId)}`, { method: 'DELETE' });
-          showToast('Akce smazana', 'success');
+          showToast(t('action_deleted'), 'success');
           loadQuickActions();
         } catch (err) {
-          showToast('Chyba pri mazani: ' + err.message, 'error');
+          showToast(`${t('delete_error')}: ${err.message}`, 'error');
         }
       });
     });
@@ -1283,7 +1368,7 @@ async function loadSettings() {
     // Update model badge
     updateModelBadge();
   } catch (err) {
-    showToast(`Chyba nacitani nastaveni: ${err.message}`, 'error');
+    showToast(`${t('settings_load_error')}: ${err.message}`, 'error');
   }
 }
 
@@ -1354,10 +1439,10 @@ async function saveSettings() {
       body: JSON.stringify({ settings: patch }),
     });
     if (!res.ok) throw new Error(await res.text());
-    showToast('Nastaveni ulozeno!', 'success');
+    showToast(t('settings_saved'), 'success');
     await loadSettings();
   } catch (err) {
-    showToast(`Chyba ukladani: ${err.message}`, 'error');
+    showToast(`${t('settings_save_error')}: ${err.message}`, 'error');
   } finally {
     setLoading(saveBtn, saveSpinner, false);
   }
@@ -1366,7 +1451,7 @@ async function saveSettings() {
 async function checkOllama() {
   const el = document.getElementById('ollama-status');
   el.className = 'result-box';
-  el.textContent = 'Kontroluji...';
+  el.textContent = t('checking');
   el.style.color = '#94a3b8';
   show(el);
   try {
@@ -1391,7 +1476,7 @@ async function checkOllama() {
 function addProject() {
   const key = document.getElementById('new-project-key').value.trim();
   const path = document.getElementById('new-project-path').value.trim();
-  if (!key || !path) { showToast('Klic a cesta jsou povinne', 'warning'); return; }
+  if (!key || !path) { showToast(t('key_path_required'), 'warning'); return; }
   _settingsProjects[key] = { path, workspace: null, auto_tasks: [] };
   document.getElementById('new-project-key').value = '';
   document.getElementById('new-project-path').value = '';
@@ -1423,7 +1508,7 @@ function renderProjectsList() {
 // Allowed dirs
 function addAllowedDir() {
   const dir = document.getElementById('new-allowed-dir').value.trim();
-  if (!dir) { showToast('Zadej cestu k adresari', 'warning'); return; }
+  if (!dir) { showToast(t('enter_dir_path'), 'warning'); return; }
   if (!_settingsAllowedDirs.includes(dir)) _settingsAllowedDirs.push(dir);
   document.getElementById('new-allowed-dir').value = '';
   renderAllowedDirsList();
@@ -1481,7 +1566,7 @@ function addExternalPath() {
   const path = input.value.trim();
   if (!path) { showToast('Zadej cestu', 'warning'); return; }
   if (_settingsExternalPaths.includes(path)) {
-    showToast('Cesta uz existuje', 'warning');
+    showToast(t('path_exists'), 'warning');
     return;
   }
   _settingsExternalPaths.push(path);
@@ -1494,7 +1579,7 @@ async function scanExternalStorage() {
   const results = document.getElementById('scan-results');
 
   btn.disabled = true;
-  btn.textContent = 'Skenuji...';
+  btn.textContent = t('scanning');
   results.innerHTML = '';
   show(results);
 
@@ -1508,12 +1593,12 @@ async function scanExternalStorage() {
 
     results.innerHTML = `
       <div class="scan-summary">
-        <strong>Nalezeno souboru:</strong> ${data.total_count}
+        <strong>${t('files_found_label')}:</strong> ${data.total_count}
         ${data.warning ? `<div style="color:#fbbf24;margin-top:0.5rem">${escHtml(data.warning)}</div>` : ''}
       </div>
       ${data.errors.length > 0 ? `
         <div class="scan-errors">
-          <strong>Chyby:</strong>
+          <strong>${t('errors_title')}:</strong>
           ${data.errors.map(e => `<div>${escHtml(e)}</div>`).join('')}
         </div>
       ` : ''}
@@ -1531,11 +1616,11 @@ async function scanExternalStorage() {
       ` : ''}
     `;
 
-    showToast(`Nalezeno ${data.total_count} souboru`, 'success');
+    showToast(`${t('files_found_label')}: ${data.total_count}`, 'success');
   } catch (err) {
     console.error('Scan failed:', err);
     results.innerHTML = `<div class="scan-errors">${escHtml(err.message)}</div>`;
-    showToast('Scan selhal', 'error');
+    showToast(t('scan_failed'), 'error');
   } finally {
     btn.disabled = false;
     btn.innerHTML = '&#128269; Skenovat uloziste';
@@ -1546,7 +1631,7 @@ function _renderIngestProgress(results, current, total) {
   const pct = total > 0 ? Math.round((current / total) * 100) : 0;
   results.innerHTML = `
     <div class="scan-summary">
-      <strong>Indexuji...</strong> ${current} / ${total}
+      <strong>${t('indexing')}</strong> ${current} / ${total}
       <div class="ingest-progress-bar">
         <div class="ingest-progress-fill" style="width:${pct}%"></div>
       </div>
@@ -1557,14 +1642,14 @@ function _renderIngestProgress(results, current, total) {
 function _renderIngestResult(results, data) {
   results.innerHTML = `
     <div class="scan-summary">
-      <strong>Indexace dokoncena</strong><br>
-      Indexovano souboru: ${data.ingested_count} |
-      Celkem chunku: ${data.total_chunks}
-      ${data.failed_count > 0 ? ` | Selhalo: ${data.failed_count}` : ''}
+      <strong>${t('ingest_done_title')}</strong><br>
+      ${t('ingest_files_label')}: ${data.ingested_count} |
+      ${t('total_chunks_label')}: ${data.total_chunks}
+      ${data.failed_count > 0 ? ` | ${t('failed_label')}: ${data.failed_count}` : ''}
     </div>
     ${data.errors && data.errors.length > 0 ? `
       <div class="scan-errors">
-        <strong>Chyby:</strong>
+        <strong>${t('errors_title')}:</strong>
         ${data.errors.map(e => `<div>${escHtml(e)}</div>`).join('')}
       </div>
     ` : ''}
@@ -1603,7 +1688,7 @@ async function ingestAllFiles() {
   const results = document.getElementById('ingest-results');
 
   btn.disabled = true;
-  btn.textContent = 'Indexuji...';
+  btn.textContent = t('indexing');
   results.innerHTML = '';
   show(results);
 
@@ -1617,11 +1702,11 @@ async function ingestAllFiles() {
 
     _renderIngestProgress(results, 0, 0);
     const data = await _pollIngestJob(job_id, results);
-    showToast(`Indexovano ${data.ingested_count} souboru (${data.total_chunks} chunku)`, 'success');
+    showToast(`${t('ingest_files_label')}: ${data.ingested_count} (${data.total_chunks} chunků)`, 'success');
   } catch (err) {
     console.error('Ingest failed:', err);
     results.innerHTML = `<div class="scan-errors">${escHtml(err.message)}</div>`;
-    showToast('Indexace selhala', 'error');
+    showToast(t('ingest_failed'), 'error');
   } finally {
     btn.disabled = false;
     btn.innerHTML = '&#128260; Indexovat vsechny soubory';
@@ -1873,7 +1958,7 @@ function openActionEditorModal(action) {
   if (action) {
     // Editing existing action
     _editingActionId = action.id;
-    title.textContent = 'Upravit akci';
+    title.textContent = t('edit_action');
     nameInput.value = action.name || '';
     iconInput.value = action.icon || '';
     stepsList.innerHTML = '';
@@ -1881,7 +1966,7 @@ function openActionEditorModal(action) {
   } else {
     // Creating new action
     _editingActionId = null;
-    title.textContent = 'Nova rychla akce';
+    title.textContent = t('new_action');
     nameInput.value = '';
     iconInput.value = '\u26A1';
     stepsList.innerHTML = '';
@@ -2051,7 +2136,7 @@ async function saveQuickAction() {
   const icon = document.getElementById('action-icon-input').value.trim() || '\u26A1';
 
   if (!name) {
-    showToast('Zadej nazev akce', 'warning');
+    showToast(t('enter_action_name'), 'warning');
     return;
   }
 
@@ -2090,7 +2175,7 @@ async function saveQuickAction() {
         const err = await res.json();
         throw new Error(err.detail || 'Update failed');
       }
-      showToast('Akce upravena', 'success');
+      showToast(t('action_updated'), 'success');
     } else {
       // Create new
       const res = await fetch('/api/settings/quick-actions', {
@@ -2102,7 +2187,7 @@ async function saveQuickAction() {
         const err = await res.json();
         throw new Error(err.detail || 'Create failed');
       }
-      showToast('Akce vytvorena', 'success');
+      showToast(t('action_created'), 'success');
     }
 
     closeActionEditorModal();
@@ -2127,7 +2212,7 @@ async function checkSetupStatus() {
       banner.className = 'setup-banner';
       banner.innerHTML = `
         <strong>Prvni nastaveni potreba</strong>
-        <button class="setup-banner__dismiss" onclick="document.getElementById('setup-banner').remove()" title="Zavrít">&#10005;</button>
+        <button class="setup-banner__dismiss" onclick="document.getElementById('setup-banner').remove()" title="${t('close')}">&#10005;</button>
         <ul class="setup-banner__list">
           ${incomplete.map(i => `<li><button class="setup-banner__link" onclick="switchTab('settings')">${escHtml(i.label)}</button> – ${escHtml(i.hint)}</li>`).join('')}
         </ul>
