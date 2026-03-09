@@ -15,6 +15,7 @@ class UploadResponse(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     mode: str = "general"
+    profile: Optional[str] = None  # LLM profile: chat | powerbi | lean | vision
     context_file_ids: List[str] = []
     session_id: Optional[str] = None
 
@@ -192,6 +193,7 @@ class MultimodalChatRequest(BaseModel):
     message: str
     images: List[MultimodalImageData] = []
     mode: str = "general"
+    profile: Optional[str] = None  # LLM profile override; defaults to "vision" when images present
     session_id: Optional[str] = None
 
 

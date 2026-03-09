@@ -270,15 +270,19 @@ function updateModelBadge() {
   const badge = document.getElementById('model-badge');
   if (!badge) return;
 
-  // Try to find model for current profile from settings
+  // Map UI pill → settings profile key
+  const profileMap = { chat: 'chat', tech: 'powerbi', vision: 'vision', dolphin: 'lean' };
+  const settingsProfileKey = profileMap[currentProfile] || currentProfile;
+
   const profiles = _currentSettings?.profiles || {};
-  const profileConfig = profiles[currentProfile];
+  const profileConfig = profiles[settingsProfileKey] || profiles[currentProfile];
   if (profileConfig && profileConfig.model) {
     badge.textContent = profileConfig.model;
   } else {
-    // Fallback: find from ollama models
-    const match = _ollamaModels.find(m => m.profile === currentProfile);
-    badge.textContent = match ? match.name : (_currentSettings?.llm?.model || 'llama3.2');
+    // Fallback to default model
+    badge.textContent = _currentSettings?.llm?.default_model
+      || _currentSettings?.llm?.model
+      || 'llama3.2';
   }
 }
 
@@ -525,9 +529,12 @@ async function sendMessage() {
   const message = chatInput.value.trim();
   if (!message) { showToast(t('msg_empty'), 'warning'); return; }
 
-  // Map profile to mode
-  const modeMap = { chat: 'general', tech: 'general', vision: 'general', dolphin: 'general' };
+  // Map UI profile pill to backend mode (system-prompt selection) and LLM profile
+  const modeMap = { chat: 'general', tech: 'powerbi', vision: 'general', dolphin: 'lean' };
   const mode = modeMap[currentProfile] || 'general';
+  // LLM profile for model/sampling-param selection (maps UI pill names to settings profiles)
+  const profileMap = { chat: 'chat', tech: 'powerbi', vision: 'vision', dolphin: 'lean' };
+  const llmProfile = profileMap[currentProfile] || currentProfile;
 
   const contextFileIds = uploadedFiles.map(f => f.id);
 
@@ -544,9 +551,11 @@ async function sendMessage() {
     let data;
 
     if (attachedImages.length > 0) {
-      // Multimodal chat with images
+      // Multimodal chat with images – always use "vision" profile for LLM selection
       const body = {
         message,
+        mode,
+        profile: 'vision',
         images: attachedImages.map(img => ({
           filename: img.filename,
           data: img.data,
@@ -580,7 +589,7 @@ async function sendMessage() {
       renderImagePreviews();
     } else {
       // Text-only chat
-      const body = { message, mode, context_file_ids: contextFileIds };
+      const body = { message, mode, profile: llmProfile, context_file_ids: contextFileIds };
       if (currentSessionId) body.session_id = currentSessionId;
 
       const res = await fetch('/api/chat', {
@@ -1224,6 +1233,21 @@ function populateModelDropdown() {
     select.value = currentModel;
     if (!select.value && select.options.length) select.selectedIndex = 0;
   }
+
+  // Also populate the per-profile model dropdown
+  _populateProfileModelDropdown();
+}
+
+function _populateProfileModelDropdown() {
+  const sel = document.getElementById('s-profile-model');
+  if (!sel) return;
+  const cur = sel.value;
+  if (_ollamaModels.length) {
+    sel.innerHTML = _ollamaModels.map(m =>
+      `<option value="${escHtml(m.name)}">${escHtml(m.name)}</option>`
+    ).join('');
+  }
+  if (cur) { sel.value = cur; }
 }
 
 /* ============================================================
@@ -1559,6 +1583,57 @@ function bindSettingsEvents() {
       if (label) label.textContent = e.target.value + 's';
     });
   }
+
+  // Advanced LLM profile selector – switch displayed params when profile changes
+  const profileSel = document.getElementById('s-llm-profile-select');
+  if (profileSel) {
+    profileSel.addEventListener('change', () => _loadProfileFields(profileSel.value));
+  }
+
+  // Temperature slider ↔ number input sync
+  const tempSlider = document.getElementById('s-profile-temp-slider');
+  const tempNum = document.getElementById('s-profile-temp');
+  if (tempSlider && tempNum) {
+    tempSlider.addEventListener('input', () => { tempNum.value = tempSlider.value; });
+    tempNum.addEventListener('input', () => { tempSlider.value = tempNum.value; });
+  }
+}
+
+/** Populate the advanced profile fields from _currentSettings for the given profileKey. */
+function _loadProfileFields(profileKey) {
+  if (!_currentSettings) return;
+  const profiles = _currentSettings.profiles || {};
+  const p = profiles[profileKey] || {};
+  const params = p.params || {};
+
+  const defaultParams = _currentSettings.llm?.default_params || {};
+
+  // Model
+  const modelSel = document.getElementById('s-profile-model');
+  if (modelSel) {
+    _populateProfileModelDropdown();
+    const model = p.model || _currentSettings.llm?.default_model || _currentSettings.llm?.model || '';
+    modelSel.value = model;
+    if (!modelSel.value && modelSel.options.length) {
+      const opt = document.createElement('option');
+      opt.value = model; opt.textContent = model;
+      modelSel.prepend(opt);
+      modelSel.value = model;
+    }
+  }
+
+  // Sampling params – prefer profile.params, fall back to llm.default_params
+  const temp = params.temperature ?? defaultParams.temperature ?? 0.3;
+  const topP = params.top_p ?? defaultParams.top_p ?? 0.9;
+  const topK = params.top_k ?? defaultParams.top_k ?? 40;
+  const maxTok = params.max_tokens ?? defaultParams.max_tokens ?? 2048;
+
+  setVal('s-profile-temp', temp);
+  const slider = document.getElementById('s-profile-temp-slider');
+  if (slider) slider.value = temp;
+  setVal('s-profile-top-p', topP);
+  setVal('s-profile-top-k', topK);
+  setVal('s-profile-max-tokens', maxTok);
 }
 
 async function loadSettings() {
@@ -1570,8 +1645,7 @@ async function loadSettings() {
 
     // LLM
     setVal('s-llm-provider', s.llm?.provider || 'ollama');
-    setVal('s-llm-temp', s.llm?.temperature ?? 0.7);
-    setVal('s-llm-url', s.llm?.ollama_url || 'http://localhost:11434');
+    setVal('s-llm-url', s.llm?.ollama_url || s.llm?.base_url || 'http://localhost:11434');
 
     // LLM timeout
     const timeoutVal = s.llm?.timeout_seconds || 180;
@@ -1579,12 +1653,18 @@ async function loadSettings() {
     const timeoutLabel = document.getElementById('s-llm-timeout-value');
     if (timeoutLabel) timeoutLabel.textContent = timeoutVal + 's';
 
-    // Model – set after models are loaded
+    // Default model – set after models are loaded
+    const defaultModel = s.llm?.default_model || s.llm?.model || 'llama3.2';
     const modelSelect = document.getElementById('s-llm-model');
     if (modelSelect && modelSelect.options.length <= 1) {
-      modelSelect.innerHTML = `<option value="${escHtml(s.llm?.model || 'llama3.2')}">${escHtml(s.llm?.model || 'llama3.2')}</option>`;
+      modelSelect.innerHTML = `<option value="${escHtml(defaultModel)}">${escHtml(defaultModel)}</option>`;
     }
-    setVal('s-llm-model', s.llm?.model || 'llama3.2');
+    setVal('s-llm-model', defaultModel);
+
+    // Advanced per-profile fields – load for the currently selected profile
+    const profileSel = document.getElementById('s-llm-profile-select');
+    const activeProfile = profileSel ? profileSel.value : 'chat';
+    _loadProfileFields(activeProfile);
 
     // Integrations
     setChecked('s-vscode-enabled', s.integrations?.vscode?.enabled);
@@ -1638,14 +1718,41 @@ async function saveSettings() {
   const agKey = document.getElementById('s-ag-key').value;
   const apiKey = getVal('s-api-key');
 
+  // Collect per-profile settings from the Advanced panel
+  const editedProfile = document.getElementById('s-llm-profile-select')?.value || 'chat';
+  const profileModel = getVal('s-profile-model');
+  const profileTemp = parseFloat(getVal('s-profile-temp') || '0.3');
+  const profileTopP = parseFloat(getVal('s-profile-top-p') || '0.9');
+  const profileTopK = parseInt(getVal('s-profile-top-k') || '40');
+  const profileMaxTok = parseInt(getVal('s-profile-max-tokens') || '2048');
+
+  // Merge edited profile into existing profiles (keep untouched profiles intact)
+  const existingProfiles = (_currentSettings?.profiles) || {};
+  const updatedProfiles = {
+    ...existingProfiles,
+    [editedProfile]: {
+      ...(existingProfiles[editedProfile] || {}),
+      model: profileModel,
+      params: {
+        temperature: profileTemp,
+        top_p: profileTopP,
+        top_k: profileTopK,
+        max_tokens: profileMaxTok,
+      },
+    },
+  };
+
+  const defaultModel = getVal('s-llm-model');
   const patch = {
     llm: {
       provider: getVal('s-llm-provider'),
-      model: getVal('s-llm-model'),
-      temperature: parseFloat(getVal('s-llm-temp') || '0.7'),
+      model: defaultModel,
+      default_model: defaultModel,
       timeout_seconds: Math.max(60, Math.min(600, parseInt(getVal('s-llm-timeout')) || 180)),
       ollama_url: getVal('s-llm-url'),
+      base_url: getVal('s-llm-url'),
     },
+    profiles: updatedProfiles,
     integrations: {
       vscode: {
         enabled: getChecked('s-vscode-enabled'),
@@ -1698,6 +1805,9 @@ async function saveSettings() {
     });
     if (!res.ok) throw new Error(await res.text());
     showToast(t('settings_saved'), 'success');
+    // Show inline hint in Advanced LLM panel
+    const hint = document.getElementById('s-profile-save-hint');
+    if (hint) { hint.style.display = ''; setTimeout(() => { hint.style.display = 'none'; }, 3000); }
     await loadSettings();
   } catch (err) {
     showToast(`${t('settings_save_error')}: ${err.message}`, 'error');

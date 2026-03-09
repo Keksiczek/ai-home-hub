@@ -97,6 +97,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
     reply, meta = await llm_svc.generate(
         message=llm_message,
         mode=request.mode,
+        profile=request.profile,
         context_file_ids=request.context_file_ids,
         history=history,
     )

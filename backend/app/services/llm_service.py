@@ -18,15 +18,19 @@ class LLMService:
         self,
         message: str,
         mode: str = "general",
+        profile: Optional[str] = None,
         context_file_ids: Optional[List[str]] = None,
         history: Optional[List[Dict[str, str]]] = None,
     ) -> Tuple[str, Dict[str, Any]]:
         """
         Generate a response using Ollama or fall back to stub.
 
+        *profile* selects the LLM profile (chat | powerbi | lean | vision) whose
+        model and sampling params override the global defaults.
+
         Returns (reply_text, meta_dict).
         """
-        cfg = self._settings.get_llm_config()
+        cfg = self._settings.get_llm_config(profile=profile)
         provider = cfg.get("provider", "ollama")
         start = time.monotonic()
 
@@ -49,17 +53,27 @@ class LLMService:
     ) -> Tuple[str, Dict[str, Any]]:
         ollama_url = cfg.get("ollama_url", "http://localhost:11434").rstrip("/")
         model = cfg.get("model", "llama3.2")
-        temperature = cfg.get("temperature", 0.7)
         system_prompt = self._settings.get_system_prompt(mode)
 
         messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
         messages.extend(history)
         messages.append({"role": "user", "content": message})
 
+        # Build sampling options – include only non-None values
+        options: Dict[str, Any] = {}
+        if cfg.get("temperature") is not None:
+            options["temperature"] = float(cfg["temperature"])
+        if cfg.get("top_p") is not None:
+            options["top_p"] = float(cfg["top_p"])
+        if cfg.get("top_k") is not None:
+            options["top_k"] = int(cfg["top_k"])
+        if cfg.get("max_tokens") is not None:
+            options["num_predict"] = int(cfg["max_tokens"])
+
         payload = {
             "model": model,
             "messages": messages,
-            "options": {"temperature": temperature},
+            "options": options,
             "stream": False,
         }
 
@@ -78,6 +92,7 @@ class LLMService:
                 return reply, {
                     "provider": "ollama",
                     "model": model,
+                    "temperature": options.get("temperature"),
                 }
         except httpx.ConnectError:
             logger.warning("Ollama not available at %s, falling back to stub", ollama_url)
