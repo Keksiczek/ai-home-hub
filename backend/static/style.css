@@ -1175,6 +1175,35 @@ body {
   cursor: default;
 }
 
+/* ── Memory Context Badge ───────────────────────────────── */
+.memory-context-badge {
+  position: absolute;
+  top: -0.375rem;
+  background: #a855f7;
+  color: #fff;
+  font-size: 0.6875rem;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.75rem;
+  font-weight: 600;
+  cursor: default;
+}
+.memory-context-details {
+  margin-top: 0.5rem;
+  font-size: 0.8125rem;
+  color: #94a3b8;
+}
+.memory-context-details summary {
+  cursor: pointer;
+  color: #a855f7;
+}
+.memory-context-details ul {
+  margin-top: 0.25rem;
+  padding-left: 1rem;
+}
+.memory-context-details li {
+  margin-bottom: 0.125rem;
+}
+
 .ingest-results,
 .kb-stats {
   margin-top: 0.75rem;
