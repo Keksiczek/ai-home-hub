@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from app.services.settings_service import get_settings_service
 from app.services.skills_service import get_skills_service
+from app.utils.constants import MAX_SUB_AGENT_DEPTH, MIN_KB_SEARCH_SCORE
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,8 @@ class AgentRecord:
         self.task = task
         self.workspace = workspace
         self.skill_ids = skill_ids or []
+        self.depth: int = 0
+        self.parent_agent_id: Optional[str] = None
         self.status = AGENT_STATUS_PENDING
         self.progress = 0
         self.message: Optional[str] = None
@@ -60,6 +63,8 @@ class AgentRecord:
             "artifacts": self.artifacts,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "depth": self.depth,
+            "parent_agent_id": self.parent_agent_id,
         }
 
 
@@ -311,6 +316,80 @@ class AgentOrchestrator:
             art = self.get_artifact(artifact_id)
             if art:
                 artifacts.append(art)
+        return artifacts
+
+    async def spawn_sub_agent(
+        self,
+        parent_agent_id: str,
+        task: Dict[str, Any],
+        agent_type: str = "general",
+    ) -> Optional[str]:
+        """Spawn a child agent under *parent_agent_id*.
+
+        Returns ``None`` if the parent has already reached ``MAX_SUB_AGENT_DEPTH``.
+        """
+        parent = self._agents.get(parent_agent_id)
+        if parent is None:
+            return None
+        if parent.depth >= MAX_SUB_AGENT_DEPTH:
+            logger.warning(
+                "Agent %s at max depth %d – sub-agent spawn refused",
+                parent_agent_id,
+                MAX_SUB_AGENT_DEPTH,
+            )
+            return None
+
+        agent_id = await self.spawn_agent(agent_type, task)
+        child = self._agents[agent_id]
+        child.depth = parent.depth + 1
+        child.parent_agent_id = parent_agent_id
+        return agent_id
+
+    def search_knowledge_base(
+        self,
+        query_embedding: List[float],
+        top_k: int = 5,
+    ) -> List[Dict[str, Any]]:
+        """Search the vector store and filter out low-confidence results.
+
+        Any result whose score (``1 – distance``) is below ``MIN_KB_SEARCH_SCORE``
+        is discarded before returning.
+        """
+        from app.services.vector_store_service import get_vector_store_service  # local import to avoid circular deps
+
+        vector_store = get_vector_store_service()
+        raw = vector_store.search(query_embedding=query_embedding, top_k=top_k)
+
+        results: List[Dict[str, Any]] = []
+        for doc, meta, distance in zip(
+            raw.get("documents", []),
+            raw.get("metadatas", []),
+            raw.get("distances", []),
+        ):
+            score = round(1 - distance, 4)
+            if score < MIN_KB_SEARCH_SCORE:
+                continue
+            results.append({
+                "text": doc,
+                "file_name": meta.get("file_name", ""),
+                "file_path": meta.get("file_path", ""),
+                "score": score,
+                "metadata": meta,
+            })
+        return results
+
+    def get_agent_artifacts_with_preview(self, agent_id: str) -> List[Dict[str, Any]]:
+        """Return agent artifacts enriched with a *preview* field.
+
+        The preview contains the first 500 characters of the artifact's
+        ``content`` (JSON-serialised if the content is not a plain string).
+        """
+        artifacts = self.get_agent_artifacts(agent_id)
+        for art in artifacts:
+            content = art.get("content", "")
+            if not isinstance(content, str):
+                content = json.dumps(content, ensure_ascii=False)
+            art["preview"] = content[:500]
         return artifacts
 
     # ── Control ────────────────────────────────────────────────
