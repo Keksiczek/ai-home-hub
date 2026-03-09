@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # ── File upload ─────────────────────────────────────────────
@@ -181,35 +181,56 @@ class NotificationRequest(BaseModel):
     priority: str = "default"  # low | default | high | urgent
 
 
-# ── Screenshot ──────────────────────────────────────────────
-
-class ScreenshotRequest(BaseModel):
-    mode: str = "clipboard"  # clipboard | file
-
-
-class ScreenshotResponse(BaseModel):
-    success: bool
-    image: Optional[str] = None  # base64 data
-    path: Optional[str] = None
-    error: Optional[str] = None
-
-
-# ── Multimodal Chat ─────────────────────────────────────────
+# ── Multimodal chat ──────────────────────────────────────────
 
 class MultimodalImageData(BaseModel):
-    filename: str
-    data: str  # base64-encoded
-    mime_type: str
+    data: str        # base64-encoded image bytes
+    media_type: str  # e.g. "image/jpeg"
 
 
 class MultimodalChatRequest(BaseModel):
-    session_id: Optional[str] = None
     message: str
     images: List[MultimodalImageData] = []
-    model: Optional[str] = None
+    mode: str = "general"
+    session_id: Optional[str] = None
 
 
-# ── KB File operations ──────────────────────────────────────
+# ── Knowledge base management ────────────────────────────────
 
 class ReindexFileRequest(BaseModel):
-    path: str
+    file_path: str
+
+
+# ── Agent sub-tasks ──────────────────────────────────────────
+
+class AgentSearchKBRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=500)
+    top_k: int = Field(default=3, ge=1, le=20)
+
+
+class AgentSearchKBResult(BaseModel):
+    text: str
+    file_name: str
+    file_path: str
+    score: float
+
+
+class AgentSearchKBResponse(BaseModel):
+    results: List[AgentSearchKBResult]
+    query: str
+    count: int
+
+
+class SpawnSubAgentRequest(BaseModel):
+    task: str = Field(..., min_length=1, max_length=2000)
+    agent_type: str = Field(
+        default="general",
+        pattern=r"^(general|code|research|testing|devops)$",
+    )
+
+
+class SpawnSubAgentResponse(BaseModel):
+    agent_id: str
+    agent_type: str
+    status: str
+    message: str

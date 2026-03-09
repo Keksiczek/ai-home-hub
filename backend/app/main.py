@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.routers import actions, chat, files, knowledge, status
+from app.routers import actions, chat, chat_multimodal, files, knowledge, status
 from app.routers import agents, filesystem, integrations, settings, skills, tasks
 from app.routers.websocket_router import router as ws_router
 

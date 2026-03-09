@@ -1,6 +1,6 @@
 # AI Home Hub – Mac Control Center
 
-> **v0.2.0** – A unified local control hub that brings together an Ollama LLM chat interface, autonomous AI agents, macOS automation, VS Code control, Git operations, and filesystem access into a single browser-based dashboard.
+> **v0.3.0** – Added multimodal chat with vision models, OCR support for images in Knowledge Base, incremental KB indexing, and sub-agent spawning.
 
 ---
 
@@ -116,6 +116,29 @@ ai-home-hub/
 
 ---
 
+## Multimodal Chat
+
+AI Home Hub supports sending images alongside text messages to vision-capable models.
+
+### How to Attach Images
+- **Drag & drop** image files onto the chat input area
+- **Paste** images directly from the clipboard (Ctrl+V / Cmd+V)
+- **File picker** – click the attachment icon in the chat toolbar
+- **Screenshot** – use the macOS screenshot button in the toolbar (captures screen and attaches automatically)
+
+### Limits
+- Max **5 images** per message
+- Max **10 MB** per image
+- Accepted formats: **PNG, JPEG, GIF, WebP**
+
+### Model Configuration
+Select a vision-capable model (e.g. `llava:7b`) in **Settings → Profiles → Vision**. Text-only messages continue to use the standard chat model.
+
+### KB Context with Images
+When the Knowledge Base is configured, relevant document chunks are retrieved and injected into the prompt even for multimodal (image-bearing) requests.
+
+---
+
 ## Knowledge Base
 
 AI Home Hub supports semantic search across your documents.
@@ -123,7 +146,13 @@ AI Home Hub supports semantic search across your documents.
 ### Supported Formats
 - PDF, DOCX, XLSX
 - TXT, Markdown
-- Images (OCR coming soon)
+- Images (OCR via Tesseract)
+
+### OCR Support
+- **Supported image formats:** PNG, JPEG, GIF, BMP, WebP
+- **Requires:** `pytesseract` (listed in `requirements.txt`) + Tesseract binary (`brew install tesseract` on macOS)
+- **Languages:** `eng+ces` by default – configurable in `backend/app/services/file_parser_service.py`
+- Images are automatically OCR-processed and their extracted text indexed during the normal ingest pipeline
 
 ### Setup
 1. Add external paths in Settings → Knowledge Base
@@ -150,17 +179,18 @@ Base URL: `http://localhost:8000/api`
 Interactive docs (Swagger UI): `http://localhost:8000/docs`
 WebSocket: `ws://localhost:8000/ws`
 
-| Route group | Prefix |
+| Route group | Routes |
 |-------------|--------|
 | Health | `GET /api/health` |
 | Chat | `POST /api/chat`, `GET/DELETE /api/chat/sessions/{id}` |
+| Multimodal Chat | `POST /api/chat/multimodal` |
 | File upload | `POST /api/upload` |
-| Agents | `POST /api/agents/spawn`, `GET /api/agents/{id}/status` |
+| Agents | `POST /api/agents/spawn`, `GET /api/agents/{id}/status`, `POST /api/agents/{id}/search-kb`, `POST /api/agents/{id}/spawn-sub-agent` |
 | Tasks | `GET /api/tasks`, `POST /api/tasks/{id}/cancel` |
 | Settings | `GET/POST /api/settings` |
 | Filesystem | `GET /api/filesystem/read`, `POST /api/filesystem/write`, … |
-| Knowledge Base | `POST /api/knowledge/ingest`, `POST /api/knowledge/search`, `GET /api/knowledge/stats` |
-| Integrations | `/api/integrations/macos/action`, `/api/integrations/vscode/…`, … |
+| Knowledge Base | `POST /api/knowledge/ingest`, `POST /api/knowledge/search`, `GET /api/knowledge/stats`, `POST /api/knowledge/ingest/incremental`, `DELETE /api/knowledge/files`, `POST /api/knowledge/reindex`, `GET /api/knowledge/export-metadata` |
+| Integrations | `/api/integrations/macos/action`, `POST /api/integrations/macos/screenshot`, `/api/integrations/vscode/…`, … |
 
 See [`docs/api-contract.md`](docs/api-contract.md) for the full reference.
 
@@ -213,6 +243,27 @@ The macOS automation features require:
 - **API keys** (e.g., Antigravity) are stored in `backend/data/settings.json`. The UI masks key values. **Never commit `settings.json` to git** – it is listed in `.gitignore`.
 - The server allows all CORS origins by default (`allow_origins=["*"]`). Restrict this if exposing the server beyond localhost.
 - Agent concurrency is capped (default: 5) with a timeout (default: 30 min) to prevent runaway processes.
+
+### API Key Authentication
+
+Sensitive endpoints (screenshot capture, KB file deletion, KB reindex) support optional `X-API-Key` header authentication:
+
+- **Disabled (default):** leave the *API Key* field empty in *Settings → Security*. All requests are accepted – suitable for localhost-only use.
+- **Enabled:** set a non-empty value in *Settings → Security → API Key*. Every request to a protected endpoint must include the header `X-API-Key: <your-key>`. Requests without the header or with a wrong key receive **HTTP 403**.
+- **Recommendation:** always set an API key when exposing AI Home Hub on a LAN, VPN, or reverse proxy.
+
+```bash
+# Example – delete a KB file with API key auth
+curl -X DELETE "http://localhost:8000/api/knowledge/files?path=/docs/old.txt" \
+     -H "X-API-Key: your-secret-key"
+```
+
+Protected endpoints:
+| Endpoint | Method |
+|----------|--------|
+| `/api/integrations/macos/screenshot` | POST |
+| `/api/knowledge/files` | DELETE |
+| `/api/knowledge/reindex` | POST |
 
 ---
 

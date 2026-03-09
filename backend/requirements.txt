@@ -14,3 +14,7 @@ Pillow==10.2.0
 pytesseract==0.3.10
 python-magic==0.4.27
 chromadb==0.4.22
+
+# Testing
+pytest>=8.0.0
+pytest-asyncio>=0.23.0

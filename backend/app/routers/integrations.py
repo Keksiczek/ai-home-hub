@@ -1,7 +1,9 @@
 """Integrations router – endpoints for all external service integrations."""
 from typing import Any, Dict
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from app.utils.auth import verify_api_key
 
 from app.models.schemas import (
     AntigravityAgentRequest,
@@ -124,76 +126,16 @@ async def antigravity_health() -> Dict[str, Any]:
 
 # ── Mac OS ──────────────────────────────────────────────────
 
-@router.post("/integrations/macos/screenshot", tags=["integrations", "macos"])
-async def macos_screenshot(mode: str = "clipboard") -> Dict[str, Any]:
+@router.post("/integrations/macos/screenshot", tags=["integrations", "macos"],
+             dependencies=[Depends(verify_api_key)])
+async def macos_screenshot(mode: str = "clipboard") -> dict:
+    """Capture a macOS screenshot (requires Screen Recording permission).
+
+    ``mode=clipboard`` returns base64-encoded PNG in the response.
+    ``mode=file`` saves to a temp file and returns the path.
     """
-    Take a screenshot on macOS using screencapture.
-
-    Args:
-        mode: "clipboard" captures to clipboard, "file" saves to temp file.
-
-    Returns:
-        {success, image (base64), path}
-
-    Note: Requires Screen Recording permission on macOS.
-    """
-    import asyncio as _asyncio
-    import base64
-    import tempfile
-    import time as _time
-
-    try:
-        if mode == "file":
-            timestamp = int(_time.time())
-            path = f"/tmp/screenshot-{timestamp}.png"
-            proc = await _asyncio.create_subprocess_exec(
-                "screencapture", path,
-                stdout=_asyncio.subprocess.PIPE,
-                stderr=_asyncio.subprocess.PIPE,
-            )
-            await proc.wait()
-
-            if proc.returncode != 0:
-                return {"success": False, "error": "screencapture failed", "image": None, "path": None}
-
-            with open(path, "rb") as f:
-                image_b64 = base64.b64encode(f.read()).decode("utf-8")
-
-            return {"success": True, "image": image_b64, "path": path}
-
-        else:  # clipboard mode
-            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-                tmp_path = tmp.name
-
-            proc = await _asyncio.create_subprocess_exec(
-                "screencapture", tmp_path,
-                stdout=_asyncio.subprocess.PIPE,
-                stderr=_asyncio.subprocess.PIPE,
-            )
-            await proc.wait()
-
-            if proc.returncode != 0:
-                return {"success": False, "error": "screencapture failed", "image": None, "path": None}
-
-            try:
-                with open(tmp_path, "rb") as f:
-                    image_b64 = base64.b64encode(f.read()).decode("utf-8")
-                import os
-                os.unlink(tmp_path)
-            except Exception:
-                image_b64 = ""
-
-            return {"success": True, "image": image_b64, "path": None}
-
-    except FileNotFoundError:
-        return {
-            "success": False,
-            "error": "screencapture not found (macOS only)",
-            "image": None,
-            "path": None,
-        }
-    except Exception as exc:
-        return {"success": False, "error": str(exc), "image": None, "path": None}
+    svc = get_macos_service()
+    return await svc.run_action("screenshot", {"mode": mode})
 
 
 @router.post("/integrations/macos/action", tags=["integrations", "macos"])

@@ -98,156 +98,82 @@ class VectorStoreService:
             logger.error("Failed to delete file chunks: %s", exc)
             return 0
 
-    def get_file_metadata(self, source_path: str) -> Optional[Dict[str, Any]]:
-        """Get metadata for a specific file stored in the vector DB."""
+    def get_stats(self, detailed: bool = True, sample_limit: int = 10_000) -> Dict[str, Any]:
+        """Get collection statistics.
+
+        For large collections (>100k chunks), ``detailed=True`` analyses only
+        the first *sample_limit* metadata records and sets ``sampled=True`` in
+        the response so callers can warn the user.
+
+        Args:
+            detailed: When False return only lightweight counts (no metadata
+                      scan).  When True also return ``file_types`` and
+                      ``top_sources`` breakdowns.
+            sample_limit: Maximum number of metadata records to analyse for
+                          detailed breakdowns.  Has no effect when
+                          ``detailed=False``.
+        """
+        LARGE_THRESHOLD = 50_000
+
         try:
-            results = self.collection.get(where={"file_path": source_path})
-            if not results or not results["ids"]:
-                return None
-            metadatas = results["metadatas"] or []
-            indexed_at = ""
-            file_mtime = ""
-            for m in metadatas:
-                if m.get("indexed_at"):
-                    indexed_at = m["indexed_at"]
-                if m.get("file_mtime"):
-                    file_mtime = m["file_mtime"]
-            return {
-                "indexed_at": indexed_at,
-                "file_mtime": file_mtime,
-                "chunk_count": len(results["ids"]),
-            }
+            total_chunks = self.collection.count()
         except Exception as exc:
-            logger.error("Failed to get file metadata for %s: %s", source_path, exc)
-            return None
-
-    def get_all_file_paths(self) -> List[str]:
-        """Get all unique file paths stored in the collection."""
-        try:
-            all_data = self.collection.get(include=["metadatas"])
-            paths = set()
-            for meta in (all_data.get("metadatas") or []):
-                if meta and meta.get("file_path"):
-                    paths.add(meta["file_path"])
-            return sorted(paths)
-        except Exception as exc:
-            logger.error("Failed to get file paths: %s", exc)
-            return []
-
-    def get_stats(self) -> Dict[str, Any]:
-        """Get detailed collection statistics."""
-        try:
-            count = self.collection.count()
-
-            # Get all metadata for aggregation
-            all_data = self.collection.get(include=["metadatas"])
-            metadatas = all_data.get("metadatas") or []
-
-            # Aggregate by file type
-            file_paths: Dict[str, int] = Counter()
-            file_types: Dict[str, int] = Counter()
-            last_indexed_at = ""
-
-            for meta in metadatas:
-                if not meta:
-                    continue
-                fp = meta.get("file_path", "")
-                if fp:
-                    file_paths[fp] += 1
-                    ext = Path(fp).suffix.lower().lstrip(".")
-                    if ext:
-                        file_types[ext] += 1
-                ia = meta.get("indexed_at", "")
-                if ia and ia > last_indexed_at:
-                    last_indexed_at = ia
-
-            # Top sources by chunk count
-            top_sources = [
-                {"path": path, "chunks": cnt}
-                for path, cnt in file_paths.most_common(20)
-            ]
-
-            # Calculate storage size
-            storage_size_mb = self._get_storage_size_mb()
-
+            logger.error("Failed to count collection: %s", exc)
             return {
-                "total_documents": len(file_paths),
-                "total_chunks": count,
-                "total_embeddings": count,
-                "storage_size_mb": storage_size_mb,
-                "indexed_files_by_type": dict(file_types),
-                "last_indexed_at": last_indexed_at or None,
-                "top_sources": top_sources,
-                "collection_name": self.COLLECTION_NAME,
-            }
-        except Exception as exc:
-            logger.error("Failed to get stats: %s", exc)
-            return {
-                "total_documents": 0,
                 "total_chunks": 0,
-                "total_embeddings": 0,
-                "storage_size_mb": 0,
-                "indexed_files_by_type": {},
-                "last_indexed_at": None,
-                "top_sources": [],
                 "collection_name": self.COLLECTION_NAME,
+                "detailed": detailed,
             }
 
-    def _get_storage_size_mb(self) -> float:
-        """Calculate ChromaDB storage directory size in MB."""
+        base: Dict[str, Any] = {
+            "total_chunks": total_chunks,
+            "collection_name": self.COLLECTION_NAME,
+            "detailed": detailed,
+        }
+
+        if not detailed:
+            return base
+
+        # --- detailed pass: fetch a bounded sample of metadatas ---
+        sampled = total_chunks > LARGE_THRESHOLD
+        fetch_limit = sample_limit if sampled else total_chunks
+
         try:
-            total = 0
-            for dirpath, _dirnames, filenames in os.walk(CHROMA_DIR):
-                for f in filenames:
-                    total += os.path.getsize(os.path.join(dirpath, f))
-            return round(total / (1024 * 1024), 2)
-        except Exception:
-            return 0.0
-
-    def get_export_metadata(self) -> List[Dict[str, Any]]:
-        """Get metadata for all files for CSV export."""
-        try:
-            all_data = self.collection.get(include=["metadatas"])
-            metadatas = all_data.get("metadatas") or []
-
-            file_info: Dict[str, Dict[str, Any]] = {}
-            for meta in metadatas:
-                if not meta:
-                    continue
-                fp = meta.get("file_path", "")
-                if not fp:
-                    continue
-                if fp not in file_info:
-                    ext = Path(fp).suffix.lower().lstrip(".")
-                    file_info[fp] = {
-                        "source_path": fp,
-                        "source_type": ext,
-                        "chunk_count": 0,
-                        "indexed_at": meta.get("indexed_at", ""),
-                        "file_size_kb": 0,
-                        "last_modified": "",
-                    }
-                file_info[fp]["chunk_count"] += 1
-                # Update indexed_at if newer
-                ia = meta.get("indexed_at", "")
-                if ia > file_info[fp]["indexed_at"]:
-                    file_info[fp]["indexed_at"] = ia
-
-            # Try to get file stats from disk
-            for fp, info in file_info.items():
-                try:
-                    stat = os.stat(fp)
-                    info["file_size_kb"] = round(stat.st_size / 1024, 1)
-                    info["last_modified"] = datetime.fromtimestamp(
-                        stat.st_mtime, tz=timezone.utc
-                    ).isoformat()
-                except (OSError, ValueError):
-                    pass
-
-            return sorted(file_info.values(), key=lambda x: x["chunk_count"], reverse=True)
+            result = self.collection.get(
+                limit=fetch_limit,
+                include=["metadatas"],
+            )
+            metadatas: List[Dict[str, Any]] = result.get("metadatas") or []
         except Exception as exc:
-            logger.error("Failed to get export metadata: %s", exc)
-            return []
+            logger.warning("Metadata fetch for stats failed: %s", exc)
+            metadatas = []
+
+        # file_types breakdown  (by extension)
+        file_types: Dict[str, int] = {}
+        source_chunks: Dict[str, int] = {}
+
+        for meta in metadatas:
+            file_path = meta.get("file_path", "")
+            ext = Path(file_path).suffix.lower() if file_path else ""
+            file_types[ext or "unknown"] = file_types.get(ext or "unknown", 0) + 1
+            source_chunks[file_path] = source_chunks.get(file_path, 0) + 1
+
+        unique_files = len(source_chunks)
+        top_sources = sorted(source_chunks.items(), key=lambda x: x[1], reverse=True)[:20]
+
+        base.update({
+            "total_documents": unique_files,
+            "file_types": file_types,
+            "top_sources": [{"path": p, "chunks": c} for p, c in top_sources],
+            "sample_size": len(metadatas),
+            "sampled": sampled,
+        })
+        if sampled:
+            base["warning"] = (
+                f"Stats are based on a sample of {len(metadatas):,} / {total_chunks:,} chunks. "
+                "Re-index to get exact file counts."
+            )
+        return base
 
 
 def _sanitize_metadata(meta: Dict[str, Any]) -> Dict[str, Any]:
