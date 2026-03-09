@@ -173,6 +173,59 @@ AI Home Hub supports semantic search across your documents.
 
 ---
 
+## Shared Memory
+
+Shared Memory is a **central long-term memory** for your AI models – separate from the Knowledge Base. While KB stores large document collections, Memory holds lightweight user-specific facts, preferences, and summaries (high importance, low volume).
+
+### How It Works
+
+1. Add memories via the **Settings → Shared Memory** UI or the REST API.
+2. Each memory has `text`, `tags`, `source`, `importance` (1-10), and a `timestamp`.
+3. Memories are embedded and stored in a dedicated ChromaDB collection (`memory`).
+4. During chat, the system automatically searches for relevant memories. If matches are found (cosine distance < 0.7), they are injected into the system prompt as `<user_memory>` notes.
+5. External agents or web services can read/write memories via the HTTP API.
+
+### Managing Memories in the UI
+
+- Open **Settings → Shared Memory**.
+- **Add**: fill in the text, optional tags (comma-separated), importance, and click *Save*.
+- **View**: click *View memories* to expand the list.
+- **Delete**: click the trash icon next to any memory.
+
+### API Endpoints
+
+All `/api/memory/*` endpoints are protected by `X-API-Key` when configured.
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/memory/add` | POST | Add a new memory |
+| `/api/memory/search` | POST | Semantic search over memories |
+| `/api/memory/all` | GET | List all memories (query param: `limit`) |
+| `/api/memory/{id}` | DELETE | Delete a memory |
+| `/api/memory/{id}` | PUT | Update text/tags/importance |
+
+### Examples
+
+```bash
+# Add a memory
+curl -X POST http://localhost:8000/api/memory/add \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Stepan preferuje kratke odpovedi v cestine", "tags": ["preference", "jazyk"], "importance": 8}'
+
+# Search memories
+curl -X POST http://localhost:8000/api/memory/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "jazyková preference", "top_k": 3}'
+
+# List all
+curl http://localhost:8000/api/memory/all?limit=50
+
+# Delete
+curl -X DELETE http://localhost:8000/api/memory/mem_abc123def456
+```
+
+---
+
 ## Agent Skills Integration
 
 AI Home Hub supports **Agent Skills** – reusable skill packages based on the [agentskills.io](https://agentskills.io) specification.
@@ -238,6 +291,7 @@ WebSocket: `ws://localhost:8000/ws`
 | Settings | `GET/POST /api/settings` |
 | Filesystem | `GET /api/filesystem/read`, `POST /api/filesystem/write`, … |
 | Knowledge Base | `POST /api/knowledge/ingest`, `POST /api/knowledge/search`, `GET /api/knowledge/stats`, `POST /api/knowledge/ingest/incremental`, `DELETE /api/knowledge/files`, `POST /api/knowledge/reindex`, `GET /api/knowledge/export-metadata` |
+| Shared Memory | `POST /api/memory/add`, `POST /api/memory/search`, `GET /api/memory/all`, `DELETE /api/memory/{id}`, `PUT /api/memory/{id}` |
 | Integrations | `/api/integrations/macos/action`, `POST /api/integrations/macos/screenshot`, `/api/integrations/vscode/…`, … |
 
 See [`docs/api-contract.md`](docs/api-contract.md) for the full reference.
@@ -312,6 +366,7 @@ Protected endpoints:
 | `/api/integrations/macos/screenshot` | POST |
 | `/api/knowledge/files` | DELETE |
 | `/api/knowledge/reindex` | POST |
+| `/api/memory/*` | ALL |
 
 ---
 

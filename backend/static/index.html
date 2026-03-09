@@ -681,6 +681,44 @@
         <div id="agent-skills-catalog" style="margin-top:0.75rem"></div>
       </section>
 
+      <!-- Shared Memory section -->
+      <section class="card settings-section">
+        <h2 class="card-title"><span class="section-icon">&#129504;</span> Sd&iacute;len&aacute; pam&#283;&#357; (Shared Memory)</h2>
+        <small class="form-hint" style="display:block;margin-bottom:1rem">
+          Centr&aacute;ln&iacute; long-term pam&#283;&#357; pro va&#353;e modely. Fakta, preference a pozn&aacute;mky,
+          kter&eacute; se automaticky pou&#382;&iacute;vaj&iacute; v&nbsp;chatu jako kontext.
+        </small>
+
+        <!-- Add memory form -->
+        <div class="form-group">
+          <label class="form-label" for="mem-text">Nov&aacute; pozn&aacute;mka:</label>
+          <textarea class="input" id="mem-text" rows="2" placeholder="Nap&#345;. &quot;Preferuji kr&aacute;tk&eacute; odpov&#283;di v &#269;e&#353;tin&#283;&quot;"></textarea>
+        </div>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:end">
+          <div class="form-group" style="flex:2;min-width:150px">
+            <label class="form-label" for="mem-tags">Tagy (&#269;&aacute;rkou):</label>
+            <input type="text" class="input" id="mem-tags" placeholder="preference, jazyk" />
+          </div>
+          <div class="form-group" style="flex:1;min-width:80px">
+            <label class="form-label" for="mem-importance">D&#367;le&#382;itost:</label>
+            <select class="input" id="mem-importance">
+              <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+              <option value="4">4</option><option value="5" selected>5</option><option value="6">6</option>
+              <option value="7">7</option><option value="8">8</option><option value="9">9</option>
+              <option value="10">10</option>
+            </select>
+          </div>
+          <button class="btn btn--primary btn--small" id="add-memory-btn" style="margin-bottom:0.5rem">Ulo&#382;it</button>
+        </div>
+
+        <!-- Memory list -->
+        <div class="form-group" style="margin-top:1rem;display:flex;gap:0.5rem;align-items:center">
+          <button class="btn btn--secondary btn--small" id="view-memories-btn">Zobrazit pam&#283;ti</button>
+          <span id="memory-count" class="hint-text"></span>
+        </div>
+        <div id="memory-list" class="hidden" style="margin-top:0.75rem"></div>
+      </section>
+
       <!-- Security section -->
       <section class="card settings-section">
         <h2 class="card-title"><span class="section-icon">&#128274;</span> Bezpe&#269;nost (API Key)</h2>

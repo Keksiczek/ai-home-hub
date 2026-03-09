@@ -1581,6 +1581,10 @@ function bindSettingsEvents() {
   document.getElementById('kb-stats-btn').addEventListener('click', loadKnowledgeStats);
   document.getElementById('kb-export-btn').addEventListener('click', exportKbMetadata);
 
+  // Shared Memory
+  document.getElementById('add-memory-btn').addEventListener('click', addMemory);
+  document.getElementById('view-memories-btn').addEventListener('click', toggleMemories);
+
   // LLM timeout slider live update
   const timeoutSlider = document.getElementById('s-llm-timeout');
   if (timeoutSlider) {
@@ -2901,4 +2905,95 @@ function bindMobileDragDrop() {
     if (imageFiles.length) handleImageFiles(imageFiles);
     if (otherFiles.length) handleFiles(otherFiles);
   });
+}
+
+/* ============================================================
+   SHARED MEMORY
+   ============================================================ */
+
+async function addMemory() {
+  const text = getVal('mem-text');
+  if (!text.trim()) { showToast('Text je povinny', 'error'); return; }
+  const tagsRaw = getVal('mem-tags');
+  const tags = tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean) : [];
+  const importance = parseInt(getVal('mem-importance') || '5');
+
+  try {
+    const res = await fetch('/api/memory/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, tags, importance, source: 'ui' }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    setVal('mem-text', '');
+    setVal('mem-tags', '');
+    setVal('mem-importance', '5');
+    showToast('Pamet ulozena', 'success');
+    // Refresh list if visible
+    const list = document.getElementById('memory-list');
+    if (list && !list.classList.contains('hidden')) loadMemories();
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
+}
+
+function toggleMemories() {
+  const list = document.getElementById('memory-list');
+  if (list.classList.contains('hidden')) {
+    list.classList.remove('hidden');
+    loadMemories();
+  } else {
+    list.classList.add('hidden');
+  }
+}
+
+async function loadMemories() {
+  const list = document.getElementById('memory-list');
+  const countEl = document.getElementById('memory-count');
+  list.innerHTML = '<span style="color:#94a3b8">Nacitam...</span>';
+
+  try {
+    const res = await fetch('/api/memory/all?limit=200');
+    const data = await res.json();
+    const memories = data.memories || [];
+    countEl.textContent = memories.length + ' zaznamu';
+
+    if (!memories.length) {
+      list.innerHTML = '<span style="color:#94a3b8">Zadne pameti.</span>';
+      return;
+    }
+
+    list.innerHTML = memories.map(m => {
+      const tagsHtml = (m.tags || []).map(t => `<span style="background:#334155;padding:2px 6px;border-radius:4px;font-size:0.75rem">${escHtml(t)}</span>`).join(' ');
+      const ts = m.timestamp ? new Date(m.timestamp).toLocaleString('cs-CZ') : '';
+      return `<div style="border:1px solid #334155;border-radius:8px;padding:0.75rem;margin-bottom:0.5rem">
+        <div style="display:flex;justify-content:space-between;align-items:start;gap:0.5rem">
+          <div style="flex:1">
+            <div style="color:#e2e8f0">${escHtml(m.text)}</div>
+            <div style="margin-top:0.25rem;display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center">
+              ${tagsHtml}
+              <span style="color:#64748b;font-size:0.75rem">dulezitost: ${m.importance}/10</span>
+              ${m.source ? `<span style="color:#64748b;font-size:0.75rem">zdroj: ${escHtml(m.source)}</span>` : ''}
+              <span style="color:#64748b;font-size:0.75rem">${ts}</span>
+            </div>
+          </div>
+          <button class="btn btn--ghost btn--small" onclick="deleteMemory('${escHtml(m.id)}')" title="Smazat">&#128465;</button>
+        </div>
+      </div>`;
+    }).join('');
+  } catch (err) {
+    list.innerHTML = `<span style="color:#f87171">Chyba: ${escHtml(err.message)}</span>`;
+  }
+}
+
+async function deleteMemory(id) {
+  if (!confirm('Smazat tuto pamet?')) return;
+  try {
+    const res = await fetch('/api/memory/' + encodeURIComponent(id), { method: 'DELETE' });
+    if (!res.ok) throw new Error(await res.text());
+    showToast('Pamet smazana', 'success');
+    loadMemories();
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
 }
