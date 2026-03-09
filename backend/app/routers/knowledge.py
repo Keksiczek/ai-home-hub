@@ -3,7 +3,9 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
+
+from app.utils.auth import verify_api_key
 
 from app.models.schemas import ReindexFileRequest
 from app.services.embeddings_service import get_embeddings_service
@@ -342,7 +344,8 @@ async def incremental_ingest(
 # ── File deletion ────────────────────────────────────────────────
 
 
-@router.delete("/knowledge/files", tags=["knowledge"])
+@router.delete("/knowledge/files", tags=["knowledge"],
+               dependencies=[Depends(verify_api_key)])
 async def delete_kb_file(path: str) -> Dict[str, Any]:
     """
     Remove all indexed chunks for a specific file path.
@@ -362,7 +365,8 @@ async def delete_kb_file(path: str) -> Dict[str, Any]:
 # ── Reindex ───────────────────────────────────────────────────────
 
 
-@router.post("/knowledge/reindex", tags=["knowledge"])
+@router.post("/knowledge/reindex", tags=["knowledge"],
+             dependencies=[Depends(verify_api_key)])
 async def reindex_file(body: ReindexFileRequest) -> Dict[str, Any]:
     """
     Re-index a single file: delete its existing chunks then re-ingest.

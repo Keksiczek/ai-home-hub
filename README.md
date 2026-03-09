@@ -244,6 +244,27 @@ The macOS automation features require:
 - The server allows all CORS origins by default (`allow_origins=["*"]`). Restrict this if exposing the server beyond localhost.
 - Agent concurrency is capped (default: 5) with a timeout (default: 30 min) to prevent runaway processes.
 
+### API Key Authentication
+
+Sensitive endpoints (screenshot capture, KB file deletion, KB reindex) support optional `X-API-Key` header authentication:
+
+- **Disabled (default):** leave the *API Key* field empty in *Settings → Security*. All requests are accepted – suitable for localhost-only use.
+- **Enabled:** set a non-empty value in *Settings → Security → API Key*. Every request to a protected endpoint must include the header `X-API-Key: <your-key>`. Requests without the header or with a wrong key receive **HTTP 403**.
+- **Recommendation:** always set an API key when exposing AI Home Hub on a LAN, VPN, or reverse proxy.
+
+```bash
+# Example – delete a KB file with API key auth
+curl -X DELETE "http://localhost:8000/api/knowledge/files?path=/docs/old.txt" \
+     -H "X-API-Key: your-secret-key"
+```
+
+Protected endpoints:
+| Endpoint | Method |
+|----------|--------|
+| `/api/integrations/macos/screenshot` | POST |
+| `/api/knowledge/files` | DELETE |
+| `/api/knowledge/reindex` | POST |
+
 ---
 
 ## Troubleshooting

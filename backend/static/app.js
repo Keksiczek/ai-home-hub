@@ -1277,6 +1277,9 @@ async function loadSettings() {
     _settingsExternalPaths = [...(s.knowledge_base?.external_paths || [])];
     renderExternalPaths();
 
+    // API key – never pre-fill; user must re-enter to change
+    setVal('s-api-key', '');
+
     // Update model badge
     updateModelBadge();
   } catch (err) {
@@ -1290,6 +1293,7 @@ async function saveSettings() {
   setLoading(saveBtn, saveSpinner, true);
 
   const agKey = document.getElementById('s-ag-key').value;
+  const apiKey = getVal('s-api-key');
 
   const patch = {
     llm: {
@@ -1339,6 +1343,8 @@ async function saveSettings() {
       ...((_currentSettings && _currentSettings.knowledge_base) || {}),
       external_paths: _settingsExternalPaths,
     },
+    // Only include api_key when the user has typed a value; empty means "keep existing"
+    ...(apiKey ? { api_key: apiKey } : {}),
   };
 
   try {

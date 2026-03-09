@@ -1,7 +1,9 @@
 """Integrations router – endpoints for all external service integrations."""
 from typing import Any, Dict
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from app.utils.auth import verify_api_key
 
 from app.models.schemas import (
     AntigravityAgentRequest,
@@ -123,6 +125,18 @@ async def antigravity_health() -> Dict[str, Any]:
 
 
 # ── Mac OS ──────────────────────────────────────────────────
+
+@router.post("/integrations/macos/screenshot", tags=["integrations", "macos"],
+             dependencies=[Depends(verify_api_key)])
+async def macos_screenshot(mode: str = "clipboard") -> dict:
+    """Capture a macOS screenshot (requires Screen Recording permission).
+
+    ``mode=clipboard`` returns base64-encoded PNG in the response.
+    ``mode=file`` saves to a temp file and returns the path.
+    """
+    svc = get_macos_service()
+    return await svc.run_action("screenshot", {"mode": mode})
+
 
 @router.post("/integrations/macos/action", tags=["integrations", "macos"])
 async def macos_action(body: MacOSActionRequest) -> Dict[str, Any]:
