@@ -243,3 +243,79 @@ def test_filters_tag_search(client, mock_memory_service):
         top_k=5,
         filters={"tags": ["preference", "language"]},
     )
+
+
+# ── Summarize session tests ──────────────────────────────────────────────────
+
+
+def test_summarize_session_empty(client, mock_memory_service, monkeypatch):
+    """POST /api/memory/summarize-session returns 400 for empty session."""
+    mock_session_svc = MagicMock()
+    mock_session_svc.session_exists.return_value = True
+    mock_session_svc.load_history.return_value = []
+    monkeypatch.setattr(
+        "app.services.session_service.get_session_service", lambda: mock_session_svc
+    )
+
+    resp = client.post("/api/memory/summarize-session", json={
+        "session_id": "test-session",
+    })
+
+    assert resp.status_code == 400
+    assert "No messages" in resp.json()["detail"]
+
+
+def test_summarize_session_not_found(client, mock_memory_service, monkeypatch):
+    """POST /api/memory/summarize-session returns 404 for unknown session."""
+    mock_session_svc = MagicMock()
+    mock_session_svc.session_exists.return_value = False
+    monkeypatch.setattr(
+        "app.services.session_service.get_session_service", lambda: mock_session_svc
+    )
+
+    resp = client.post("/api/memory/summarize-session", json={
+        "session_id": "nonexistent",
+    })
+
+    assert resp.status_code == 404
+
+
+def test_summarize_session_creates_memories(client, mock_memory_service, monkeypatch):
+    """POST /api/memory/summarize-session extracts facts and creates memories."""
+    mock_session_svc = MagicMock()
+    mock_session_svc.session_exists.return_value = True
+    mock_session_svc.load_history.return_value = [
+        {"role": "user", "content": "Rád používám Power BI"},
+        {"role": "assistant", "content": "Power BI je skvělý nástroj!"},
+    ]
+    monkeypatch.setattr(
+        "app.services.session_service.get_session_service", lambda: mock_session_svc
+    )
+
+    mock_llm = MagicMock()
+    mock_llm.generate = AsyncMock(return_value=(
+        "Uživatel rád používá Power BI\nUživatel se zajímá o datové nástroje",
+        {"provider": "ollama"},
+    ))
+    monkeypatch.setattr(
+        "app.services.llm_service.get_llm_service", lambda: mock_llm
+    )
+
+    # add_memory returns different IDs for each call
+    mock_memory_service.add_memory = AsyncMock(side_effect=["mem_s1", "mem_s2"])
+
+    resp = client.post("/api/memory/summarize-session", json={
+        "session_id": "test-session",
+    })
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["summary_count"] == 2
+    assert len(data["memories_created"]) == 2
+    assert mock_memory_service.add_memory.call_count == 2
+
+    # Verify tags and source
+    call_args = mock_memory_service.add_memory.call_args_list[0]
+    assert call_args.kwargs["tags"] == ["auto-summary", "session"]
+    assert "test-session" in call_args.kwargs["source"]
+    assert call_args.kwargs["importance"] == 7

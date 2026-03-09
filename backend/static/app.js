@@ -298,6 +298,7 @@ function bindChatEvents() {
   document.getElementById('chat-input').addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') sendMessage();
   });
+  document.getElementById('summarize-session-btn').addEventListener('click', summarizeSession);
 
   // New chat button (sidebar)
   document.getElementById('new-chat-btn').addEventListener('click', () => {
@@ -659,6 +660,32 @@ function appendBubble(role, text, meta, images) {
     badge.textContent = '\u{1F4DA} KB';
     badge.title = 'Odpoved vyuziva kontext z knowledge base';
     bubble.appendChild(badge);
+  }
+
+  if (role === 'ai' && meta && meta.memory_context_used) {
+    const memBadge = document.createElement('span');
+    memBadge.className = 'memory-context-badge';
+    memBadge.style.right = (meta.kb_context_used ? '3rem' : '-0.375rem');
+    memBadge.textContent = '\u{1F4A1} Memory';
+    memBadge.title = 'Odpoved vyuziva kontext ze sdilene pameti';
+    bubble.appendChild(memBadge);
+
+    const items = meta.memory_context_items || [];
+    if (items.length > 0) {
+      const details = document.createElement('details');
+      details.className = 'memory-context-details';
+      const summary = document.createElement('summary');
+      summary.textContent = `\u{1F4A1} Pouzite pameti (${items.length})`;
+      details.appendChild(summary);
+      const ul = document.createElement('ul');
+      items.forEach(item => {
+        const li = document.createElement('li');
+        li.textContent = `${item.text} (dulezitost: ${item.importance})`;
+        ul.appendChild(li);
+      });
+      details.appendChild(ul);
+      bubble.appendChild(details);
+    }
   }
 
   chatHistoryEl.appendChild(bubble);
@@ -2995,5 +3022,32 @@ async function deleteMemory(id) {
     loadMemories();
   } catch (err) {
     showToast('Chyba: ' + err.message, 'error');
+  }
+}
+
+async function summarizeSession() {
+  if (!currentSessionId) {
+    showToast('Zadna aktivni session', 'warning');
+    return;
+  }
+  const btn = document.getElementById('summarize-session-btn');
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch('/api/memory/summarize-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: currentSessionId }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    if (data.summary_count > 0) {
+      showToast(`Vytvoreno ${data.summary_count} pameti z konverzace`, 'success');
+    } else {
+      showToast('Zadne relevantn\u00ed fakta nalezeny', 'info');
+    }
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }

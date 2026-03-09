@@ -192,6 +192,25 @@ Shared Memory is a **central long-term memory** for your AI models – separate 
 - **View**: click *View memories* to expand the list.
 - **Delete**: click the trash icon next to any memory.
 
+### Auto-summarize Session
+
+After a chat conversation, click the **"Paměť"** button in the chat header to automatically extract key facts and preferences from the session and save them as memories.
+
+- The system uses the LLM to analyze the conversation and extract relevant user-specific information.
+- Each extracted fact is saved with tags `["auto-summary", "session"]` and importance 7.
+- The memories are then available for future chat sessions.
+
+```bash
+# Summarize a session via API
+curl -X POST http://localhost:8000/api/memory/summarize-session \
+  -H "Content-Type: application/json" \
+  -d '{"session_id": "abc-123-def", "max_messages": 50}'
+```
+
+### Memory Preview in Chat
+
+When a chat response uses shared memory context, a purple **"Memory"** badge appears on the message bubble. Click the expandable **"Použité paměti"** section below the response to see which memories were used.
+
 ### API Endpoints
 
 All `/api/memory/*` endpoints are protected by `X-API-Key` when configured.
@@ -203,6 +222,7 @@ All `/api/memory/*` endpoints are protected by `X-API-Key` when configured.
 | `/api/memory/all` | GET | List all memories (query param: `limit`) |
 | `/api/memory/{id}` | DELETE | Delete a memory |
 | `/api/memory/{id}` | PUT | Update text/tags/importance |
+| `/api/memory/summarize-session` | POST | Summarize chat session into memories |
 
 ### Examples
 

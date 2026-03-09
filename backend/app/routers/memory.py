@@ -1,4 +1,4 @@
-"""Memory router – CRUD and search for shared long-term memory."""
+"""Memory router – CRUD, search, and session summarization for shared long-term memory."""
 
 import logging
 from typing import Any, Dict, List, Optional
@@ -50,6 +50,11 @@ class UpdateMemoryRequest(BaseModel):
     text: Optional[str] = None
     tags: Optional[List[str]] = None
     importance: Optional[int] = Field(default=None, ge=1, le=10)
+
+
+class SummarizeSessionRequest(BaseModel):
+    session_id: str = Field(..., min_length=1)
+    max_messages: int = Field(default=50, ge=1, le=200)
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
@@ -121,3 +126,70 @@ async def update_memory(memory_id: str, request: UpdateMemoryRequest):
     if not updated:
         raise HTTPException(status_code=404, detail=f"Memory {memory_id} not found")
     return {"memory_id": memory_id, "updated": True}
+
+
+@router.post("/memory/summarize-session", tags=["memory"])
+async def summarize_session(request: SummarizeSessionRequest):
+    """Summarize a chat session and auto-save key facts as memories."""
+    from app.services.session_service import get_session_service
+    from app.services.llm_service import get_llm_service
+
+    session_svc = get_session_service()
+    if not session_svc.session_exists(request.session_id):
+        raise HTTPException(status_code=404, detail=f"Session {request.session_id} not found")
+
+    messages = session_svc.load_history(request.session_id, limit=request.max_messages)
+    if not messages:
+        raise HTTPException(status_code=400, detail="No messages in session")
+
+    # Format conversation for the LLM
+    conversation_lines = []
+    for m in messages:
+        role = "User" if m["role"] == "user" else "Assistant"
+        conversation_lines.append(f"{role}: {m['content']}")
+    conversation_text = "\n".join(conversation_lines)
+
+    prompt = (
+        "Analyzuj tuto konverzaci a vyextrahuj klíčové fakta, preference a poznatky o uživateli.\n\n"
+        "Formát odpovědi:\n"
+        "- Každý fakt/preference na samostatný řádek\n"
+        "- Stručně, max 1 věta per položka\n"
+        "- Bez duplicit, jen nové/relevantní informace\n"
+        "- Nezačínej řádky pomlčkou ani odrážkou, jen text\n\n"
+        f"<conversation>\n{conversation_text}\n</conversation>\n\n"
+        "Výstup (jeden fakt per řádek):"
+    )
+
+    llm_svc = get_llm_service()
+    try:
+        reply, _ = await llm_svc.generate(message=prompt, mode="general", profile="chat")
+    except Exception as exc:
+        logger.error("LLM summarization failed: %s", exc)
+        raise HTTPException(status_code=500, detail="LLM summarization failed")
+
+    # Parse facts from the LLM response
+    facts = [
+        line.lstrip("- ").lstrip("• ").strip()
+        for line in reply.strip().splitlines()
+        if line.strip() and len(line.strip()) > 3
+    ]
+
+    if not facts:
+        return {"summary_count": 0, "memories_created": []}
+
+    # Save each fact as a memory
+    svc = get_memory_service()
+    created_ids = []
+    for fact in facts:
+        try:
+            mem_id = await svc.add_memory(
+                text=fact,
+                tags=["auto-summary", "session"],
+                source=f"session_{request.session_id}",
+                importance=7,
+            )
+            created_ids.append(mem_id)
+        except Exception as exc:
+            logger.warning("Failed to save summary memory: %s", exc)
+
+    return {"summary_count": len(created_ids), "memories_created": created_ids}
