@@ -1,4 +1,7 @@
-"""Knowledge base router – external storage scan, ingestion, search."""
+"""Knowledge base router – external storage scan, ingestion, search, incremental indexing, export."""
+import asyncio
+import csv
+import io
 import logging
 import uuid
 from pathlib import Path

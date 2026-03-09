@@ -1,5 +1,10 @@
 """Vector store service – ChromaDB persistence for document embeddings."""
 import logging
+import os
+import subprocess
+import time
+from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
