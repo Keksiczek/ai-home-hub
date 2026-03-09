@@ -1542,6 +1542,62 @@ async function scanExternalStorage() {
   }
 }
 
+function _renderIngestProgress(results, current, total) {
+  const pct = total > 0 ? Math.round((current / total) * 100) : 0;
+  results.innerHTML = `
+    <div class="scan-summary">
+      <strong>Indexuji...</strong> ${current} / ${total}
+      <div class="ingest-progress-bar">
+        <div class="ingest-progress-fill" style="width:${pct}%"></div>
+      </div>
+    </div>
+  `;
+}
+
+function _renderIngestResult(results, data) {
+  results.innerHTML = `
+    <div class="scan-summary">
+      <strong>Indexace dokoncena</strong><br>
+      Indexovano souboru: ${data.ingested_count} |
+      Celkem chunku: ${data.total_chunks}
+      ${data.failed_count > 0 ? ` | Selhalo: ${data.failed_count}` : ''}
+    </div>
+    ${data.errors && data.errors.length > 0 ? `
+      <div class="scan-errors">
+        <strong>Chyby:</strong>
+        ${data.errors.map(e => `<div>${escHtml(e)}</div>`).join('')}
+      </div>
+    ` : ''}
+  `;
+}
+
+async function _pollIngestJob(jobId, results) {
+  return new Promise((resolve, reject) => {
+    const interval = setInterval(async () => {
+      try {
+        const r = await fetch(`/api/knowledge/ingest-jobs/${jobId}`);
+        if (!r.ok) { clearInterval(interval); return reject(new Error(`HTTP ${r.status}`)); }
+        const job = await r.json();
+
+        if (job.status === 'running' || job.status === 'pending') {
+          const { current, total } = job.progress;
+          _renderIngestProgress(results, current, total);
+        } else if (job.status === 'completed') {
+          clearInterval(interval);
+          _renderIngestResult(results, job.result);
+          resolve(job.result);
+        } else if (job.status === 'failed') {
+          clearInterval(interval);
+          reject(new Error(job.result?.error || 'Ingest failed'));
+        }
+      } catch (err) {
+        clearInterval(interval);
+        reject(err);
+      }
+    }, 1000);
+  });
+}
+
 async function ingestAllFiles() {
   const btn = document.getElementById('ingest-files-btn');
   const results = document.getElementById('ingest-results');
@@ -1557,23 +1613,10 @@ async function ingestAllFiles() {
       const err = await resp.json().catch(() => ({ detail: `HTTP ${resp.status}` }));
       throw new Error(err.detail || `HTTP ${resp.status}`);
     }
-    const data = await resp.json();
+    const { job_id } = await resp.json();
 
-    results.innerHTML = `
-      <div class="scan-summary">
-        <strong>Indexace dokoncena</strong><br>
-        Indexovano souboru: ${data.ingested_count} |
-        Celkem chunku: ${data.total_chunks}
-        ${data.failed_count > 0 ? ` | Selhalo: ${data.failed_count}` : ''}
-      </div>
-      ${data.errors.length > 0 ? `
-        <div class="scan-errors">
-          <strong>Chyby:</strong>
-          ${data.errors.map(e => `<div>${escHtml(e)}</div>`).join('')}
-        </div>
-      ` : ''}
-    `;
-
+    _renderIngestProgress(results, 0, 0);
+    const data = await _pollIngestJob(job_id, results);
     showToast(`Indexovano ${data.ingested_count} souboru (${data.total_chunks} chunku)`, 'success');
   } catch (err) {
     console.error('Ingest failed:', err);

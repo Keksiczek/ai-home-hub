@@ -1,9 +1,10 @@
 """Knowledge base router – external storage scan, ingestion, search."""
 import logging
+import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException
 
 from app.utils.auth import verify_api_key
 
@@ -18,6 +19,21 @@ from app.utils.text_chunker import chunk_text
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# ── In-memory job store ───────────────────────────────────────────
+# Maps job_id -> IngestJob dict.  Sufficient for single-process deployments;
+# replace with Redis/DB for multi-worker setups.
+
+_jobs: Dict[str, Dict[str, Any]] = {}
+
+
+def _make_job(job_id: str) -> Dict[str, Any]:
+    return {
+        "job_id": job_id,
+        "status": "pending",
+        "progress": {"current": 0, "total": 0},
+        "result": None,
+    }
 
 
 @router.post("/knowledge/scan", tags=["knowledge"])
@@ -107,45 +123,42 @@ async def get_knowledge_config() -> Dict[str, Any]:
 # ── Ingestion Pipeline ──────────────────────────────────────────
 
 
-@router.post("/knowledge/ingest", tags=["knowledge"])
-async def ingest_files(
-    file_paths: Optional[List[str]] = None,
+async def _run_ingest_core(
+    file_paths: Optional[List[str]],
+    job: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """
-    Ingest files: parse -> chunk -> embed -> store.
+    """Parse → chunk → embed → store.
 
-    Args:
-        file_paths: Optional list of specific files to ingest.
-                   If None, ingests all files from scan results.
+    If *job* is supplied its ``status`` and ``progress`` fields are updated
+    in-place so the polling endpoint can reflect real-time progress.
     """
     parser = get_file_parser_service()
     embeddings_svc = get_embeddings_service()
     vector_store = get_vector_store_service()
+    ws_manager = get_ws_manager()
 
-    # Get files to ingest
     if file_paths:
         files = [Path(p) for p in file_paths]
     else:
-        # Scan all external paths
         scan_result = await scan_external_storage()
         files = [Path(f["path"]) for f in scan_result["discovered_files"]]
 
-    # Only ingest parseable file types
     parseable_exts = parser.SUPPORTED_EXTENSIONS
-
-    ws_manager = get_ws_manager()
     ingested_count = 0
     failed_count = 0
     total_chunks = 0
     errors: List[str] = []
     total_files = len(files)
 
+    if job is not None:
+        job["status"] = "running"
+        job["progress"] = {"current": 0, "total": total_files}
+
     for file_idx, file_path in enumerate(files):
         if file_path.suffix.lower() not in parseable_exts:
             continue
 
         try:
-            # 1. Parse file
             parsed = parser.parse_file(file_path)
             if "error" in parsed and not parsed.get("text"):
                 errors.append(f"{file_path.name}: {parsed['error']}")
@@ -158,13 +171,9 @@ async def ingest_files(
                 failed_count += 1
                 continue
 
-            # 2. Chunk text
             chunks = chunk_text(text, chunk_size=DEFAULT_CHUNK_SIZE, overlap=DEFAULT_CHUNK_OVERLAP)
-
-            # 3. Generate embeddings
             embeddings = await embeddings_svc.generate_embeddings_batch(chunks)
 
-            # Filter out failed embeddings
             valid_items = [
                 (chunk, emb, idx)
                 for idx, (chunk, emb) in enumerate(zip(chunks, embeddings))
@@ -176,7 +185,6 @@ async def ingest_files(
                 failed_count += 1
                 continue
 
-            # 4. Store in vector DB
             ids = [f"file:{file_path}:chunk_{idx}" for _, _, idx in valid_items]
             docs = [chunk for chunk, _, _ in valid_items]
             embs = [emb for _, emb, _ in valid_items]
@@ -192,10 +200,7 @@ async def ingest_files(
                 for _, _, idx in valid_items
             ]
 
-            # Delete old chunks for this file (re-indexing)
             vector_store.delete_by_file_path(str(file_path))
-
-            # Add new chunks
             vector_store.add_documents(
                 ids=ids,
                 embeddings=embs,
@@ -206,7 +211,9 @@ async def ingest_files(
             ingested_count += 1
             total_chunks += len(valid_items)
 
-            # Broadcast progress via WebSocket
+            if job is not None:
+                job["progress"] = {"current": file_idx + 1, "total": total_files}
+
             await ws_manager.broadcast({
                 "type": "ingest_progress",
                 "current": file_idx + 1,
@@ -227,6 +234,36 @@ async def ingest_files(
         "total_chunks": total_chunks,
         "errors": errors,
     }
+
+
+async def _job_ingest(job_id: str, file_paths: Optional[List[str]]) -> None:
+    """Background task wrapper: runs ingest and finalises the job record."""
+    job = _jobs.get(job_id)
+    if job is None:
+        return
+    try:
+        result = await _run_ingest_core(file_paths, job=job)
+        job["status"] = "completed"
+        job["result"] = result
+    except Exception as exc:
+        logger.error("Ingest job %s failed: %s", job_id, exc)
+        job["status"] = "failed"
+        job["result"] = {"error": str(exc)}
+
+
+@router.post("/knowledge/ingest", tags=["knowledge"])
+async def ingest_files(
+    background_tasks: BackgroundTasks,
+    file_paths: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Start a background ingest job.  Returns ``{job_id, status}`` immediately.
+
+    Poll ``GET /knowledge/ingest-jobs/{job_id}`` for progress.
+    """
+    job_id = str(uuid.uuid4())
+    _jobs[job_id] = _make_job(job_id)
+    background_tasks.add_task(_job_ingest, job_id, file_paths)
+    return {"job_id": job_id, "status": "pending"}
 
 
 # ── Semantic Search ──────────────────────────────────────────────
@@ -304,41 +341,70 @@ def get_file_metadata(file_path: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-@router.post("/knowledge/ingest/incremental", tags=["knowledge"])
-async def incremental_ingest(
-    file_paths: List[str] = Body(...),
+async def _run_incremental_core(
+    file_paths: List[str],
+    job: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """
-    Ingest only files that have been modified since their last indexing.
-
-    Compares each file's current ``mtime`` against the value stored in the
-    vector DB.  Unchanged files are counted in ``skipped_count``; modified
-    or new files are re-indexed and counted in ``re_indexed``.
-    """
+    """Ingest only files modified since last indexing."""
     skipped_count = 0
     re_indexed = 0
     errors: List[str] = []
+    total = len(file_paths)
 
-    for fp in file_paths:
+    if job is not None:
+        job["status"] = "running"
+        job["progress"] = {"current": 0, "total": total}
+
+    for idx, fp in enumerate(file_paths):
         path = Path(fp)
         if not path.exists():
             errors.append(f"Not found: {fp}")
-            continue
-
-        current_mtime = path.stat().st_mtime
-        stored = get_file_metadata(fp)
-
-        if stored is not None and stored.get("mtime") == current_mtime:
-            skipped_count += 1
-            continue
-
-        result = await ingest_files(file_paths=[fp])
-        if result["ingested_count"] > 0:
-            re_indexed += 1
         else:
-            errors.extend(result["errors"])
+            current_mtime = path.stat().st_mtime
+            stored = get_file_metadata(fp)
+
+            if stored is not None and stored.get("mtime") == current_mtime:
+                skipped_count += 1
+            else:
+                result = await _run_ingest_core([fp])
+                if result["ingested_count"] > 0:
+                    re_indexed += 1
+                else:
+                    errors.extend(result["errors"])
+
+        if job is not None:
+            job["progress"] = {"current": idx + 1, "total": total}
 
     return {"skipped_count": skipped_count, "re_indexed": re_indexed, "errors": errors}
+
+
+async def _job_incremental(job_id: str, file_paths: List[str]) -> None:
+    job = _jobs.get(job_id)
+    if job is None:
+        return
+    try:
+        result = await _run_incremental_core(file_paths, job=job)
+        job["status"] = "completed"
+        job["result"] = result
+    except Exception as exc:
+        logger.error("Incremental job %s failed: %s", job_id, exc)
+        job["status"] = "failed"
+        job["result"] = {"error": str(exc)}
+
+
+@router.post("/knowledge/ingest/incremental", tags=["knowledge"])
+async def incremental_ingest(
+    background_tasks: BackgroundTasks,
+    file_paths: List[str] = Body(...),
+) -> Dict[str, Any]:
+    """Start a background incremental-ingest job.  Returns ``{job_id, status}`` immediately.
+
+    Poll ``GET /knowledge/ingest-jobs/{job_id}`` for progress.
+    """
+    job_id = str(uuid.uuid4())
+    _jobs[job_id] = _make_job(job_id)
+    background_tasks.add_task(_job_incremental, job_id, file_paths)
+    return {"job_id": job_id, "status": "pending"}
 
 
 # ── File deletion ────────────────────────────────────────────────
@@ -374,7 +440,7 @@ async def reindex_file(body: ReindexFileRequest) -> Dict[str, Any]:
     Useful after the file content has changed on disk.
     Returns the same shape as ingest_files for a single file.
     """
-    return await ingest_files(file_paths=[body.file_path])
+    return await _run_ingest_core(file_paths=[body.file_path])
 
 
 # ── Stats ────────────────────────────────────────────────────────
@@ -394,3 +460,25 @@ async def get_knowledge_stats(detailed: bool = True) -> Dict[str, Any]:
     """
     vector_store = get_vector_store_service()
     return vector_store.get_stats(detailed=detailed)
+
+
+# ── Job polling ───────────────────────────────────────────────────
+
+
+@router.get("/knowledge/ingest-jobs/{job_id}", tags=["knowledge"])
+async def get_ingest_job(job_id: str) -> Dict[str, Any]:
+    """Poll the status of an ingest background job.
+
+    Response shape::
+
+        {
+          "job_id": "...",
+          "status": "pending" | "running" | "completed" | "failed",
+          "progress": {"current": int, "total": int},
+          "result": { ... } | null
+        }
+    """
+    job = _jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+    return job
