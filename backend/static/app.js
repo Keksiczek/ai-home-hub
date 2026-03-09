@@ -20,6 +20,8 @@ let _settingsExternalPaths = [];
 let _allSkills = [];
 let _selectedTagFilter = null;
 let _selectedAgentSkills = new Set();
+let _selectedFsAgentSkills = new Set(); // filesystem-based SKILL.md skills
+let _agentSkillsDirs = [];
 let _ollamaModels = [];
 let toast, toastTimer;
 
@@ -155,7 +157,7 @@ function switchTab(tabName) {
 
   // Lazy-load tab data
   if (tabName === 'status') loadSystemStatus();
-  if (tabName === 'agents') { refreshAgents(); loadAgentSkillSelect(); }
+  if (tabName === 'agents') { refreshAgents(); loadAgentSkillSelect(); loadFsAgentSkillSelect(); }
   if (tabName === 'skills') loadSkills();
   if (tabName === 'actions') { loadQuickActions(); loadVSCodeProjects(); loadActionHistory(); }
   if (tabName === 'settings') { loadSettings(); loadOllamaModels(); }
@@ -840,6 +842,7 @@ async function spawnAgent() {
       task: { goal },
       workspace,
       skill_ids: Array.from(_selectedAgentSkills),
+      skill_names: Array.from(_selectedFsAgentSkills),
     };
     const res = await fetch('/api/agents/spawn', {
       method: 'POST',
@@ -851,6 +854,7 @@ async function spawnAgent() {
     showToast(`Agent ${data.agent_id} spusten!`, 'success');
     document.getElementById('agent-goal').value = '';
     _selectedAgentSkills.clear();
+    _selectedFsAgentSkills.clear();
     document.querySelectorAll('.skill-select-chip--selected').forEach(c =>
       c.classList.remove('skill-select-chip--selected')
     );
@@ -1569,6 +1573,8 @@ function bindSettingsEvents() {
   document.getElementById('add-project-btn').addEventListener('click', addProject);
   document.getElementById('add-dir-btn').addEventListener('click', addAllowedDir);
   document.getElementById('add-external-path-btn').addEventListener('click', addExternalPath);
+  document.getElementById('add-agent-skills-dir-btn').addEventListener('click', addAgentSkillsDir);
+  document.getElementById('rescan-agent-skills-btn').addEventListener('click', rescanAgentSkills);
   document.getElementById('scan-storage-btn').addEventListener('click', scanExternalStorage);
   document.getElementById('ingest-files-btn').addEventListener('click', ingestAllFiles);
   document.getElementById('incremental-ingest-btn').addEventListener('click', incrementalIngest);
@@ -1700,6 +1706,13 @@ async function loadSettings() {
     _settingsExternalPaths = [...(s.knowledge_base?.external_paths || [])];
     renderExternalPaths();
 
+    // Agent Skills
+    const agentSkillsCfg = s.agent_skills || {};
+    setChecked('s-agent-skills-defaults', agentSkillsCfg.use_default_skill_paths !== false);
+    _agentSkillsDirs = [...(agentSkillsCfg.skills_directories || [])];
+    renderAgentSkillsDirsList();
+    loadAgentSkillsCatalog();
+
     // API key – never pre-fill; user must re-enter to change
     setVal('s-api-key', '');
 
@@ -1792,6 +1805,10 @@ async function saveSettings() {
     knowledge_base: {
       ...((_currentSettings && _currentSettings.knowledge_base) || {}),
       external_paths: _settingsExternalPaths,
+    },
+    agent_skills: {
+      use_default_skill_paths: getChecked('s-agent-skills-defaults'),
+      skills_directories: _agentSkillsDirs,
     },
     // Only include api_key when the user has typed a value; empty means "keep existing"
     ...(apiKey ? { api_key: apiKey } : {}),
@@ -1940,6 +1957,119 @@ function addExternalPath() {
   _settingsExternalPaths.push(path);
   input.value = '';
   renderExternalPaths();
+}
+
+/* ── Agent Skills (SKILL.md) helpers ───────────────────── */
+
+function renderAgentSkillsDirsList() {
+  const el = document.getElementById('agent-skills-dirs-list');
+  if (!el) return;
+  if (!_agentSkillsDirs.length) {
+    el.innerHTML = '<p class="hint-text">Zatim zadne dalsi cesty.</p>';
+    return;
+  }
+  el.innerHTML = _agentSkillsDirs.map((p, idx) => `
+    <div class="list-item">
+      <code class="list-item__val" style="flex:1">${escHtml(p)}</code>
+      <button class="btn btn--ghost btn--small" data-remove-askill-dir="${idx}">Odebrat</button>
+    </div>
+  `).join('');
+  el.querySelectorAll('[data-remove-askill-dir]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _agentSkillsDirs.splice(parseInt(btn.dataset.removeAskillDir), 1);
+      renderAgentSkillsDirsList();
+    });
+  });
+}
+
+function addAgentSkillsDir() {
+  const input = document.getElementById('new-agent-skills-dir');
+  const path = input.value.trim();
+  if (!path) { showToast('Zadej cestu', 'warning'); return; }
+  if (_agentSkillsDirs.includes(path)) {
+    showToast(t('path_exists'), 'warning');
+    return;
+  }
+  _agentSkillsDirs.push(path);
+  input.value = '';
+  renderAgentSkillsDirsList();
+}
+
+async function rescanAgentSkills() {
+  const btn = document.getElementById('rescan-agent-skills-btn');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/agent-skills/refresh', { method: 'POST' });
+    const data = await res.json();
+    renderAgentSkillsCatalogData(data.skills || []);
+    const countEl = document.getElementById('agent-skills-count');
+    if (countEl) countEl.textContent = `Nalezeno: ${data.count || 0}`;
+    showToast(`Agent skills refreshed: ${data.count || 0} nalezeno`, 'success');
+  } catch (err) {
+    showToast(`Chyba rescan: ${err.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function loadAgentSkillsCatalog() {
+  try {
+    const res = await fetch('/api/agent-skills');
+    const data = await res.json();
+    renderAgentSkillsCatalogData(data.skills || []);
+    const countEl = document.getElementById('agent-skills-count');
+    if (countEl) countEl.textContent = `Nalezeno: ${data.count || 0}`;
+  } catch (err) { /* silent */ }
+}
+
+function renderAgentSkillsCatalogData(skills) {
+  const el = document.getElementById('agent-skills-catalog');
+  if (!el) return;
+  if (!skills.length) {
+    el.innerHTML = '<p class="hint-text">Zadne agent skills nalezeny.</p>';
+    return;
+  }
+  el.innerHTML = skills.map(s => `
+    <div class="list-item" style="flex-direction:column;align-items:flex-start;gap:0.25rem">
+      <strong>${escHtml(s.name)}</strong>
+      <span class="hint-text">${escHtml(s.description)}</span>
+      <code class="hint-text" style="font-size:0.7rem">${escHtml(s.path)}</code>
+    </div>
+  `).join('');
+}
+
+async function loadFsAgentSkillSelect() {
+  const el = document.getElementById('agent-fs-skill-select');
+  if (!el) return;
+  try {
+    const res = await fetch('/api/agent-skills');
+    const data = await res.json();
+    const skills = data.skills || [];
+    if (!skills.length) {
+      el.innerHTML = '<p class="hint-text">Zadne agent skills k dispozici.</p>';
+      return;
+    }
+    el.innerHTML = skills.map(s => `
+      <div class="skill-select-chip" data-fs-skill-name="${escHtml(s.name)}">
+        <span class="skill-select-chip__icon">&#127919;</span>
+        ${escHtml(s.name)}
+      </div>
+    `).join('');
+    el.querySelectorAll('.skill-select-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const name = chip.dataset.fsSkillName;
+        if (_selectedFsAgentSkills.has(name)) {
+          _selectedFsAgentSkills.delete(name);
+          chip.classList.remove('skill-select-chip--selected');
+        } else {
+          _selectedFsAgentSkills.add(name);
+          chip.classList.add('skill-select-chip--selected');
+        }
+      });
+    });
+  } catch (err) {
+    el.innerHTML = `<p class="hint-text">Chyba: ${escHtml(err.message)}</p>`;
+  }
 }
 
 async function scanExternalStorage() {

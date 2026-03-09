@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from app.services.settings_service import get_settings_service
 from app.services.skills_service import get_skills_service
+from app.services.agent_skills_service import get_agent_skills_service
 from app.utils.constants import MAX_SUB_AGENT_DEPTH, MIN_KB_SEARCH_SCORE
 
 logger = logging.getLogger(__name__)
@@ -113,6 +114,7 @@ class AgentOrchestrator:
         task: Dict[str, Any],
         workspace: Optional[str] = None,
         skill_ids: Optional[List[str]] = None,
+        skill_names: Optional[List[str]] = None,
         parent_agent_id: Optional[str] = None,
         depth: int = 0,
     ) -> str:
@@ -133,13 +135,26 @@ class AgentOrchestrator:
         if agent_type not in AGENT_TYPES:
             agent_type = "general"
 
-        # Load skills and build system prompt additions
+        # Load CRUD-based skills and build system prompt additions
         if skill_ids:
             skills_svc = get_skills_service()
             skills = skills_svc.get_by_ids(skill_ids)
             skill_prompts = [s.get("system_prompt_addition", "") for s in skills if s.get("system_prompt_addition")]
             if skill_prompts:
                 task["_skill_prompt"] = "\n\n".join(skill_prompts)
+
+        # Load filesystem-based agent skills (SKILL.md) and inject instructions
+        if skill_names:
+            agent_skills_svc = get_agent_skills_service()
+            agent_skills_section = agent_skills_svc.build_system_prompt_section(
+                skill_names, include_instructions=True,
+            )
+            if agent_skills_section:
+                existing = task.get("_skill_prompt", "")
+                if existing:
+                    task["_skill_prompt"] = existing + "\n\n" + agent_skills_section
+                else:
+                    task["_skill_prompt"] = agent_skills_section
 
         agent_id = str(uuid.uuid4())[:8]
         record = AgentRecord(

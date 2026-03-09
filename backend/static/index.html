@@ -176,6 +176,13 @@
           </div>
         </div>
 
+        <div class="form-group">
+          <label class="form-label">Agent Skills (SKILL.md):</label>
+          <div class="skill-select-list" id="agent-fs-skill-select">
+            <p class="hint-text">Na&#269;&iacute;t&aacute;m agent skills...</p>
+          </div>
+        </div>
+
         <div class="form-group form-group--right">
           <button class="btn btn--primary" id="spawn-btn">
             Spustit agenta
@@ -641,6 +648,37 @@
           <label class="form-label" for="s-agents-timeout">Timeout (min):</label>
           <input type="number" class="input" id="s-agents-timeout" min="5" max="120" style="max-width:100px" />
         </div>
+      </section>
+
+      <!-- Agent Skills section -->
+      <section class="card settings-section">
+        <h2 class="card-title"><span class="section-icon">&#127919;</span> Agent Skills (SKILL.md)</h2>
+        <p class="hint-text">Slo&#382;ky se SKILL.md soubory podle <a href="https://agentskills.io" target="_blank" style="color:#60a5fa">agentskills.io</a>. Defaultn&#283; se skenuje ~/.agents/skills a ~/.ai-home-hub/skills.</p>
+
+        <div class="form-group" style="margin-top:0.75rem">
+          <label class="toggle-label">
+            <input type="checkbox" id="s-agent-skills-defaults" checked />
+            <strong>Pou&#382;&iacute;t v&yacute;choz&iacute; cesty</strong>
+          </label>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Dodate&#269;n&eacute; adres&aacute;&#345;e:</label>
+          <div id="agent-skills-dirs-list" style="margin-top:0.5rem"></div>
+          <div style="display:flex;gap:0.5rem;margin-top:0.5rem">
+            <input type="text" class="input" id="new-agent-skills-dir"
+                   placeholder="~/.my-skills" style="flex:1" />
+            <button class="btn btn--secondary btn--small" id="add-agent-skills-dir-btn">+ P&#345;idat</button>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top:1rem;display:flex;gap:0.5rem;align-items:center">
+          <button class="btn btn--primary btn--small" id="rescan-agent-skills-btn">
+            &#128269; Rescan skills
+          </button>
+          <span id="agent-skills-count" class="hint-text"></span>
+        </div>
+        <div id="agent-skills-catalog" style="margin-top:0.75rem"></div>
       </section>
 
       <!-- Security section -->

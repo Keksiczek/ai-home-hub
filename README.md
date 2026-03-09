@@ -173,6 +173,54 @@ AI Home Hub supports semantic search across your documents.
 
 ---
 
+## Agent Skills Integration
+
+AI Home Hub supports **Agent Skills** – reusable skill packages based on the [agentskills.io](https://agentskills.io) specification.
+
+### How It Works
+
+- Each skill is a **directory containing a `SKILL.md` file** with optional YAML frontmatter (`name`, `description`) and instructions for the agent.
+- By default, the system scans `~/.agents/skills` and `~/.ai-home-hub/skills` for skill directories.
+- Additional directories can be configured in **Settings → Agent Skills**.
+- When spawning an agent, select which skills it should use. The skill instructions from `SKILL.md` are injected into the agent's system prompt.
+
+### Example Skill Structure
+
+```
+~/.agents/skills/
+└── pdf-processing/
+    ├── SKILL.md          # Required: frontmatter + instructions
+    ├── scripts/           # Optional: helper scripts
+    ├── references/        # Optional: reference docs
+    └── assets/            # Optional: templates, configs
+```
+
+### Example SKILL.md
+
+```markdown
+---
+name: pdf-processing
+description: Extract text and tables from PDF files, fill forms, merge documents.
+---
+
+## Instructions
+
+When asked to process PDF files, use the following approach:
+1. Extract text using appropriate tools
+2. Parse tables into structured format
+3. Return results in markdown
+```
+
+### API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/agent-skills` | GET | List discovered agent skills |
+| `/api/agent-skills/refresh` | POST | Re-scan directories for skills |
+| `/api/agent-skills/{name}` | GET | Get skill instructions (SKILL.md content) |
+
+---
+
 ## API Overview
 
 Base URL: `http://localhost:8000/api`
