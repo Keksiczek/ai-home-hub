@@ -267,6 +267,20 @@ Protected endpoints:
 
 ---
 
+## Testing & CI
+
+Backend tests run automatically on every push and pull request to `main` via the GitHub Actions workflow at [`.github/workflows/backend-ci.yml`](.github/workflows/backend-ci.yml) (Python 3.11 and 3.12).
+
+To run tests locally:
+
+```bash
+cd backend
+pip install -r requirements.txt
+pytest -q tests
+```
+
+---
+
 ## Troubleshooting
 
 **Ollama not connecting**
