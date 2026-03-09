@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.routers import actions, agent_skills, chat, chat_multimodal, files, knowledge, status
+from app.routers import actions, agent_skills, chat, chat_multimodal, files, knowledge, memory, status
 from app.routers import agents, filesystem, integrations, settings, skills, tasks
 from app.routers.websocket_router import router as ws_router
 
@@ -79,6 +79,7 @@ app.include_router(integrations.router, prefix="/api", tags=["integrations"])
 app.include_router(skills.router, prefix="/api", tags=["skills"])
 app.include_router(agent_skills.router, prefix="/api", tags=["agent-skills"])
 app.include_router(knowledge.router, prefix="/api", tags=["knowledge"])
+app.include_router(memory.router, prefix="/api", tags=["memory"])
 
 # Status (has its own /api/status prefix)
 app.include_router(status.router)

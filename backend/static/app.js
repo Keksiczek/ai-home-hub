@@ -298,6 +298,7 @@ function bindChatEvents() {
   document.getElementById('chat-input').addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') sendMessage();
   });
+  document.getElementById('summarize-session-btn').addEventListener('click', summarizeSession);
 
   // New chat button (sidebar)
   document.getElementById('new-chat-btn').addEventListener('click', () => {
@@ -659,6 +660,32 @@ function appendBubble(role, text, meta, images) {
     badge.textContent = '\u{1F4DA} KB';
     badge.title = 'Odpoved vyuziva kontext z knowledge base';
     bubble.appendChild(badge);
+  }
+
+  if (role === 'ai' && meta && meta.memory_context_used) {
+    const memBadge = document.createElement('span');
+    memBadge.className = 'memory-context-badge';
+    memBadge.style.right = (meta.kb_context_used ? '3rem' : '-0.375rem');
+    memBadge.textContent = '\u{1F4A1} Memory';
+    memBadge.title = 'Odpoved vyuziva kontext ze sdilene pameti';
+    bubble.appendChild(memBadge);
+
+    const items = meta.memory_context_items || [];
+    if (items.length > 0) {
+      const details = document.createElement('details');
+      details.className = 'memory-context-details';
+      const summary = document.createElement('summary');
+      summary.textContent = `\u{1F4A1} Pouzite pameti (${items.length})`;
+      details.appendChild(summary);
+      const ul = document.createElement('ul');
+      items.forEach(item => {
+        const li = document.createElement('li');
+        li.textContent = `${item.text} (dulezitost: ${item.importance})`;
+        ul.appendChild(li);
+      });
+      details.appendChild(ul);
+      bubble.appendChild(details);
+    }
   }
 
   chatHistoryEl.appendChild(bubble);
@@ -1580,6 +1607,10 @@ function bindSettingsEvents() {
   document.getElementById('incremental-ingest-btn').addEventListener('click', incrementalIngest);
   document.getElementById('kb-stats-btn').addEventListener('click', loadKnowledgeStats);
   document.getElementById('kb-export-btn').addEventListener('click', exportKbMetadata);
+
+  // Shared Memory
+  document.getElementById('add-memory-btn').addEventListener('click', addMemory);
+  document.getElementById('view-memories-btn').addEventListener('click', toggleMemories);
 
   // LLM timeout slider live update
   const timeoutSlider = document.getElementById('s-llm-timeout');
@@ -2901,4 +2932,122 @@ function bindMobileDragDrop() {
     if (imageFiles.length) handleImageFiles(imageFiles);
     if (otherFiles.length) handleFiles(otherFiles);
   });
+}
+
+/* ============================================================
+   SHARED MEMORY
+   ============================================================ */
+
+async function addMemory() {
+  const text = getVal('mem-text');
+  if (!text.trim()) { showToast('Text je povinny', 'error'); return; }
+  const tagsRaw = getVal('mem-tags');
+  const tags = tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean) : [];
+  const importance = parseInt(getVal('mem-importance') || '5');
+
+  try {
+    const res = await fetch('/api/memory/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, tags, importance, source: 'ui' }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    setVal('mem-text', '');
+    setVal('mem-tags', '');
+    setVal('mem-importance', '5');
+    showToast('Pamet ulozena', 'success');
+    // Refresh list if visible
+    const list = document.getElementById('memory-list');
+    if (list && !list.classList.contains('hidden')) loadMemories();
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
+}
+
+function toggleMemories() {
+  const list = document.getElementById('memory-list');
+  if (list.classList.contains('hidden')) {
+    list.classList.remove('hidden');
+    loadMemories();
+  } else {
+    list.classList.add('hidden');
+  }
+}
+
+async function loadMemories() {
+  const list = document.getElementById('memory-list');
+  const countEl = document.getElementById('memory-count');
+  list.innerHTML = '<span style="color:#94a3b8">Nacitam...</span>';
+
+  try {
+    const res = await fetch('/api/memory/all?limit=200');
+    const data = await res.json();
+    const memories = data.memories || [];
+    countEl.textContent = memories.length + ' zaznamu';
+
+    if (!memories.length) {
+      list.innerHTML = '<span style="color:#94a3b8">Zadne pameti.</span>';
+      return;
+    }
+
+    list.innerHTML = memories.map(m => {
+      const tagsHtml = (m.tags || []).map(t => `<span style="background:#334155;padding:2px 6px;border-radius:4px;font-size:0.75rem">${escHtml(t)}</span>`).join(' ');
+      const ts = m.timestamp ? new Date(m.timestamp).toLocaleString('cs-CZ') : '';
+      return `<div style="border:1px solid #334155;border-radius:8px;padding:0.75rem;margin-bottom:0.5rem">
+        <div style="display:flex;justify-content:space-between;align-items:start;gap:0.5rem">
+          <div style="flex:1">
+            <div style="color:#e2e8f0">${escHtml(m.text)}</div>
+            <div style="margin-top:0.25rem;display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center">
+              ${tagsHtml}
+              <span style="color:#64748b;font-size:0.75rem">dulezitost: ${m.importance}/10</span>
+              ${m.source ? `<span style="color:#64748b;font-size:0.75rem">zdroj: ${escHtml(m.source)}</span>` : ''}
+              <span style="color:#64748b;font-size:0.75rem">${ts}</span>
+            </div>
+          </div>
+          <button class="btn btn--ghost btn--small" onclick="deleteMemory('${escHtml(m.id)}')" title="Smazat">&#128465;</button>
+        </div>
+      </div>`;
+    }).join('');
+  } catch (err) {
+    list.innerHTML = `<span style="color:#f87171">Chyba: ${escHtml(err.message)}</span>`;
+  }
+}
+
+async function deleteMemory(id) {
+  if (!confirm('Smazat tuto pamet?')) return;
+  try {
+    const res = await fetch('/api/memory/' + encodeURIComponent(id), { method: 'DELETE' });
+    if (!res.ok) throw new Error(await res.text());
+    showToast('Pamet smazana', 'success');
+    loadMemories();
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
+}
+
+async function summarizeSession() {
+  if (!currentSessionId) {
+    showToast('Zadna aktivni session', 'warning');
+    return;
+  }
+  const btn = document.getElementById('summarize-session-btn');
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch('/api/memory/summarize-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: currentSessionId }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    if (data.summary_count > 0) {
+      showToast(`Vytvoreno ${data.summary_count} pameti z konverzace`, 'success');
+    } else {
+      showToast('Zadne relevantn\u00ed fakta nalezeny', 'info');
+    }
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }

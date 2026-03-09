@@ -14,6 +14,7 @@ from app.utils.constants import (
     MAX_IMAGE_SIZE_BYTES,
     MAX_IMAGES_PER_MESSAGE,
 )
+from app.utils.context_helpers import enrich_message
 from app.utils.i18n import get_message
 
 logger = logging.getLogger(__name__)
@@ -125,12 +126,17 @@ async def multimodal_chat(request: MultimodalChatRequest) -> ChatResponse:
         reply, meta = await _call_ollama_generate(request.message, request.images, cfg)
     else:
         history = session_svc.get_history_for_llm(session_id, limit=20)
+
+        # Enrich with KB + memory context (same as text chat)
+        llm_message, context_meta = await enrich_message(request.message)
+
         reply, meta = await get_llm_service().generate(
-            message=request.message,
+            message=llm_message,
             mode=request.mode,
             profile=request.profile,
             history=history,
         )
+        meta.update(context_meta)
 
     meta["images_count"] = len(request.images)
     session_svc.save_message(session_id, "user", request.message)
