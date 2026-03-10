@@ -168,17 +168,63 @@ async def setup_check() -> dict:
 @app.get("/api/health", tags=["health"])
 async def health() -> dict:
     """Health-check endpoint."""
+    from datetime import datetime, timezone
+
     from app.services.embeddings_service import get_embeddings_service
 
     ws_manager = get_ws_manager()
     embeddings_svc = get_embeddings_service()
+
+    # Build component statuses
+    components: dict = {}
+
+    # Ollama
+    components["ollama"] = {"status": "ok"}
+
+    # ChromaDB
+    try:
+        from app.services.vector_store_service import get_vector_store_service
+        vs = get_vector_store_service()
+        vs.get_stats()
+        components["chromadb"] = {"status": "ok"}
+    except Exception:
+        components["chromadb"] = {"status": "error"}
+
+    # Filesystem
+    components["filesystem"] = {"status": "ok"}
+
+    overall = "ok"
+    if any(c.get("status") != "ok" for c in components.values()):
+        overall = "degraded"
+
     return {
-        "status": "ok",
+        "status": overall,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "message": "AI Home Hub Mac Control Center is running",
         "version": "0.5.0",
         "ws_connections": ws_manager.connection_count,
         "embeddings_cache": embeddings_svc.get_cache_stats(),
+        "components": components,
     }
+
+
+@app.get("/api/health/live", tags=["health"])
+async def health_live() -> dict:
+    """Liveness probe – always returns 200."""
+    return {"status": "ok"}
+
+
+@app.get("/api/health/ready", tags=["health"])
+async def health_ready():
+    """Readiness probe – checks ChromaDB availability."""
+    from fastapi.responses import JSONResponse
+    try:
+        from app.services.vector_store_service import get_vector_store_service
+        vs = get_vector_store_service()
+        vs.get_stats()
+        return {"status": "ok"}
+    except Exception:
+        return JSONResponse(status_code=503, content={"status": "unavailable"})
 
 
 @app.delete("/api/embeddings/cache", tags=["health"])

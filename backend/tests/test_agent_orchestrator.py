@@ -1,6 +1,6 @@
 """Tests for AgentOrchestrator sub-agent depth, KB search filtering, and artifact preview."""
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -61,7 +61,8 @@ async def test_spawn_sub_agent_respects_max_depth(orchestrator):
     assert result is None
 
 
-def test_search_knowledge_base_filters_low_scores(orchestrator, monkeypatch):
+@pytest.mark.asyncio
+async def test_search_knowledge_base_filters_low_scores(orchestrator, monkeypatch):
     """Results with score < MIN_KB_SEARCH_SCORE must be excluded from the output."""
     # Build a mock vector store whose search returns three hits:
     # distances are converted to scores as (1 - distance).
@@ -70,6 +71,7 @@ def test_search_knowledge_base_filters_low_scores(orchestrator, monkeypatch):
     exact_distance = 1 - MIN_KB_SEARCH_SCORE                 # score exactly at threshold (included)
 
     mock_vs = MagicMock()
+    mock_vs.get_stats.return_value = {"total_chunks": 10}
     mock_vs.search.return_value = {
         "documents": ["good chunk", "bad chunk", "exact chunk"],
         "metadatas": [
@@ -80,11 +82,17 @@ def test_search_knowledge_base_filters_low_scores(orchestrator, monkeypatch):
         "distances": [high_score_distance, low_score_distance, exact_distance],
     }
 
+    mock_emb = AsyncMock()
+    mock_emb.generate_embedding.return_value = [0.1, 0.2, 0.3]
+
     monkeypatch.setattr(
         "app.services.vector_store_service.get_vector_store_service", lambda: mock_vs
     )
+    monkeypatch.setattr(
+        "app.services.embeddings_service.get_embeddings_service", lambda: mock_emb
+    )
 
-    results = orchestrator.search_knowledge_base([0.1, 0.2, 0.3], top_k=3)
+    results = await orchestrator.search_knowledge_base("test query", top_k=3)
 
     file_names = [r["file_name"] for r in results]
     assert "good.txt" in file_names

@@ -174,12 +174,14 @@ async def enrich_message(
             f"{kb_context}"
         )
         meta["kb_context_used"] = True
+        meta["kb_used"] = True
 
     # Apply memory context
     mem_result = result_map.get("memory")
     if mem_result and isinstance(mem_result, MemoryContextResult) and mem_result.xml:
         llm_message = f"{mem_result.xml}\n\n{llm_message}"
         meta["memory_context_used"] = True
+        meta["memory_used"] = True
         meta["memory_context_items"] = mem_result.items
 
     return llm_message, meta

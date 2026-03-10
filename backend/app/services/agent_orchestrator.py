@@ -46,8 +46,8 @@ class AgentRecord:
         self.task = task
         self.workspace = workspace
         self.skill_ids = skill_ids or []
-        self.depth: int = 0
-        self.parent_agent_id: Optional[str] = None
+        self.depth: int = depth
+        self.parent_agent_id: Optional[str] = parent_agent_id
         self.status = AGENT_STATUS_PENDING
         self.progress = 0
         self.message: Optional[str] = None
@@ -353,79 +353,8 @@ class AgentOrchestrator:
                 artifacts.append(art)
         return artifacts
 
-    async def spawn_sub_agent(
-        self,
-        parent_agent_id: str,
-        task: Dict[str, Any],
-        agent_type: str = "general",
-    ) -> Optional[str]:
-        """Spawn a child agent under *parent_agent_id*.
 
-        Returns ``None`` if the parent has already reached ``MAX_SUB_AGENT_DEPTH``.
-        """
-        parent = self._agents.get(parent_agent_id)
-        if parent is None:
-            return None
-        if parent.depth >= MAX_SUB_AGENT_DEPTH:
-            logger.warning(
-                "Agent %s at max depth %d – sub-agent spawn refused",
-                parent_agent_id,
-                MAX_SUB_AGENT_DEPTH,
-            )
-            return None
 
-        agent_id = await self.spawn_agent(agent_type, task)
-        child = self._agents[agent_id]
-        child.depth = parent.depth + 1
-        child.parent_agent_id = parent_agent_id
-        return agent_id
-
-    def search_knowledge_base(
-        self,
-        query_embedding: List[float],
-        top_k: int = 5,
-    ) -> List[Dict[str, Any]]:
-        """Search the vector store and filter out low-confidence results.
-
-        Any result whose score (``1 – distance``) is below ``MIN_KB_SEARCH_SCORE``
-        is discarded before returning.
-        """
-        from app.services.vector_store_service import get_vector_store_service  # local import to avoid circular deps
-
-        vector_store = get_vector_store_service()
-        raw = vector_store.search(query_embedding=query_embedding, top_k=top_k)
-
-        results: List[Dict[str, Any]] = []
-        for doc, meta, distance in zip(
-            raw.get("documents", []),
-            raw.get("metadatas", []),
-            raw.get("distances", []),
-        ):
-            score = round(1 - distance, 4)
-            if score < MIN_KB_SEARCH_SCORE:
-                continue
-            results.append({
-                "text": doc,
-                "file_name": meta.get("file_name", ""),
-                "file_path": meta.get("file_path", ""),
-                "score": score,
-                "metadata": meta,
-            })
-        return results
-
-    def get_agent_artifacts_with_preview(self, agent_id: str) -> List[Dict[str, Any]]:
-        """Return agent artifacts enriched with a *preview* field.
-
-        The preview contains the first 500 characters of the artifact's
-        ``content`` (JSON-serialised if the content is not a plain string).
-        """
-        artifacts = self.get_agent_artifacts(agent_id)
-        for art in artifacts:
-            content = art.get("content", "")
-            if not isinstance(content, str):
-                content = json.dumps(content, ensure_ascii=False)
-            art["preview"] = content[:500]
-        return artifacts
 
     # ── Control ────────────────────────────────────────────────
 
@@ -487,7 +416,6 @@ class AgentOrchestrator:
                 top_k=top_k,
             )
 
-            MIN_SCORE = 0.3
             results = []
             for doc, metadata, distance in zip(
                 search_results["documents"],
@@ -495,7 +423,7 @@ class AgentOrchestrator:
                 search_results["distances"],
             ):
                 score = round(1 - distance, 4)
-                if score < MIN_SCORE:
+                if score < MIN_KB_SEARCH_SCORE:
                     continue
                 results.append({
                     "text": doc,
