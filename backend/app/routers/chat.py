@@ -119,8 +119,13 @@ async def chat(request: ChatRequest) -> ChatResponse:
     if not session_id or not session_svc.session_exists(session_id):
         session_id = session_svc.create_session()
 
-    # Load conversation history for multi-turn support
+    # Load conversation history (with summarization if needed)
+    all_messages = session_svc.load_history(session_id)
     history = session_svc.get_history_for_llm(session_id, limit=20)
+    history_summarized = any(
+        m.get("role") == "system" and "Summary of earlier conversation:" in m.get("content", "")
+        for m in history
+    )
 
     # Enrich message with KB + memory context
     llm_message, context_meta = await enrich_message(request.message)
@@ -142,6 +147,9 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
     # Merge context meta flags
     meta.update(context_meta)
+    meta["history_summarized"] = history_summarized
+    meta["history_total_messages"] = len(all_messages)
+    meta["history_sent_messages"] = len(history)
 
     # Persist both turns (store original message, not the one with KB context)
     session_svc.save_message(session_id, "user", request.message)

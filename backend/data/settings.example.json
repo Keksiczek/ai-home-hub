@@ -105,5 +105,8 @@
         {"service": "macos", "action": "notification", "params": {"title": "Work Done!", "message": "Time to rest."}}
       ]
     }
-  ]
+  ],
+  "session_max_messages_before_summary": 20,
+  "auto_translate_to_czech": true,
+  "custom_system_prompt_append": ""
 }
