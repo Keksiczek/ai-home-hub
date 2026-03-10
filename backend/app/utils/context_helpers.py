@@ -1,20 +1,20 @@
 """Shared context-enrichment helpers used by both chat and multimodal chat routers.
 
-These functions search the Knowledge Base and Shared Memory for relevant context
-and return structured data that can be injected into the LLM prompt.
+Delegates to context_utils.py for the core logic; this module provides
+backward-compatible wrappers (enrich_message, MemoryContextResult).
 """
 
 import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from app.services.settings_service import get_settings_service
-from app.utils.constants import MIN_KB_SEARCH_SCORE
+from app.utils.context_utils import (
+    get_kb_context,
+    get_memory_context,
+    MAX_MEMORY_DISTANCE,
+)
 
 logger = logging.getLogger(__name__)
-
-# Maximum cosine distance to consider a memory relevant for chat context
-MAX_MEMORY_DISTANCE = 0.7
 
 
 @dataclass
@@ -25,62 +25,8 @@ class MemoryContextResult:
     items: List[Dict[str, Any]]
 
 
-async def get_kb_context(message: str) -> str:
-    """Search knowledge base for relevant context. Returns formatted context or empty string."""
-    try:
-        settings = get_settings_service().load()
-        kb_enabled = settings.get("knowledge_base", {}).get("enabled", False)
-        if not kb_enabled:
-            return ""
-
-        from app.services.vector_store_service import get_vector_store_service
-        vector_store = get_vector_store_service()
-        stats = vector_store.get_stats()
-
-        if stats["total_chunks"] == 0:
-            return ""
-
-        from app.services.embeddings_service import get_embeddings_service
-        embeddings_svc = get_embeddings_service()
-        query_embedding = await embeddings_svc.generate_embedding(message)
-
-        if not query_embedding:
-            return ""
-
-        search_results = vector_store.search(
-            query_embedding=query_embedding,
-            top_k=3,
-        )
-
-        if not search_results["documents"]:
-            return ""
-
-        # Filter out low-quality matches (cosine similarity threshold)
-        context_parts = []
-        for doc, metadata, distance in zip(
-            search_results["documents"],
-            search_results["metadatas"],
-            search_results["distances"],
-        ):
-            if (1 - distance) < MIN_KB_SEARCH_SCORE:
-                continue
-            file_name = metadata.get("file_name", "Unknown")
-            context_parts.append(f"[From {file_name}]\n{doc}")
-
-        return "\n\n---\n\n".join(context_parts)
-
-    except Exception as exc:
-        logger.warning("KB search failed: %s", exc)
-        return ""
-
-
-async def get_memory_context(message: str) -> MemoryContextResult:
-    """Search shared memory for relevant user notes/preferences.
-
-    Returns a MemoryContextResult with:
-      - xml: the formatted <user_memory> block (empty string if no matches)
-      - items: list of dicts with id/text/importance for each matched memory
-    """
+async def _get_memory_context_with_items(message: str) -> MemoryContextResult:
+    """Search shared memory and return both XML and item list."""
     empty = MemoryContextResult(xml="", items=[])
     try:
         from app.services.memory_service import get_memory_service
@@ -107,7 +53,7 @@ async def get_memory_context(message: str) -> MemoryContextResult:
         return MemoryContextResult(xml=xml, items=items)
 
     except Exception as exc:
-        logger.warning("Memory search failed: %s", exc)
+        logger.warning("Memory search failed: %s", exc, exc_info=True)
         return empty
 
 
@@ -125,23 +71,27 @@ async def enrich_message(
     meta: Dict[str, Any] = {
         "kb_context_used": False,
         "memory_context_used": False,
+        "memory_used": False,
+        "kb_used": False,
         "memory_context_items": [],
     }
 
     if use_kb:
-        kb_context = await get_kb_context(message)
-        if kb_context:
+        kb_ctx = await get_kb_context(message)
+        if kb_ctx:
             llm_message = (
                 f"{message}\n\n"
-                f"# Relevant Context from Knowledge Base:\n{kb_context}"
+                f"# Relevant Context from Knowledge Base:\n{kb_ctx}"
             )
             meta["kb_context_used"] = True
+            meta["kb_used"] = True
 
     if use_memory:
-        mem_result = await get_memory_context(message)
+        mem_result = await _get_memory_context_with_items(message)
         if mem_result.xml:
             llm_message = f"{mem_result.xml}\n\n{llm_message}"
             meta["memory_context_used"] = True
+            meta["memory_used"] = True
             meta["memory_context_items"] = mem_result.items
 
     return llm_message, meta
