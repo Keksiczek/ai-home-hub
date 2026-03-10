@@ -1,7 +1,7 @@
 """Shared context-enrichment helpers used by both chat and multimodal chat routers.
 
-These functions search the Knowledge Base and Shared Memory for relevant context
-and return structured data that can be injected into the LLM prompt.
+Delegates to context_utils.py for the core logic; this module provides
+backward-compatible wrappers (enrich_message, MemoryContextResult).
 """
 
 import asyncio
@@ -10,13 +10,13 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.services.settings_service import get_settings_service
-from app.utils.constants import MIN_KB_SEARCH_SCORE
+from app.utils.context_utils import (
+    get_kb_context,
+    get_memory_context,
+    MAX_MEMORY_DISTANCE,
+)
 
 logger = logging.getLogger(__name__)
-
-# Maximum cosine distance to consider a memory relevant for chat context
-MAX_MEMORY_DISTANCE = 0.7
 
 
 @dataclass
@@ -112,7 +112,7 @@ async def get_memory_context(message: str) -> MemoryContextResult:
         return MemoryContextResult(xml=xml, items=items)
 
     except Exception as exc:
-        logger.warning("Memory search failed: %s", exc)
+        logger.warning("Memory search failed: %s", exc, exc_info=True)
         return empty
 
 
@@ -132,6 +132,8 @@ async def enrich_message(
     meta: Dict[str, Any] = {
         "kb_context_used": False,
         "memory_context_used": False,
+        "memory_used": False,
+        "kb_used": False,
         "memory_context_items": [],
     }
 

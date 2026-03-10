@@ -7,6 +7,11 @@ from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 import httpx
 
 from app.services.settings_service import get_settings_service
+from app.utils.circuit_breaker import (
+    CircuitBreakerOpen,
+    get_ollama_circuit_breaker,
+)
+from app.utils.retry import async_retry
 
 logger = logging.getLogger(__name__)
 
@@ -170,11 +175,20 @@ class LLMService:
             return reply, meta_base
 
         except httpx.ConnectError:
+            await cb.record_failure()
             logger.warning("Ollama not available at %s, falling back to stub", ollama_url)
             return self._generate_stub(message, mode, [])[0], {
                 "provider": "stub",
                 "model": "stub",
                 "fallback_reason": "Ollama not reachable",
+            }
+        except (httpx.TimeoutException, httpx.HTTPStatusError) as exc:
+            await cb.record_failure()
+            logger.error("Ollama error after retries: %s", exc, exc_info=True)
+            return f"[Chyba LLM: {exc}]", {
+                "provider": "error",
+                "model": model,
+                "error": str(exc),
             }
         except Exception as exc:
             logger.error("Ollama error: %s", exc, exc_info=True)

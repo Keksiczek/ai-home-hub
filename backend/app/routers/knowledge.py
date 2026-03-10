@@ -451,18 +451,34 @@ async def reindex_file(body: ReindexFileRequest) -> Dict[str, Any]:
 
 @router.get("/knowledge/stats", tags=["knowledge"])
 async def get_knowledge_stats(detailed: bool = True) -> Dict[str, Any]:
-    """Get knowledge base statistics.
+    """Get knowledge base statistics (served from cache with Cache-Control).
 
     Args:
-        detailed: When ``false``, returns only ``total_chunks`` and
-                  ``collection_name`` (fast, no metadata scan).
-                  When ``true`` (default), also returns ``total_documents``,
-                  ``file_types``, and ``top_sources``.  For collections with
-                  more than 50 000 chunks the analysis is based on a sample
-                  and a ``warning`` field is included in the response.
+        detailed: When ``false``, falls back to lightweight live query.
+                  When ``true`` (default), reads from the stats cache.
     """
-    vector_store = get_vector_store_service()
-    return vector_store.get_stats(detailed=detailed)
+    if not detailed:
+        vector_store = get_vector_store_service()
+        return vector_store.get_stats(detailed=False)
+
+    from app.services.kb_stats_cache import get_cached_stats
+    from fastapi.responses import JSONResponse
+
+    stats = get_cached_stats()
+    return JSONResponse(
+        content=stats,
+        headers={"Cache-Control": "max-age=300"},
+    )
+
+
+@router.post("/knowledge/stats/refresh", tags=["knowledge"])
+async def refresh_knowledge_stats() -> Dict[str, Any]:
+    """Manually trigger a KB stats cache refresh."""
+    from app.services.kb_stats_cache import refresh_cache
+    import asyncio
+
+    data = await asyncio.get_event_loop().run_in_executor(None, refresh_cache)
+    return data
 
 
 # ── Job polling ───────────────────────────────────────────────────

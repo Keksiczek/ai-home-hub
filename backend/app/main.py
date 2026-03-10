@@ -1,4 +1,5 @@
 """AI Home Hub – FastAPI application entry point."""
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -20,6 +21,9 @@ from app.services.settings_service import get_settings_service
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Background task handles (cancelled on shutdown)
+_background_tasks: list[asyncio.Task] = []
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -37,8 +41,24 @@ async def lifespan(app: FastAPI):
     # Log actionable first-time-setup warnings
     get_settings_service().warn_if_unconfigured()
 
+    # Start KB stats cache background task (4D)
+    from app.services.kb_stats_cache import start_kb_stats_refresh_loop
+    kb_task = asyncio.create_task(start_kb_stats_refresh_loop())
+    _background_tasks.append(kb_task)
+
+    # Start session auto-cleanup background task (4G)
+    from app.services.session_service import start_session_auto_cleanup
+    cleanup_task = asyncio.create_task(start_session_auto_cleanup())
+    _background_tasks.append(cleanup_task)
+
     logger.info("AI Home Hub started – Mac Control Center ready")
     yield
+
+    # Cancel background tasks on shutdown
+    for task in _background_tasks:
+        task.cancel()
+    _background_tasks.clear()
+
     logger.info("AI Home Hub shutting down")
 
 
@@ -51,6 +71,10 @@ app = FastAPI(
     version="0.3.0",
     lifespan=lifespan,
 )
+
+# Request ID + structured logging middleware (4B)
+from app.middleware.logging_middleware import RequestIDMiddleware
+app.add_middleware(RequestIDMiddleware)
 
 # CORS – allow the SPA to call the API (useful when running on different ports)
 app.add_middleware(
@@ -86,6 +110,10 @@ app.include_router(status.router)
 
 # WebSocket (no /api prefix – connects at /ws)
 app.include_router(ws_router)
+
+# Rate limiting (4F) – must be set up after routes are registered
+from app.middleware.rate_limit import setup_rate_limiting
+setup_rate_limiting(app)
 
 
 @app.get("/api/health/setup", tags=["health"])

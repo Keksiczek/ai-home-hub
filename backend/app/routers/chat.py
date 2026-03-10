@@ -187,3 +187,28 @@ async def delete_session(session_id: str) -> Dict[str, Any]:
     if not success:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
     return {"session_id": session_id, "deleted": True}
+
+
+# ── Session management endpoints (4G) ────────────────────────
+
+
+@router.get("/sessions", tags=["sessions"])
+async def list_all_sessions() -> Dict[str, Any]:
+    """List all session IDs with metadata (created_at, message_count, last_activity)."""
+    session_svc = get_session_service()
+    sessions = session_svc.list_sessions_detailed()
+    return {"sessions": sessions, "count": len(sessions)}
+
+
+@router.get("/sessions/stats", tags=["sessions"])
+async def session_stats() -> Dict[str, Any]:
+    """Get session stats: count, total size, oldest/newest session."""
+    session_svc = get_session_service()
+    return session_svc.get_session_stats()
+
+
+@router.delete("/sessions/cleanup", tags=["sessions"])
+async def cleanup_sessions(older_than_days: int = 30) -> Dict[str, Any]:
+    """Delete sessions older than N days."""
+    session_svc = get_session_service()
+    return session_svc.cleanup_old_sessions(older_than_days)

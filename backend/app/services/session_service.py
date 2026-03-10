@@ -1,8 +1,10 @@
 """Session service – persists conversation history as JSON files."""
+import asyncio
 import json
 import logging
+import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -245,6 +247,81 @@ class SessionService:
             data.setdefault("active_agents", []).append(agent_id)
             self._write(session_id, data)
 
+    # ── Session stats & cleanup (4G) ────────────────────────────
+
+    def get_session_stats(self) -> Dict[str, Any]:
+        """Return session stats: count, total size, oldest/newest."""
+        files = list(SESSIONS_DIR.glob("*.json"))
+        if not files:
+            return {
+                "count": 0,
+                "total_size_bytes": 0,
+                "oldest_session": None,
+                "newest_session": None,
+            }
+        total_size = sum(f.stat().st_size for f in files)
+        sorted_files = sorted(files, key=lambda p: p.stat().st_mtime)
+        oldest_mtime = sorted_files[0].stat().st_mtime
+        newest_mtime = sorted_files[-1].stat().st_mtime
+
+        return {
+            "count": len(files),
+            "total_size_bytes": total_size,
+            "total_size_mb": round(total_size / (1024 * 1024), 2),
+            "oldest_session": datetime.fromtimestamp(oldest_mtime, tz=timezone.utc).isoformat(),
+            "newest_session": datetime.fromtimestamp(newest_mtime, tz=timezone.utc).isoformat(),
+        }
+
+    def cleanup_old_sessions(self, older_than_days: int) -> Dict[str, Any]:
+        """Delete sessions older than N days. Returns count of deleted sessions."""
+        cutoff = time.time() - (older_than_days * 86400)
+        deleted_count = 0
+        deleted_ids: List[str] = []
+        errors: List[str] = []
+
+        for f in SESSIONS_DIR.glob("*.json"):
+            try:
+                if f.stat().st_mtime < cutoff:
+                    session_id = f.stem
+                    f.unlink()
+                    deleted_count += 1
+                    deleted_ids.append(session_id)
+            except Exception as exc:
+                errors.append(f"{f.name}: {exc}")
+                logger.warning("Failed to delete session %s: %s", f.name, exc)
+
+        if deleted_count > 0:
+            logger.info("Cleaned up %d old sessions (older than %d days)", deleted_count, older_than_days)
+
+        return {
+            "deleted_count": deleted_count,
+            "deleted_ids": deleted_ids,
+            "errors": errors,
+        }
+
+    def list_sessions_detailed(self) -> List[Dict[str, Any]]:
+        """List all sessions with full metadata (created_at, message_count, last_activity)."""
+        result = []
+        for f in sorted(SESSIONS_DIR.glob("*.json"),
+                        key=lambda p: p.stat().st_mtime,
+                        reverse=True):
+            try:
+                data = self._read_raw(f.stem)
+                messages = data.get("messages", [])
+                last_activity = None
+                if messages:
+                    last_activity = messages[-1].get("timestamp")
+                result.append({
+                    "session_id": data.get("session_id", f.stem),
+                    "created_at": data.get("created_at", ""),
+                    "message_count": len(messages),
+                    "last_activity": last_activity or data.get("created_at", ""),
+                    "size_bytes": f.stat().st_size,
+                })
+            except Exception as exc:
+                logger.warning("Failed to load session %s: %s", f, exc)
+        return result
+
     # ── Helpers ───────────────────────────────────────────────
 
     def _path(self, session_id: str) -> Path:
@@ -272,3 +349,32 @@ _session_service = SessionService()
 
 def get_session_service() -> SessionService:
     return _session_service
+
+
+async def start_session_auto_cleanup() -> None:
+    """Background task for auto-cleanup of old sessions (4G).
+
+    Reads ``session_auto_cleanup_days`` from settings.json.
+    If null/missing, auto-cleanup is disabled.
+    """
+    try:
+        from app.services.settings_service import get_settings_service
+        settings = get_settings_service().load()
+        cleanup_days = settings.get("session_auto_cleanup_days")
+
+        if cleanup_days is None:
+            logger.info("Session auto-cleanup disabled (session_auto_cleanup_days not set)")
+            return
+
+        cleanup_days = int(cleanup_days)
+        logger.info("Session auto-cleanup started: deleting sessions older than %d days", cleanup_days)
+
+        svc = get_session_service()
+        result = svc.cleanup_old_sessions(cleanup_days)
+        if result["deleted_count"] > 0:
+            logger.info("Auto-cleanup removed %d old sessions", result["deleted_count"])
+
+    except asyncio.CancelledError:
+        logger.info("Session auto-cleanup cancelled")
+    except Exception as exc:
+        logger.error("Session auto-cleanup error: %s", exc, exc_info=True)
