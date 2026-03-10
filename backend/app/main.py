@@ -125,13 +125,27 @@ async def setup_check() -> dict:
 @app.get("/api/health", tags=["health"])
 async def health() -> dict:
     """Health-check endpoint."""
+    from app.services.embeddings_service import get_embeddings_service
+
     ws_manager = get_ws_manager()
+    embeddings_svc = get_embeddings_service()
     return {
         "status": "ok",
         "message": "AI Home Hub Mac Control Center is running",
-        "version": "0.2.0",
+        "version": "0.5.0",
         "ws_connections": ws_manager.connection_count,
+        "embeddings_cache": embeddings_svc.get_cache_stats(),
     }
+
+
+@app.delete("/api/embeddings/cache", tags=["health"])
+async def clear_embeddings_cache() -> dict:
+    """Clear the embeddings cache."""
+    from app.services.embeddings_service import get_embeddings_service
+
+    svc = get_embeddings_service()
+    prev_stats = svc.clear_cache()
+    return {"cleared": True, "previous_stats": prev_stats}
 
 
 # ── SPA Static Files ────────────────────────────────────────
