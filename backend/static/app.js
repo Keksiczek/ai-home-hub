@@ -131,6 +131,7 @@ document.addEventListener('DOMContentLoaded', () => {
   bindActionsEvents();
   bindSettingsEvents();
   bindStatusEvents();
+  bindJobsEvents();
   initWebSocket();
   checkSetupStatus();
   bindMobileDragDrop();
@@ -161,6 +162,7 @@ function switchTab(tabName) {
   if (tabName === 'status') loadSystemStatus();
   if (tabName === 'agents') { refreshAgents(); loadAgentSkillSelect(); loadFsAgentSkillSelect(); }
   if (tabName === 'skills') loadSkills();
+  if (tabName === 'jobs') loadJobs();
   if (tabName === 'actions') { loadQuickActions(); loadVSCodeProjects(); loadActionHistory(); }
   if (tabName === 'settings') { loadSettings(); loadOllamaModels(); }
 }
@@ -230,6 +232,7 @@ function handleWsMessage(msg) {
   if (msg.type === 'agent_update') updateAgentCard(msg.agent);
   else if (msg.type === 'notification') showToast(msg.message, 'info');
   else if (msg.type === 'ingest_progress') handleIngestProgress(msg);
+  else if (msg.type === 'job_update') handleJobUpdate(msg.job);
   else if (msg.type === 'status_alert') handleStatusAlert(msg);
 }
 
@@ -3217,6 +3220,232 @@ async function deleteMemory(id) {
     loadMemories();
   } catch (err) {
     showToast('Chyba: ' + err.message, 'error');
+  }
+}
+
+/* ============================================================
+   JOBS
+   ============================================================ */
+let _jobsCache = [];
+let _jobsPollTimer = null;
+let _selectedJobId = null;
+
+function bindJobsEvents() {
+  const refreshBtn = document.getElementById('refresh-jobs-btn');
+  if (refreshBtn) refreshBtn.addEventListener('click', loadJobs);
+
+  const createDummyBtn = document.getElementById('create-dummy-job-btn');
+  if (createDummyBtn) createDummyBtn.addEventListener('click', () => createQuickJob('dummy_long_task'));
+
+  const createLlmBtn = document.getElementById('create-llm-job-btn');
+  if (createLlmBtn) createLlmBtn.addEventListener('click', () => createQuickJob('long_llm_task'));
+
+  const detailCloseBtn = document.getElementById('job-detail-close');
+  if (detailCloseBtn) detailCloseBtn.addEventListener('click', closeJobDetail);
+}
+
+async function loadJobs() {
+  const container = document.getElementById('jobs-list');
+  if (!container) return;
+
+  try {
+    const res = await fetch('/api/jobs?limit=50');
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    _jobsCache = data.jobs || [];
+    renderJobsList(_jobsCache);
+  } catch (err) {
+    container.innerHTML = `<span style="color:#f87171">Chyba: ${escHtml(err.message)}</span>`;
+  }
+
+  // Set up polling while on jobs tab
+  clearInterval(_jobsPollTimer);
+  _jobsPollTimer = setInterval(() => {
+    const panel = document.getElementById('tab-jobs');
+    if (panel && !panel.classList.contains('hidden')) {
+      loadJobs();
+    } else {
+      clearInterval(_jobsPollTimer);
+    }
+  }, 10000);
+}
+
+function renderJobsList(jobs) {
+  const container = document.getElementById('jobs-list');
+  if (!container) return;
+
+  if (!jobs.length) {
+    container.innerHTML = '<p class="empty-state">Zadne joby.</p>';
+    return;
+  }
+
+  container.innerHTML = `
+    <table class="jobs-table">
+      <thead>
+        <tr>
+          <th>Nazev</th>
+          <th>Typ</th>
+          <th>Status</th>
+          <th>Progress</th>
+          <th>Vytvoreno</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        ${jobs.map(j => `
+          <tr class="jobs-row ${j.status === 'running' ? 'jobs-row--running' : ''}" data-job-id="${escHtml(j.id)}">
+            <td class="jobs-cell-title" onclick="showJobDetail('${escHtml(j.id)}')" style="cursor:pointer;color:#60a5fa">${escHtml(j.title)}</td>
+            <td><span class="job-type-badge">${escHtml(j.type)}</span></td>
+            <td><span class="job-status-badge job-status--${j.status}">${escHtml(j.status)}</span></td>
+            <td>
+              <div class="job-progress-bar">
+                <div class="job-progress-fill" style="width:${Math.round(j.progress)}%"></div>
+              </div>
+              <span class="job-progress-text">${Math.round(j.progress)}%</span>
+            </td>
+            <td class="jobs-cell-date">${formatJobDate(j.created_at)}</td>
+            <td>
+              ${(j.status === 'queued' || j.status === 'running')
+                ? `<button class="btn btn--ghost btn--small" onclick="cancelJob('${escHtml(j.id)}')">Zrusit</button>`
+                : ''}
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function formatJobDate(iso) {
+  if (!iso) return '-';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString('cs-CZ', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  } catch { return iso; }
+}
+
+async function showJobDetail(jobId) {
+  _selectedJobId = jobId;
+  const section = document.getElementById('job-detail-section');
+  const content = document.getElementById('job-detail-content');
+  if (!section || !content) return;
+
+  try {
+    const res = await fetch('/api/jobs/' + encodeURIComponent(jobId));
+    if (!res.ok) throw new Error(await res.text());
+    const job = await res.json();
+    renderJobDetail(job);
+    section.classList.remove('hidden');
+  } catch (err) {
+    content.innerHTML = `<span style="color:#f87171">Chyba: ${escHtml(err.message)}</span>`;
+    section.classList.remove('hidden');
+  }
+}
+
+function renderJobDetail(job) {
+  const title = document.getElementById('job-detail-title');
+  const content = document.getElementById('job-detail-content');
+  if (!content) return;
+  if (title) title.textContent = job.title || 'Detail jobu';
+
+  const meta = job.meta || {};
+  const metaHtml = Object.keys(meta).length
+    ? `<div class="job-detail-meta"><strong>Meta:</strong> <pre style="margin:0.25rem 0;white-space:pre-wrap;font-size:0.8rem;color:#94a3b8">${escHtml(JSON.stringify(meta, null, 2))}</pre></div>`
+    : '';
+
+  content.innerHTML = `
+    <div class="job-detail-grid">
+      <div class="job-detail-row"><span class="job-detail-label">ID:</span> <code>${escHtml(job.id)}</code></div>
+      <div class="job-detail-row"><span class="job-detail-label">Typ:</span> <span class="job-type-badge">${escHtml(job.type)}</span></div>
+      <div class="job-detail-row"><span class="job-detail-label">Status:</span> <span class="job-status-badge job-status--${job.status}">${escHtml(job.status)}</span></div>
+      <div class="job-detail-row"><span class="job-detail-label">Priorita:</span> ${escHtml(job.priority)}</div>
+      <div class="job-detail-row"><span class="job-detail-label">Popis:</span> ${escHtml(job.input_summary || '-')}</div>
+      <div class="job-detail-row">
+        <span class="job-detail-label">Progress:</span>
+        <div style="display:flex;align-items:center;gap:0.5rem;flex:1">
+          <div class="job-progress-bar" style="flex:1">
+            <div class="job-progress-fill" style="width:${Math.round(job.progress)}%"></div>
+          </div>
+          <span>${Math.round(job.progress)}%</span>
+        </div>
+      </div>
+      <div class="job-detail-row"><span class="job-detail-label">Vytvoreno:</span> ${job.created_at || '-'}</div>
+      <div class="job-detail-row"><span class="job-detail-label">Spusteno:</span> ${job.started_at || '-'}</div>
+      <div class="job-detail-row"><span class="job-detail-label">Dokonceno:</span> ${job.finished_at || '-'}</div>
+      ${job.last_error ? `<div class="job-detail-row"><span class="job-detail-label">Chyba:</span> <span style="color:#f87171">${escHtml(job.last_error)}</span></div>` : ''}
+      ${metaHtml}
+    </div>
+    ${(job.status === 'queued' || job.status === 'running')
+      ? `<button class="btn btn--ghost btn--small" onclick="cancelJob('${escHtml(job.id)}')" style="margin-top:0.75rem">Zrusit job</button>`
+      : ''}
+  `;
+}
+
+function closeJobDetail() {
+  _selectedJobId = null;
+  const section = document.getElementById('job-detail-section');
+  if (section) section.classList.add('hidden');
+}
+
+async function cancelJob(jobId) {
+  try {
+    const res = await fetch('/api/jobs/' + encodeURIComponent(jobId) + '/cancel', { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    showToast('Job zrusen', 'success');
+    loadJobs();
+    if (_selectedJobId === jobId) showJobDetail(jobId);
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
+}
+
+async function createQuickJob(type) {
+  const configs = {
+    dummy_long_task: {
+      title: 'Dummy overnight job',
+      input_summary: 'Simulace dlouheho zpracovani (10 kroku)',
+      payload: { steps: 10, sleep_seconds: 1 },
+      priority: 'low',
+    },
+    long_llm_task: {
+      title: 'Long LLM task (test)',
+      input_summary: 'Testovaci LLM uloha',
+      payload: { prompt: 'Vysvetli podrobne, co je to strojove uceni, jeho hlavni principy, metody a aplikace v praxi.', chunk_size: 20 },
+      priority: 'normal',
+    },
+  };
+  const cfg = configs[type];
+  if (!cfg) return;
+
+  try {
+    const res = await fetch('/api/jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, ...cfg }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    showToast('Job vytvoren', 'success');
+    loadJobs();
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
+}
+
+function handleJobUpdate(jobData) {
+  if (!jobData) return;
+  // Update the cache entry
+  const idx = _jobsCache.findIndex(j => j.id === jobData.id);
+  if (idx >= 0) {
+    _jobsCache[idx] = { ..._jobsCache[idx], ...jobData };
+  }
+  // Re-render list if jobs tab is visible
+  const panel = document.getElementById('tab-jobs');
+  if (panel && !panel.classList.contains('hidden')) {
+    renderJobsList(_jobsCache);
+    // Update detail if this job is selected
+    if (_selectedJobId === jobData.id) {
+      showJobDetail(jobData.id);
+    }
   }
 }
 

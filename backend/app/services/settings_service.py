@@ -143,6 +143,16 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         "use_default_skill_paths": True,
     },
     "quick_actions": [],
+    "job_settings": {
+        "max_concurrent_jobs": 1,
+        "night_batch_enabled": True,
+        "night_batch_window": {
+            "start": "22:00",
+            "end": "06:00",
+        },
+        "day_allowed_job_types": ["long_llm_task"],
+        "night_only_job_types": ["dummy_long_task"],
+    },
 }
 
 
@@ -256,6 +266,9 @@ class SettingsService:
 
     def get_quick_actions(self) -> list:
         return self.load().get("quick_actions", [])
+
+    def get_job_settings(self) -> Dict[str, Any]:
+        return self.load().get("job_settings", DEFAULT_SETTINGS["job_settings"])
 
     def warn_if_unconfigured(self) -> None:
         """Log actionable warnings for settings that need first-time configuration."""

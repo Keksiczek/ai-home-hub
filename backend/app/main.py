@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.routers import actions, agent_skills, chat, chat_multimodal, files, knowledge, memory, status
-from app.routers import agents, filesystem, integrations, settings, skills, tasks
+from app.routers import agents, filesystem, integrations, jobs, settings, skills, tasks
 from app.routers.websocket_router import router as ws_router
 
 # Wire up broadcast callback so agents/tasks can push WS updates
@@ -35,7 +35,7 @@ async def lifespan(app: FastAPI):
     # Ensure data directories exist
     from pathlib import Path
     base = Path(__file__).parent.parent / "data"
-    for subdir in ("sessions", "artifacts", "uploads"):
+    for subdir in ("sessions", "artifacts", "uploads", "jobs"):
         (base / subdir).mkdir(parents=True, exist_ok=True)
 
     # Log actionable first-time-setup warnings
@@ -50,6 +50,16 @@ async def lifespan(app: FastAPI):
     from app.services.session_service import start_session_auto_cleanup
     cleanup_task = asyncio.create_task(start_session_auto_cleanup())
     _background_tasks.append(cleanup_task)
+
+    # Start job worker background task (6D)
+    from app.services.job_service import get_job_service
+    from app.services.job_worker import start_job_worker
+    job_worker_task = await start_job_worker(
+        job_service=get_job_service(),
+        get_settings=get_settings_service().get_job_settings,
+        broadcast_fn=ws_manager.broadcast,
+    )
+    _background_tasks.append(job_worker_task)
 
     logger.info("AI Home Hub started – Mac Control Center ready")
     yield
@@ -104,6 +114,7 @@ app.include_router(skills.router, prefix="/api", tags=["skills"])
 app.include_router(agent_skills.router, prefix="/api", tags=["agent-skills"])
 app.include_router(knowledge.router, prefix="/api", tags=["knowledge"])
 app.include_router(memory.router, prefix="/api", tags=["memory"])
+app.include_router(jobs.router, prefix="/api", tags=["jobs"])
 
 # Status (has its own /api/status prefix)
 app.include_router(status.router)
