@@ -10,6 +10,8 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
+from app.services.settings_service import get_settings_service
+from app.utils.constants import MIN_KB_SEARCH_SCORE
 from app.utils.context_utils import (
     get_kb_context,
     get_memory_context,
