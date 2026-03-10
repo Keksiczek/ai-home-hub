@@ -4,9 +4,11 @@ These functions search the Knowledge Base and Shared Memory for relevant context
 and return structured data that can be injected into the LLM prompt.
 """
 
+import asyncio
 import logging
+import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.services.settings_service import get_settings_service
 from app.utils.constants import MIN_KB_SEARCH_SCORE
@@ -115,8 +117,10 @@ async def enrich_message(
     message: str,
     use_kb: bool = True,
     use_memory: bool = True,
-) -> tuple:
+) -> Tuple[str, Dict[str, Any]]:
     """Enrich a user message with KB and memory context.
+
+    KB and memory lookups run in parallel via asyncio.gather for better latency.
 
     Returns (llm_message, meta_patch) where meta_patch is a dict of meta
     fields to merge into the response meta.
@@ -128,20 +132,47 @@ async def enrich_message(
         "memory_context_items": [],
     }
 
-    if use_kb:
-        kb_context = await get_kb_context(message)
-        if kb_context:
-            llm_message = (
-                f"{message}\n\n"
-                f"# Relevant Context from Knowledge Base:\n{kb_context}"
-            )
-            meta["kb_context_used"] = True
+    tasks = []
+    task_keys = []
 
+    if use_kb:
+        tasks.append(get_kb_context(message))
+        task_keys.append("kb")
     if use_memory:
-        mem_result = await get_memory_context(message)
-        if mem_result.xml:
-            llm_message = f"{mem_result.xml}\n\n{llm_message}"
-            meta["memory_context_used"] = True
-            meta["memory_context_items"] = mem_result.items
+        tasks.append(get_memory_context(message))
+        task_keys.append("memory")
+
+    if not tasks:
+        return llm_message, meta
+
+    fetch_start = time.monotonic()
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    fetch_ms = int((time.monotonic() - fetch_start) * 1000)
+    meta["context_fetch_ms"] = fetch_ms
+
+    # Map results back to their keys
+    result_map: Dict[str, Any] = {}
+    for key, result in zip(task_keys, results):
+        if isinstance(result, Exception):
+            logger.warning("Context fetch '%s' failed: %s", key, result)
+            result_map[key] = None
+        else:
+            result_map[key] = result
+
+    # Apply KB context
+    kb_context = result_map.get("kb")
+    if kb_context:
+        llm_message = (
+            f"{message}\n\n"
+            f"# Relevant Context from Knowledge Base:\n{kb_context}"
+        )
+        meta["kb_context_used"] = True
+
+    # Apply memory context
+    mem_result = result_map.get("memory")
+    if mem_result and isinstance(mem_result, MemoryContextResult) and mem_result.xml:
+        llm_message = f"{mem_result.xml}\n\n{llm_message}"
+        meta["memory_context_used"] = True
+        meta["memory_context_items"] = mem_result.items
 
     return llm_message, meta
