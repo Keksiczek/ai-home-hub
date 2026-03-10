@@ -3,6 +3,15 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
+# ── Base response wrapper ──────────────────────────────────
+
+
+class BaseResponse(BaseModel):
+    data: Any
+    meta: Optional[Dict[str, Any]] = None
+    request_id: Optional[str] = None
+
+
 # ── File upload ─────────────────────────────────────────────
 
 class UploadResponse(BaseModel):
@@ -202,6 +211,51 @@ class MultimodalChatRequest(BaseModel):
 
 class ReindexFileRequest(BaseModel):
     file_path: str
+
+
+class KBSearchRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=500)
+    top_k: int = Field(default=5, ge=1, le=50)
+
+
+# ── Memory ──────────────────────────────────────────────────
+
+class AddMemoryRequest(BaseModel):
+    text: str = Field(..., min_length=1)
+    tags: List[str] = []
+    source: str = ""
+    importance: int = Field(default=5, ge=1, le=10)
+
+
+class AddMemoryResponse(BaseModel):
+    memory_id: str
+
+
+class SearchMemoryRequest(BaseModel):
+    query: str = Field(..., min_length=1)
+    top_k: int = Field(default=5, ge=1, le=50)
+    filters: Dict[str, Any] = {}
+
+
+class MemoryItem(BaseModel):
+    id: str
+    text: str
+    tags: List[str]
+    source: str
+    importance: int
+    timestamp: str
+    distance: Optional[float] = None
+
+
+class UpdateMemoryRequest(BaseModel):
+    text: Optional[str] = None
+    tags: Optional[List[str]] = None
+    importance: Optional[int] = Field(default=None, ge=1, le=10)
+
+
+class SummarizeSessionRequest(BaseModel):
+    session_id: str = Field(..., min_length=1)
+    max_messages: int = Field(default=50, ge=1, le=200)
 
 
 # ── Agent sub-tasks ──────────────────────────────────────────

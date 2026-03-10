@@ -1,4 +1,4 @@
-"""LLM service – Ollama integration with graceful stub fallback."""
+"""LLM service – Ollama integration with graceful stub fallback and resilience."""
 import logging
 import time
 from typing import Any, Dict, List, Optional, Tuple
@@ -6,6 +6,11 @@ from typing import Any, Dict, List, Optional, Tuple
 import httpx
 
 from app.services.settings_service import get_settings_service
+from app.utils.circuit_breaker import (
+    CircuitBreakerOpen,
+    get_ollama_circuit_breaker,
+)
+from app.utils.retry import async_retry
 
 logger = logging.getLogger(__name__)
 
@@ -83,30 +88,67 @@ class LLMService:
         except (ValueError, TypeError):
             logger.warning("Invalid timeout value: %s, using default 180s", timeout)
             timeout = 180.0
+
+        # Check circuit breaker before calling Ollama
+        cb = get_ollama_circuit_breaker()
+        if not await cb.can_execute():
+            logger.warning("Ollama circuit breaker is open, falling back to stub")
+            return self._generate_stub(message, mode, [])[0], {
+                "provider": "stub",
+                "model": "stub",
+                "fallback_reason": "Circuit breaker open",
+            }
+
         try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                resp = await client.post(f"{ollama_url}/api/chat", json=payload)
-                resp.raise_for_status()
-                data = resp.json()
-                reply = data.get("message", {}).get("content", "")
-                return reply, {
-                    "provider": "ollama",
-                    "model": model,
-                    "temperature": options.get("temperature"),
-                }
+            reply, meta = await self._call_ollama_chat(
+                ollama_url, payload, model, options, timeout
+            )
+            await cb.record_success()
+            return reply, meta
         except httpx.ConnectError:
+            await cb.record_failure()
             logger.warning("Ollama not available at %s, falling back to stub", ollama_url)
             return self._generate_stub(message, mode, [])[0], {
                 "provider": "stub",
                 "model": "stub",
                 "fallback_reason": "Ollama not reachable",
             }
-        except Exception as exc:
-            logger.error("Ollama error: %s", exc)
+        except (httpx.TimeoutException, httpx.HTTPStatusError) as exc:
+            await cb.record_failure()
+            logger.error("Ollama error after retries: %s", exc, exc_info=True)
             return f"[Chyba LLM: {exc}]", {
                 "provider": "error",
                 "model": model,
                 "error": str(exc),
+            }
+        except Exception as exc:
+            await cb.record_failure()
+            logger.error("Ollama error: %s", exc, exc_info=True)
+            return f"[Chyba LLM: {exc}]", {
+                "provider": "error",
+                "model": model,
+                "error": str(exc),
+            }
+
+    @async_retry(max_attempts=3, backoff_base=1.5)
+    async def _call_ollama_chat(
+        self,
+        ollama_url: str,
+        payload: Dict[str, Any],
+        model: str,
+        options: Dict[str, Any],
+        timeout: float,
+    ) -> Tuple[str, Dict[str, Any]]:
+        """Execute the actual HTTP call to Ollama /api/chat with retry."""
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(f"{ollama_url}/api/chat", json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+            reply = data.get("message", {}).get("content", "")
+            return reply, {
+                "provider": "ollama",
+                "model": model,
+                "temperature": options.get("temperature"),
             }
 
     def _generate_stub(
