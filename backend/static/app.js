@@ -1777,6 +1777,7 @@ function bindSettingsEvents() {
   document.getElementById('add-external-path-btn').addEventListener('click', addExternalPath);
   document.getElementById('add-agent-skills-dir-btn').addEventListener('click', addAgentSkillsDir);
   document.getElementById('rescan-agent-skills-btn').addEventListener('click', rescanAgentSkills);
+  document.getElementById('save-custom-prompt-btn')?.addEventListener('click', saveCustomPromptAppend);
   document.getElementById('scan-storage-btn').addEventListener('click', scanExternalStorage);
   document.getElementById('ingest-files-btn').addEventListener('click', ingestAllFiles);
   document.getElementById('incremental-ingest-btn').addEventListener('click', incrementalIngest);
@@ -1908,6 +1909,9 @@ async function loadSettings() {
     _settingsAllowedDirs = [...(s.filesystem?.allowed_directories || [])];
     renderAllowedDirsList();
 
+    // Custom system prompt append
+    setVal('s-custom-prompt-append', s.custom_system_prompt_append || '');
+
     // Knowledge base external paths
     _settingsExternalPaths = [...(s.knowledge_base?.external_paths || [])];
     renderExternalPaths();
@@ -2000,6 +2004,7 @@ async function saveSettings() {
       powerbi: getVal('s-prompt-powerbi'),
       lean: getVal('s-prompt-lean'),
     },
+    custom_system_prompt_append: getVal('s-custom-prompt-append') || '',
     agents: {
       max_concurrent: parseInt(getVal('s-agents-max') || '5'),
       timeout_minutes: parseInt(getVal('s-agents-timeout') || '30'),
@@ -2036,6 +2041,21 @@ async function saveSettings() {
     showToast(`${t('settings_save_error')}: ${err.message}`, 'error');
   } finally {
     setLoading(saveBtn, saveSpinner, false);
+  }
+}
+
+async function saveCustomPromptAppend() {
+  const val = getVal('s-custom-prompt-append') || '';
+  try {
+    const res = await fetch('/api/settings', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ custom_system_prompt_append: val }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    showToast('Vlastni instrukce ulozeny', 'success');
+  } catch (err) {
+    showToast(`Chyba: ${err.message}`, 'error');
   }
 }
 
