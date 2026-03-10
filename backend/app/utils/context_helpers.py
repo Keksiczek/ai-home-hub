@@ -57,19 +57,22 @@ async def get_kb_context(message: str) -> str:
         if not search_results["documents"]:
             return ""
 
-        # Filter out low-quality matches (cosine similarity threshold)
+        # Filter out low-quality matches and format with XML tags
         context_parts = []
         for doc, metadata, distance in zip(
             search_results["documents"],
             search_results["metadatas"],
             search_results["distances"],
         ):
-            if (1 - distance) < MIN_KB_SEARCH_SCORE:
+            score = 1 - distance
+            if score < MIN_KB_SEARCH_SCORE:
                 continue
             file_name = metadata.get("file_name", "Unknown")
-            context_parts.append(f"[From {file_name}]\n{doc}")
+            context_parts.append(
+                f'<kb_context source="{file_name}" relevance="{score:.2f}">\n{doc}\n</kb_context>'
+            )
 
-        return "\n\n---\n\n".join(context_parts)
+        return "\n\n".join(context_parts)
 
     except Exception as exc:
         logger.warning("KB search failed: %s", exc)
@@ -164,7 +167,7 @@ async def enrich_message(
     if kb_context:
         llm_message = (
             f"{message}\n\n"
-            f"# Relevant Context from Knowledge Base:\n{kb_context}"
+            f"{kb_context}"
         )
         meta["kb_context_used"] = True
 

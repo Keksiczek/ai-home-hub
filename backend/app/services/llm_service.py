@@ -60,6 +60,9 @@ class LLMService:
         model = cfg.get("model", "llama3.2")
         system_prompt = self._settings.get_system_prompt(mode)
 
+        # 5H-3: Add structured output hints based on message content
+        system_prompt = self._add_structured_hints(system_prompt, message)
+
         messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
         messages.extend(history)
         messages.append({"role": "user", "content": message})
@@ -109,21 +112,63 @@ class LLMService:
         except (ValueError, TypeError):
             logger.warning("Invalid timeout value: %s, using default 180s", timeout)
             timeout = 180.0
+        meta_base = {
+            "provider": "ollama",
+            "model": model,
+            "temperature": options.get("temperature"),
+            "tokens_estimated": tokens_estimated,
+            "context_limit": context_limit,
+            "context_usage_percent": round(tokens_estimated / context_limit * 100, 1),
+            "history_trimmed": history_trimmed,
+        }
+
         try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                resp = await client.post(f"{ollama_url}/api/chat", json=payload)
-                resp.raise_for_status()
-                data = resp.json()
-                reply = data.get("message", {}).get("content", "")
-                return reply, {
-                    "provider": "ollama",
+            reply = await self._call_ollama(ollama_url, payload, timeout)
+
+            # 5H-1: Retry on empty response (max 2 retries)
+            retries = 0
+            while not reply.strip() and retries < 2:
+                retries += 1
+                logger.warning("Empty response from Ollama (retry %d/2)", retries)
+                retry_payload = dict(payload)
+                retry_msgs = list(messages) + [
+                    {"role": "system", "content": "Předchozí pokus vrátil prázdnou odpověď. Odpověz prosím na otázku uživatele."}
+                ]
+                retry_payload["messages"] = retry_msgs
+                reply = await self._call_ollama(ollama_url, retry_payload, timeout)
+
+            if not reply.strip():
+                reply = "[Model nevrátil odpověď. Zkus jiný model nebo restartuj Ollamu.]"
+                meta_base["empty_response_fallback"] = True
+
+            # 5H-2: Language detection and auto-translation
+            meta_base["language_detected"] = "cs"
+            meta_base["auto_translated"] = False
+            settings = self._settings.load()
+            auto_translate = settings.get("auto_translate_to_czech", True)
+
+            if auto_translate and self._looks_english(reply):
+                meta_base["language_detected"] = "en"
+                logger.info("Response detected as English, auto-translating to Czech")
+                translate_payload = {
                     "model": model,
-                    "temperature": options.get("temperature"),
-                    "tokens_estimated": tokens_estimated,
-                    "context_limit": context_limit,
-                    "context_usage_percent": round(tokens_estimated / context_limit * 100, 1),
-                    "history_trimmed": history_trimmed,
+                    "messages": [
+                        {"role": "system", "content": "Přelož následující text do češtiny. Zachovej formátování a odborné termíny."},
+                        {"role": "user", "content": f"Přelož do češtiny: {reply}"},
+                    ],
+                    "options": options,
+                    "stream": False,
                 }
+                try:
+                    translated = await self._call_ollama(ollama_url, translate_payload, timeout)
+                    if translated.strip():
+                        reply = translated
+                        meta_base["auto_translated"] = True
+                except Exception as exc:
+                    logger.warning("Auto-translation failed: %s", exc)
+
+            return reply, meta_base
+
         except httpx.ConnectError:
             logger.warning("Ollama not available at %s, falling back to stub", ollama_url)
             return self._generate_stub(message, mode, [])[0], {
@@ -132,12 +177,51 @@ class LLMService:
                 "fallback_reason": "Ollama not reachable",
             }
         except Exception as exc:
-            logger.error("Ollama error: %s", exc)
+            logger.error("Ollama error: %s", exc, exc_info=True)
             return f"[Chyba LLM: {exc}]", {
                 "provider": "error",
                 "model": model,
                 "error": str(exc),
             }
+
+    @staticmethod
+    async def _call_ollama(ollama_url: str, payload: dict, timeout: float) -> str:
+        """Make a single non-streaming call to Ollama and return the reply text."""
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(f"{ollama_url}/api/chat", json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("message", {}).get("content", "")
+
+    @staticmethod
+    def _add_structured_hints(system_prompt: str, message: str) -> str:
+        """Add formatting hints to system prompt based on message keywords."""
+        msg_lower = message.lower()
+        hints = []
+
+        comparison_keywords = ["porovnej", "rozdíl mezi", "rozdil mezi", "pros and cons",
+                               "výhody nevýhody", "vyhody nevyhody", "compare", "vs"]
+        if any(kw in msg_lower for kw in comparison_keywords):
+            hints.append("Uživatel požádal o porovnání. Použij markdown tabulku nebo strukturovaný seznam.")
+
+        step_keywords = ["jak", "postup", "návod", "navod", "steps", "how to", "kroky", "tutorial"]
+        if any(kw in msg_lower for kw in step_keywords):
+            hints.append("Odpověz jako číslovaný seznam kroků.")
+
+        if hints:
+            return system_prompt + "\n\n" + "\n".join(hints)
+        return system_prompt
+
+    @staticmethod
+    def _looks_english(text: str) -> bool:
+        """Heuristic: if text is >50 words and lacks Czech diacritics, it's likely English."""
+        words = text.split()
+        if len(words) < 50:
+            return False
+        czech_chars = set("áčďéěíňóřšťúůýžÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ")
+        czech_count = sum(1 for c in text if c in czech_chars)
+        # If less than 0.5% of characters are Czech diacritics, likely English
+        return (czech_count / max(len(text), 1)) < 0.005
 
     def _generate_stub(
         self, message: str, mode: str, context_file_ids: List[str]
