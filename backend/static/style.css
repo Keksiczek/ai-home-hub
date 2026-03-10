@@ -2240,6 +2240,17 @@ body {
   font-weight: 600;
 }
 
+/* ── Streaming cursor ─────────────────────────────────────── */
+.streaming-cursor {
+  display: inline;
+  animation: blink-cursor 0.8s step-end infinite;
+  color: var(--color-accent, #4f8cff);
+  font-weight: bold;
+}
+@keyframes blink-cursor {
+  50% { opacity: 0; }
+}
+
 /* ── Scrollbar styling ────────────────────────────────────── */
 ::-webkit-scrollbar {
   width: 6px;

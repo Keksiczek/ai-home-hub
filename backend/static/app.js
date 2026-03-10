@@ -24,6 +24,8 @@ let _selectedFsAgentSkills = new Set(); // filesystem-based SKILL.md skills
 let _agentSkillsDirs = [];
 let _ollamaModels = [];
 let toast, toastTimer;
+let _streamingWs = null; // active streaming WebSocket
+let _isStreaming = false;
 
 const MAX_IMAGES = 5;
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -297,6 +299,7 @@ function bindChatEvents() {
   document.getElementById('send-btn').addEventListener('click', sendMessage);
   document.getElementById('chat-input').addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') sendMessage();
+    if (e.key === 'Escape' && _isStreaming) stopStreaming();
   });
   document.getElementById('summarize-session-btn').addEventListener('click', summarizeSession);
 
@@ -591,23 +594,12 @@ async function sendMessage() {
       attachedImages.length = 0;
       renderImagePreviews();
     } else {
-      // Text-only chat
+      // Text-only chat – use streaming WebSocket
       const body = { message, mode, profile: llmProfile, context_file_ids: contextFileIds };
       if (currentSessionId) body.session_id = currentSessionId;
 
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
-
-      data = await res.json();
-      if (data.session_id) {
-        currentSessionId = data.session_id;
-        document.getElementById('session-label').textContent = `Relace: ${data.session_id}`;
-      }
-      appendBubble('ai', data.reply, data.meta);
+      await sendMessageStreaming(body, sendBtn, chatSpinner);
+      return; // sendMessageStreaming handles cleanup
     }
 
     // Reload sessions list to show new/updated session
@@ -619,6 +611,141 @@ async function sendMessage() {
     if (bubbles.length) bubbles[bubbles.length - 1].remove();
   } finally {
     setLoading(sendBtn, chatSpinner, false);
+  }
+}
+
+/**
+ * Stream chat response via WebSocket.
+ * Creates an empty AI bubble, appends tokens as they arrive,
+ * then finalises with metadata on "done".
+ */
+async function sendMessageStreaming(body, sendBtn, chatSpinner) {
+  const chatHistoryEl = document.getElementById('chat-history');
+
+  // Create streaming AI bubble with cursor
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble bubble--ai';
+  bubble.style.position = 'relative';
+  const textEl = document.createElement('p');
+  textEl.className = 'bubble__text';
+  const cursor = document.createElement('span');
+  cursor.className = 'streaming-cursor';
+  cursor.textContent = '\u258C';
+  textEl.appendChild(cursor);
+  bubble.appendChild(textEl);
+  chatHistoryEl.appendChild(bubble);
+  chatHistoryEl.scrollTop = chatHistoryEl.scrollHeight;
+
+  // Show "AI typing" indicator
+  _isStreaming = true;
+  const wsLabel = document.getElementById('ws-label');
+  const prevLabel = wsLabel ? wsLabel.textContent : '';
+  if (wsLabel) wsLabel.textContent = 'AI píše...';
+
+  // Show stop button
+  if (sendBtn) {
+    sendBtn.dataset.prevText = sendBtn.textContent;
+    sendBtn.textContent = 'Stop';
+    sendBtn.onclick = stopStreaming;
+  }
+
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const streamUrl = `${proto}://${location.host}/api/chat/stream`;
+  const streamWs = new WebSocket(streamUrl);
+  _streamingWs = streamWs;
+
+  let fullText = '';
+
+  return new Promise((resolve) => {
+    streamWs.onopen = () => {
+      streamWs.send(JSON.stringify(body));
+    };
+
+    streamWs.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'token') {
+          fullText += msg.content;
+          // Update bubble text (keep cursor at end)
+          textEl.textContent = fullText;
+          textEl.appendChild(cursor);
+          chatHistoryEl.scrollTop = chatHistoryEl.scrollHeight;
+        } else if (msg.type === 'done') {
+          // Remove cursor, add metadata
+          cursor.remove();
+          textEl.textContent = fullText;
+
+          if (msg.meta) {
+            if (msg.meta.session_id) {
+              currentSessionId = msg.meta.session_id;
+              document.getElementById('session-label').textContent = `Relace: ${msg.meta.session_id}`;
+            }
+            const metaP = document.createElement('p');
+            metaP.className = 'bubble__meta';
+            let metaStr = `Provider: <strong>${escHtml(msg.meta.provider || '\u2014')}</strong>`;
+            if (msg.meta.model) metaStr += ` \u00B7 ${escHtml(msg.meta.model)}`;
+            if (msg.meta.latency_ms != null) metaStr += ` \u00B7 ${msg.meta.latency_ms} ms`;
+            metaP.innerHTML = metaStr;
+            bubble.appendChild(metaP);
+
+            if (msg.meta.kb_context_used) {
+              const badge = document.createElement('span');
+              badge.className = 'kb-context-badge';
+              badge.textContent = '\u{1F4DA} KB';
+              badge.title = 'Odpoved vyuziva kontext z knowledge base';
+              bubble.appendChild(badge);
+            }
+            if (msg.meta.memory_context_used) {
+              const memBadge = document.createElement('span');
+              memBadge.className = 'memory-context-badge';
+              memBadge.style.right = (msg.meta.kb_context_used ? '3rem' : '-0.375rem');
+              memBadge.textContent = '\u{1F4A1} Memory';
+              memBadge.title = 'Odpoved vyuziva kontext ze sdilene pameti';
+              bubble.appendChild(memBadge);
+            }
+          }
+          loadSessions();
+        } else if (msg.type === 'error') {
+          cursor.remove();
+          textEl.textContent = msg.message || 'Chyba generovani';
+          textEl.style.color = 'var(--color-error, #e74c3c)';
+        }
+      } catch (e) {
+        /* ignore parse errors */
+      }
+    };
+
+    streamWs.onclose = () => {
+      _finishStreaming(sendBtn, chatSpinner, wsLabel, prevLabel);
+      resolve();
+    };
+
+    streamWs.onerror = () => {
+      cursor.remove();
+      if (!fullText) {
+        textEl.textContent = 'Chyba pripojeni ke streamu';
+        textEl.style.color = 'var(--color-error, #e74c3c)';
+      }
+      _finishStreaming(sendBtn, chatSpinner, wsLabel, prevLabel);
+      resolve();
+    };
+  });
+}
+
+function _finishStreaming(sendBtn, chatSpinner, wsLabel, prevLabel) {
+  _isStreaming = false;
+  _streamingWs = null;
+  if (wsLabel) wsLabel.textContent = prevLabel;
+  setLoading(sendBtn, chatSpinner, false);
+  if (sendBtn) {
+    sendBtn.textContent = sendBtn.dataset.prevText || 'Odeslat';
+    sendBtn.onclick = sendMessage;
+  }
+}
+
+function stopStreaming() {
+  if (_streamingWs && _streamingWs.readyState === WebSocket.OPEN) {
+    _streamingWs.close();
   }
 }
 

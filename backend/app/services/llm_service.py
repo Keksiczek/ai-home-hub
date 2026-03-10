@@ -1,7 +1,8 @@
 """LLM service – Ollama integration with graceful stub fallback."""
+import json
 import logging
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 import httpx
 
@@ -118,6 +119,76 @@ class LLMService:
             f"MESSAGE={message}"
         )
         return reply, {"provider": "stub", "model": "stub"}
+
+    async def generate_stream(
+        self,
+        message: str,
+        mode: str = "general",
+        profile: Optional[str] = None,
+        history: Optional[List[Dict[str, str]]] = None,
+        model_override: Optional[str] = None,
+    ) -> AsyncGenerator[str, None]:
+        """Stream tokens from Ollama as an async generator.
+
+        Yields individual token strings as they arrive from the NDJSON stream.
+        Falls back to a single stub yield if Ollama is unavailable.
+        """
+        cfg = self._settings.get_llm_config(profile=profile)
+        ollama_url = cfg.get("ollama_url", "http://localhost:11434").rstrip("/")
+        model = model_override or cfg.get("model", "llama3.2")
+        system_prompt = self._settings.get_system_prompt(mode)
+
+        messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
+        messages.extend(history or [])
+        messages.append({"role": "user", "content": message})
+
+        options: Dict[str, Any] = {}
+        if cfg.get("temperature") is not None:
+            options["temperature"] = float(cfg["temperature"])
+        if cfg.get("top_p") is not None:
+            options["top_p"] = float(cfg["top_p"])
+        if cfg.get("top_k") is not None:
+            options["top_k"] = int(cfg["top_k"])
+        if cfg.get("max_tokens") is not None:
+            options["num_predict"] = int(cfg["max_tokens"])
+
+        payload = {
+            "model": model,
+            "messages": messages,
+            "options": options,
+            "stream": True,
+        }
+
+        timeout_val = cfg.get("timeout_seconds", 180)
+        try:
+            timeout_val = max(10, min(3600, float(timeout_val)))
+        except (ValueError, TypeError):
+            timeout_val = 180.0
+
+        try:
+            async with httpx.AsyncClient(timeout=timeout_val) as client:
+                async with client.stream(
+                    "POST", f"{ollama_url}/api/chat", json=payload
+                ) as resp:
+                    resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        if not line.strip():
+                            continue
+                        try:
+                            chunk = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if chunk.get("done"):
+                            break
+                        token = chunk.get("message", {}).get("content", "")
+                        if token:
+                            yield token
+        except httpx.ConnectError:
+            logger.warning("Ollama not available for streaming, yielding stub")
+            yield "[Stub] Ollama is not reachable. Please start Ollama."
+        except Exception as exc:
+            logger.error("Ollama stream error: %s", exc, exc_info=True)
+            yield f"[Chyba LLM: {exc}]"
 
     async def check_ollama_health(self) -> Dict[str, Any]:
         """Check if Ollama is running and return available models."""
