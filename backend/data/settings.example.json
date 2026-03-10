@@ -106,6 +106,16 @@
       ]
     }
   ],
+  "job_settings": {
+    "max_concurrent_jobs": 1,
+    "night_batch_enabled": true,
+    "night_batch_window": {
+      "start": "22:00",
+      "end": "06:00"
+    },
+    "day_allowed_job_types": ["long_llm_task"],
+    "night_only_job_types": ["dummy_long_task"]
+  },
   "session_max_messages_before_summary": 20,
   "auto_translate_to_czech": true,
   "custom_system_prompt_append": ""

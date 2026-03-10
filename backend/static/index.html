@@ -36,6 +36,11 @@
         <span class="nav-label">Status</span>
       </button>
       <button class="nav-item" role="tab" aria-selected="false"
+              data-tab="jobs" title="Jobs">
+        <span class="nav-icon">&#9203;</span>
+        <span class="nav-label">Joby</span>
+      </button>
+      <button class="nav-item" role="tab" aria-selected="false"
               data-tab="actions" title="Actions">
         <span class="nav-icon">&#9881;</span>
         <span class="nav-label">Akce</span>
@@ -293,6 +298,44 @@
       <div id="status-alerts" class="status-alerts"></div>
 
     </div><!-- /tab-status -->
+
+    <!-- ======================== JOBS TAB ======================== -->
+    <div class="tab-panel hidden" id="tab-jobs" role="tabpanel">
+
+      <div class="panel-header">
+        <h1 class="panel-title">Joby</h1>
+        <div style="display:flex;gap:0.5rem">
+          <button class="btn btn--ghost btn--small" id="refresh-jobs-btn">Obnovit</button>
+        </div>
+      </div>
+
+      <!-- Quick create buttons -->
+      <section class="card" id="jobs-create-section">
+        <h2 class="card-title">Vytvo&#345;it job</h2>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+          <button class="btn btn--secondary btn--small" id="create-dummy-job-btn">Dummy long task</button>
+          <button class="btn btn--secondary btn--small" id="create-llm-job-btn">Long LLM task</button>
+        </div>
+      </section>
+
+      <!-- Jobs list -->
+      <section class="card">
+        <h2 class="card-title">Seznam job&#367;</h2>
+        <div id="jobs-list" class="jobs-list">
+          <p class="empty-state">&#381;&aacute;dn&eacute; joby.</p>
+        </div>
+      </section>
+
+      <!-- Job detail -->
+      <section class="card hidden" id="job-detail-section">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem">
+          <h2 class="card-title" id="job-detail-title">Detail jobu</h2>
+          <button class="btn btn--ghost btn--small" id="job-detail-close">Zav&#345;&iacute;t</button>
+        </div>
+        <div id="job-detail-content"></div>
+      </section>
+
+    </div><!-- /tab-jobs -->
 
     <!-- ======================== ACTIONS TAB ======================== -->
     <div class="tab-panel hidden" id="tab-actions" role="tabpanel">
