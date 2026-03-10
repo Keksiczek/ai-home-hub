@@ -10,6 +10,8 @@ from fastapi.staticfiles import StaticFiles
 
 from app.routers import actions, agent_skills, chat, chat_multimodal, files, knowledge, memory, status
 from app.routers import agents, filesystem, integrations, jobs, settings, skills, tasks
+from app.routers import media as media_router
+from app.routers import document_analysis as document_analysis_router
 from app.routers.websocket_router import router as ws_router
 
 # Wire up broadcast callback so agents/tasks can push WS updates
@@ -35,7 +37,7 @@ async def lifespan(app: FastAPI):
     # Ensure data directories exist
     from pathlib import Path
     base = Path(__file__).parent.parent / "data"
-    for subdir in ("sessions", "artifacts", "uploads", "jobs"):
+    for subdir in ("sessions", "artifacts", "uploads", "uploads/media", "jobs"):
         (base / subdir).mkdir(parents=True, exist_ok=True)
 
     # Log actionable first-time-setup warnings
@@ -115,6 +117,8 @@ app.include_router(agent_skills.router, prefix="/api", tags=["agent-skills"])
 app.include_router(knowledge.router, prefix="/api", tags=["knowledge"])
 app.include_router(memory.router, prefix="/api", tags=["memory"])
 app.include_router(jobs.router, prefix="/api", tags=["jobs"])
+app.include_router(media_router.router, prefix="/api", tags=["media"])
+app.include_router(document_analysis_router.router, prefix="/api/document-analysis", tags=["document-analysis"])
 
 # Status (has its own /api/status prefix)
 app.include_router(status.router)

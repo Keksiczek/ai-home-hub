@@ -3242,6 +3242,12 @@ function bindJobsEvents() {
 
   const detailCloseBtn = document.getElementById('job-detail-close');
   if (detailCloseBtn) detailCloseBtn.addEventListener('click', closeJobDetail);
+
+  // Media upload
+  bindMediaUploadEvents();
+
+  // Document analysis wizard
+  bindDocAnalysisEvents();
 }
 
 async function loadJobs() {
@@ -3353,6 +3359,17 @@ function renderJobDetail(job) {
     ? `<div class="job-detail-meta"><strong>Meta:</strong> <pre style="margin:0.25rem 0;white-space:pre-wrap;font-size:0.8rem;color:#94a3b8">${escHtml(JSON.stringify(meta, null, 2))}</pre></div>`
     : '';
 
+  // Type-specific extra info
+  let extraHtml = '';
+
+  if (job.type === 'media_ingest') {
+    extraHtml = renderMediaIngestDetail(job);
+  } else if (job.type === 'document_analysis' && job.status === 'succeeded') {
+    extraHtml = renderDocAnalysisDetail(job);
+  } else if (job.type === 'report_generation' && job.status === 'succeeded') {
+    extraHtml = renderReportDetail(job);
+  }
+
   content.innerHTML = `
     <div class="job-detail-grid">
       <div class="job-detail-row"><span class="job-detail-label">ID:</span> <code>${escHtml(job.id)}</code></div>
@@ -3373,10 +3390,18 @@ function renderJobDetail(job) {
       <div class="job-detail-row"><span class="job-detail-label">Spusteno:</span> ${job.started_at || '-'}</div>
       <div class="job-detail-row"><span class="job-detail-label">Dokonceno:</span> ${job.finished_at || '-'}</div>
       ${job.last_error ? `<div class="job-detail-row"><span class="job-detail-label">Chyba:</span> <span style="color:#f87171">${escHtml(job.last_error)}</span></div>` : ''}
+      ${extraHtml}
       ${metaHtml}
     </div>
     ${(job.status === 'queued' || job.status === 'running')
       ? `<button class="btn btn--ghost btn--small" onclick="cancelJob('${escHtml(job.id)}')" style="margin-top:0.75rem">Zrusit job</button>`
+      : ''}
+    ${(job.type === 'document_analysis' && job.status === 'succeeded')
+      ? `<div style="margin-top:0.75rem;display:flex;gap:0.5rem;flex-wrap:wrap">
+           <button class="btn btn--primary btn--small" onclick="createReportFromJob('${escHtml(job.id)}', 'html')">Generovat HTML report</button>
+           <button class="btn btn--secondary btn--small" onclick="createReportFromJob('${escHtml(job.id)}', 'slides')">Generovat slides</button>
+           <button class="btn btn--secondary btn--small" onclick="createReportFromJob('${escHtml(job.id)}', 'pdf')">Generovat PDF</button>
+         </div>`
       : ''}
   `;
 }
@@ -3473,5 +3498,392 @@ async function summarizeSession() {
     showToast('Chyba: ' + err.message, 'error');
   } finally {
     if (btn) btn.disabled = false;
+  }
+}
+
+/* ============================================================
+   MEDIA UPLOAD
+   ============================================================ */
+
+function bindMediaUploadEvents() {
+  const uploadBtn = document.getElementById('media-upload-btn');
+  if (uploadBtn) uploadBtn.addEventListener('click', handleMediaUpload);
+
+  const postAnalysisCb = document.getElementById('media-post-analysis');
+  if (postAnalysisCb) {
+    postAnalysisCb.addEventListener('change', () => {
+      const taskGroup = document.getElementById('media-task-group');
+      if (taskGroup) {
+        taskGroup.style.display = postAnalysisCb.checked ? '' : 'none';
+      }
+    });
+  }
+}
+
+async function handleMediaUpload() {
+  const fileInput = document.getElementById('media-file-input');
+  const language = getVal('media-language');
+  const postAnalysis = document.getElementById('media-post-analysis')?.checked || false;
+  const task = getVal('media-task');
+  const statusEl = document.getElementById('media-upload-status');
+  const spinner = document.getElementById('media-upload-spinner');
+  const btn = document.getElementById('media-upload-btn');
+
+  if (!fileInput || !fileInput.files.length) {
+    showToast('Vyber soubor', 'error');
+    return;
+  }
+
+  const file = fileInput.files[0];
+  if (btn) btn.disabled = true;
+  if (spinner) spinner.classList.remove('hidden');
+  if (statusEl) { statusEl.innerHTML = 'Nahravam...'; show(statusEl); }
+
+  try {
+    // Step 1: Upload file
+    const formData = new FormData();
+    formData.append('file', file);
+    const uploadRes = await fetch('/api/media/upload', { method: 'POST', body: formData });
+    if (!uploadRes.ok) throw new Error(await uploadRes.text());
+    const uploadData = await uploadRes.json();
+
+    if (statusEl) statusEl.innerHTML = `Nahrano: ${escHtml(uploadData.filename)} (${uploadData.size_mb} MB). Vytvarim job...`;
+
+    // Step 2: Create media_ingest job
+    const jobPayload = {
+      type: 'media_ingest',
+      title: `Transkripce: ${uploadData.filename}`,
+      input_summary: `Transkripce souboru ${uploadData.filename}`,
+      payload: {
+        file_path: uploadData.file_path,
+        language: language,
+        post_analysis: postAnalysis,
+        post_analysis_task: postAnalysis ? task : '',
+        llm_profile: 'general',
+      },
+      priority: 'low',
+    };
+
+    const jobRes = await fetch('/api/jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(jobPayload),
+    });
+    if (!jobRes.ok) throw new Error(await jobRes.text());
+    const jobData = await jobRes.json();
+
+    if (statusEl) {
+      statusEl.innerHTML = `<span style="color:#4ade80">Job vytvoren: ${escHtml(jobData.title)}</span>
+        <br><code>${escHtml(jobData.id)}</code>
+        <br><span style="color:#94a3b8">Status: ${escHtml(jobData.status)}</span>`;
+    }
+
+    showToast('Media job vytvoren', 'success');
+    fileInput.value = '';
+    loadJobs();
+
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+    if (statusEl) statusEl.innerHTML = `<span style="color:#f87171">Chyba: ${escHtml(err.message)}</span>`;
+  } finally {
+    if (btn) btn.disabled = false;
+    if (spinner) spinner.classList.add('hidden');
+  }
+}
+
+/* ============================================================
+   DOCUMENT ANALYSIS WIZARD
+   ============================================================ */
+
+let _daSelectedFiles = [];
+
+function bindDocAnalysisEvents() {
+  const openBtn = document.getElementById('open-doc-analysis-btn');
+  if (openBtn) openBtn.addEventListener('click', openDocAnalysisWizard);
+
+  const closeBtn = document.getElementById('doc-analysis-modal-close');
+  if (closeBtn) closeBtn.addEventListener('click', closeDocAnalysisModal);
+
+  const step1Next = document.getElementById('da-step1-next');
+  if (step1Next) step1Next.addEventListener('click', daGoToStep2);
+
+  const step2Back = document.getElementById('da-step2-back');
+  if (step2Back) step2Back.addEventListener('click', daGoToStep1);
+
+  const step2Submit = document.getElementById('da-step2-submit');
+  if (step2Submit) step2Submit.addEventListener('click', daSubmitAnalysis);
+
+  const step3Done = document.getElementById('da-step3-done');
+  if (step3Done) step3Done.addEventListener('click', () => {
+    closeDocAnalysisModal();
+    loadJobs();
+  });
+}
+
+function closeDocAnalysisModal() {
+  const modal = document.getElementById('doc-analysis-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+async function openDocAnalysisWizard() {
+  _daSelectedFiles = [];
+  const modal = document.getElementById('doc-analysis-modal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+
+  // Reset to step 1
+  show(document.getElementById('da-step-1'));
+  hide(document.getElementById('da-step-2'));
+  hide(document.getElementById('da-step-3'));
+
+  const loading = document.getElementById('da-files-loading');
+  const uploadsSection = document.getElementById('da-uploads-section');
+  const kbSection = document.getElementById('da-kb-section');
+  if (loading) show(loading);
+  if (uploadsSection) hide(uploadsSection);
+  if (kbSection) hide(kbSection);
+
+  const nextBtn = document.getElementById('da-step1-next');
+  if (nextBtn) nextBtn.disabled = true;
+
+  try {
+    const res = await fetch('/api/document-analysis/available-files');
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+
+    if (loading) hide(loading);
+
+    // Render uploads
+    if (data.uploads && data.uploads.length) {
+      if (uploadsSection) show(uploadsSection);
+      const list = document.getElementById('da-uploads-list');
+      if (list) {
+        list.innerHTML = data.uploads.map(f => `
+          <label class="toggle-label" style="display:block;margin-bottom:0.25rem;padding:0.25rem 0">
+            <input type="checkbox" class="da-file-cb" data-path="${escHtml(f.file_path)}" />
+            <span>${escHtml(f.filename)}</span>
+            <span style="color:#64748b;font-size:0.8rem;margin-left:0.5rem">${f.size_mb} MB</span>
+          </label>
+        `).join('');
+        list.querySelectorAll('.da-file-cb').forEach(cb => cb.addEventListener('change', daUpdateSelection));
+      }
+    }
+
+    // Render KB documents
+    if (data.kb_documents && data.kb_documents.length) {
+      if (kbSection) show(kbSection);
+      const list = document.getElementById('da-kb-list');
+      if (list) {
+        list.innerHTML = data.kb_documents.map(f => `
+          <label class="toggle-label" style="display:block;margin-bottom:0.25rem;padding:0.25rem 0">
+            <input type="checkbox" class="da-file-cb" data-path="${escHtml(f.file_path)}" />
+            <span>${escHtml(f.filename)}</span>
+            <span style="color:#64748b;font-size:0.8rem;margin-left:0.5rem">${escHtml(f.type)}</span>
+          </label>
+        `).join('');
+        list.querySelectorAll('.da-file-cb').forEach(cb => cb.addEventListener('change', daUpdateSelection));
+      }
+    }
+
+    if ((!data.uploads || !data.uploads.length) && (!data.kb_documents || !data.kb_documents.length)) {
+      if (loading) { show(loading); loading.textContent = 'Zadne soubory k dispozici. Nahrajte soubory nebo indexujte KB.'; }
+    }
+  } catch (err) {
+    if (loading) { show(loading); loading.textContent = 'Chyba: ' + err.message; }
+  }
+}
+
+function daUpdateSelection() {
+  _daSelectedFiles = [];
+  document.querySelectorAll('.da-file-cb:checked').forEach(cb => {
+    _daSelectedFiles.push(cb.dataset.path);
+  });
+  const nextBtn = document.getElementById('da-step1-next');
+  if (nextBtn) nextBtn.disabled = _daSelectedFiles.length === 0;
+}
+
+function daGoToStep2() {
+  hide(document.getElementById('da-step-1'));
+  show(document.getElementById('da-step-2'));
+}
+
+function daGoToStep1() {
+  hide(document.getElementById('da-step-2'));
+  show(document.getElementById('da-step-1'));
+}
+
+async function daSubmitAnalysis() {
+  const task = getVal('da-task');
+  if (!task.trim()) {
+    showToast('Zadej ukol pro analyzu', 'error');
+    return;
+  }
+
+  const profile = getVal('da-profile') || 'general';
+  const language = getVal('da-language') || 'cs';
+
+  const submitBtn = document.getElementById('da-step2-submit');
+  if (submitBtn) submitBtn.disabled = true;
+
+  try {
+    const res = await fetch('/api/document-analysis/jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        file_paths: _daSelectedFiles,
+        task_description: task,
+        llm_profile: profile,
+        language: language,
+      }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+
+    // Show step 3
+    hide(document.getElementById('da-step-2'));
+    show(document.getElementById('da-step-3'));
+
+    const info = document.getElementById('da-result-info');
+    if (info) {
+      info.innerHTML = `
+        <div style="background:#1a2332;border:1px solid #2d3348;border-radius:8px;padding:1rem">
+          <div style="color:#4ade80;font-weight:600;margin-bottom:0.5rem">Job vytvoren</div>
+          <div><strong>Nazev:</strong> ${escHtml(data.title)}</div>
+          <div><strong>ID:</strong> <code>${escHtml(data.job_id)}</code></div>
+          <div><strong>Status:</strong> ${escHtml(data.status)}</div>
+          <div><strong>Souboru:</strong> ${data.estimated_files}</div>
+        </div>
+      `;
+    }
+
+    showToast('Analyza spustena', 'success');
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
+  }
+}
+
+/* ============================================================
+   JOB DETAIL ENHANCEMENTS (media_ingest, report, doc analysis)
+   ============================================================ */
+
+function renderMediaIngestDetail(job) {
+  const meta = job.meta || {};
+  const outputs = meta.outputs || (job.meta && job.meta.result_outputs) || {};
+  let html = '';
+
+  if (meta.post_analysis_job_id) {
+    html += `<div class="job-detail-row"><span class="job-detail-label">Chained analysis:</span>
+      <a href="#" onclick="showJobDetail('${escHtml(meta.post_analysis_job_id)}');return false;" style="color:#60a5fa">${escHtml(meta.post_analysis_job_id)}</a></div>`;
+  }
+
+  if (job.status === 'succeeded') {
+    html += `<div style="margin-top:0.75rem;display:flex;gap:0.5rem;flex-wrap:wrap">`;
+
+    const transcriptPath = outputs.transcript_txt;
+    if (transcriptPath) {
+      html += `<button class="btn btn--secondary btn--small" onclick="viewArtifact('${escHtml(transcriptPath)}')">Zobrazit transcript</button>`;
+    }
+
+    const segmentsPath = outputs.transcript_segments;
+    if (segmentsPath) {
+      html += `<button class="btn btn--ghost btn--small" onclick="viewArtifact('${escHtml(segmentsPath)}')">Segmenty</button>`;
+    }
+
+    html += `</div>`;
+  }
+
+  return html;
+}
+
+function renderDocAnalysisDetail(job) {
+  const meta = job.meta || {};
+  const outputs = meta.outputs || {};
+  let html = '';
+
+  const reportPath = outputs.report_md;
+  if (reportPath) {
+    html += `<div class="job-detail-row"><span class="job-detail-label">Report:</span>
+      <a href="#" onclick="viewArtifact('${escHtml(reportPath)}');return false;" style="color:#60a5fa">${escHtml(reportPath)}</a></div>`;
+  }
+
+  return html;
+}
+
+function renderReportDetail(job) {
+  const meta = job.meta || {};
+  const outputs = meta.outputs || {};
+  let html = '<div style="margin-top:0.5rem">';
+
+  for (const [fmt, path] of Object.entries(outputs)) {
+    if (fmt.endsWith('_error')) continue;
+    html += `<div class="job-detail-row"><span class="job-detail-label">${escHtml(fmt.toUpperCase())}:</span>
+      <a href="#" onclick="viewArtifact('${escHtml(path)}');return false;" style="color:#60a5fa">${escHtml(path)}</a></div>`;
+  }
+
+  html += '</div>';
+  return html;
+}
+
+async function viewArtifact(relativePath) {
+  // Open artifact in a new tab by fetching from the data directory
+  // For text files, show in a modal; for HTML/PDF, open directly
+  const ext = relativePath.split('.').pop().toLowerCase();
+
+  if (ext === 'html' || ext === 'pdf') {
+    window.open('/api/files/artifact?path=' + encodeURIComponent(relativePath), '_blank');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/files/artifact?path=' + encodeURIComponent(relativePath));
+    if (!res.ok) throw new Error(await res.text());
+    const text = await res.text();
+
+    // Show in job detail area
+    const content = document.getElementById('job-detail-content');
+    if (content) {
+      const existing = content.querySelector('.artifact-viewer');
+      if (existing) existing.remove();
+
+      const viewer = document.createElement('div');
+      viewer.className = 'artifact-viewer';
+      viewer.style.cssText = 'margin-top:1rem;background:#1a1d27;border:1px solid #2d3348;border-radius:8px;padding:1rem;max-height:400px;overflow:auto';
+      viewer.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">
+        <strong style="color:#94a3b8">${escHtml(relativePath)}</strong>
+        <button class="btn btn--ghost btn--small" onclick="this.closest('.artifact-viewer').remove()">Zavrit</button>
+      </div>
+      <pre style="white-space:pre-wrap;font-size:0.8rem;color:#e2e8f0">${escHtml(text)}</pre>`;
+      content.appendChild(viewer);
+    }
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
+}
+
+async function createReportFromJob(sourceJobId, format) {
+  try {
+    const res = await fetch('/api/jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'report_generation',
+        title: `Report (${format}) z analyzy`,
+        input_summary: `Generovani ${format} reportu z job ${sourceJobId}`,
+        payload: {
+          source_job_id: sourceJobId,
+          output_formats: [format],
+          title: 'Document Analysis Report',
+          template: 'general',
+        },
+        priority: 'normal',
+      }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    showToast(`Report job vytvoren (${format})`, 'success');
+    loadJobs();
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
   }
 }
