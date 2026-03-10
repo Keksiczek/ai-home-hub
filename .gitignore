@@ -20,6 +20,7 @@ env/
 backend/data/sessions/
 backend/data/artifacts/
 backend/data/uploads/
+backend/data/jobs/
 backend/data/settings.json
 backend/data/chroma/
 
