@@ -4,9 +4,11 @@ Delegates to context_utils.py for the core logic; this module provides
 backward-compatible wrappers (enrich_message, MemoryContextResult).
 """
 
+import asyncio
 import logging
+import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.utils.context_utils import (
     get_kb_context,
@@ -25,8 +27,65 @@ class MemoryContextResult:
     items: List[Dict[str, Any]]
 
 
-async def _get_memory_context_with_items(message: str) -> MemoryContextResult:
-    """Search shared memory and return both XML and item list."""
+async def get_kb_context(message: str) -> str:
+    """Search knowledge base for relevant context. Returns formatted context or empty string."""
+    try:
+        settings = get_settings_service().load()
+        kb_enabled = settings.get("knowledge_base", {}).get("enabled", False)
+        if not kb_enabled:
+            return ""
+
+        from app.services.vector_store_service import get_vector_store_service
+        vector_store = get_vector_store_service()
+        stats = vector_store.get_stats()
+
+        if stats["total_chunks"] == 0:
+            return ""
+
+        from app.services.embeddings_service import get_embeddings_service
+        embeddings_svc = get_embeddings_service()
+        query_embedding = await embeddings_svc.generate_embedding(message)
+
+        if not query_embedding:
+            return ""
+
+        search_results = vector_store.search(
+            query_embedding=query_embedding,
+            top_k=3,
+        )
+
+        if not search_results["documents"]:
+            return ""
+
+        # Filter out low-quality matches and format with XML tags
+        context_parts = []
+        for doc, metadata, distance in zip(
+            search_results["documents"],
+            search_results["metadatas"],
+            search_results["distances"],
+        ):
+            score = 1 - distance
+            if score < MIN_KB_SEARCH_SCORE:
+                continue
+            file_name = metadata.get("file_name", "Unknown")
+            context_parts.append(
+                f'<kb_context source="{file_name}" relevance="{score:.2f}">\n{doc}\n</kb_context>'
+            )
+
+        return "\n\n".join(context_parts)
+
+    except Exception as exc:
+        logger.warning("KB search failed: %s", exc)
+        return ""
+
+
+async def get_memory_context(message: str) -> MemoryContextResult:
+    """Search shared memory for relevant user notes/preferences.
+
+    Returns a MemoryContextResult with:
+      - xml: the formatted <user_memory> block (empty string if no matches)
+      - items: list of dicts with id/text/importance for each matched memory
+    """
     empty = MemoryContextResult(xml="", items=[])
     try:
         from app.services.memory_service import get_memory_service
@@ -61,8 +120,10 @@ async def enrich_message(
     message: str,
     use_kb: bool = True,
     use_memory: bool = True,
-) -> tuple:
+) -> Tuple[str, Dict[str, Any]]:
     """Enrich a user message with KB and memory context.
+
+    KB and memory lookups run in parallel via asyncio.gather for better latency.
 
     Returns (llm_message, meta_patch) where meta_patch is a dict of meta
     fields to merge into the response meta.
@@ -76,22 +137,47 @@ async def enrich_message(
         "memory_context_items": [],
     }
 
-    if use_kb:
-        kb_ctx = await get_kb_context(message)
-        if kb_ctx:
-            llm_message = (
-                f"{message}\n\n"
-                f"# Relevant Context from Knowledge Base:\n{kb_ctx}"
-            )
-            meta["kb_context_used"] = True
-            meta["kb_used"] = True
+    tasks = []
+    task_keys = []
 
+    if use_kb:
+        tasks.append(get_kb_context(message))
+        task_keys.append("kb")
     if use_memory:
-        mem_result = await _get_memory_context_with_items(message)
-        if mem_result.xml:
-            llm_message = f"{mem_result.xml}\n\n{llm_message}"
-            meta["memory_context_used"] = True
-            meta["memory_used"] = True
-            meta["memory_context_items"] = mem_result.items
+        tasks.append(get_memory_context(message))
+        task_keys.append("memory")
+
+    if not tasks:
+        return llm_message, meta
+
+    fetch_start = time.monotonic()
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    fetch_ms = int((time.monotonic() - fetch_start) * 1000)
+    meta["context_fetch_ms"] = fetch_ms
+
+    # Map results back to their keys
+    result_map: Dict[str, Any] = {}
+    for key, result in zip(task_keys, results):
+        if isinstance(result, Exception):
+            logger.warning("Context fetch '%s' failed: %s", key, result)
+            result_map[key] = None
+        else:
+            result_map[key] = result
+
+    # Apply KB context
+    kb_context = result_map.get("kb")
+    if kb_context:
+        llm_message = (
+            f"{message}\n\n"
+            f"{kb_context}"
+        )
+        meta["kb_context_used"] = True
+
+    # Apply memory context
+    mem_result = result_map.get("memory")
+    if mem_result and isinstance(mem_result, MemoryContextResult) and mem_result.xml:
+        llm_message = f"{mem_result.xml}\n\n{llm_message}"
+        meta["memory_context_used"] = True
+        meta["memory_context_items"] = mem_result.items
 
     return llm_message, meta

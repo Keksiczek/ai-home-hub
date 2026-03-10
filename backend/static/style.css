@@ -2240,6 +2240,33 @@ body {
   font-weight: 600;
 }
 
+/* ── Chat model selector ──────────────────────────────────── */
+.chat-model-select {
+  background: #1a1d2e;
+  color: #e0e0e0;
+  border: 1px solid #2d3348;
+  border-radius: 6px;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+  max-width: 200px;
+}
+.chat-model-select:focus {
+  outline: none;
+  border-color: var(--color-accent, #4f8cff);
+}
+
+/* ── Streaming cursor ─────────────────────────────────────── */
+.streaming-cursor {
+  display: inline;
+  animation: blink-cursor 0.8s step-end infinite;
+  color: var(--color-accent, #4f8cff);
+  font-weight: bold;
+}
+@keyframes blink-cursor {
+  50% { opacity: 0; }
+}
+
 /* ── Scrollbar styling ────────────────────────────────────── */
 ::-webkit-scrollbar {
   width: 6px;

@@ -93,6 +93,9 @@
           <button class="pill" data-profile="vision">VISION</button>
           <button class="pill" data-profile="dolphin">DOLPHIN</button>
         </div>
+        <select class="chat-model-select" id="chat-model-select" title="Vyber model">
+          <option value="">Výchozí model</option>
+        </select>
         <div class="model-badge" id="model-badge">llama3.2</div>
 
         <!-- Chat history -->
@@ -733,6 +736,14 @@
             Doporu&#269;uje se p&#345;i pou&#382;it&iacute; v s&iacute;ti LAN nebo VPN.
           </small>
         </div>
+      </section>
+
+      <!-- Custom System Prompt Append -->
+      <section class="card settings-section">
+        <h2 class="card-title"><span class="section-icon">&#128221;</span> Vlastn&iacute; instrukce pro AI</h2>
+        <p class="hint-text">Text se p&#345;ipoj&iacute; na konec ka&#382;d&eacute;ho syst&eacute;mov&eacute;ho promptu.</p>
+        <textarea class="input" id="s-custom-prompt-append" rows="4" placeholder="Nap&#345;.: V&#382;dy pou&#382;&iacute;vej form&aacute;ln&iacute; jazyk."></textarea>
+        <button class="btn btn--primary btn--small" id="save-custom-prompt-btn" style="margin-top:0.5rem">Ulo&#382;it</button>
       </section>
 
       <!-- VS Code Projects section -->

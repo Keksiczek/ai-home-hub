@@ -152,128 +152,28 @@ async def setup_check() -> dict:
 
 @app.get("/api/health", tags=["health"])
 async def health() -> dict:
-    """Extended health-check endpoint with component status (4C)."""
-    import shutil
-    import time
-    from datetime import datetime, timezone
-    from pathlib import Path
+    """Health-check endpoint."""
+    from app.services.embeddings_service import get_embeddings_service
 
-    import httpx
-
-    settings_svc = get_settings_service()
-    s = settings_svc.load()
     ws_manager = get_ws_manager()
-
-    components: dict = {}
-
-    # ── Ollama check ──
-    llm_cfg = s.get("llm", {})
-    ollama_url = llm_cfg.get("ollama_url", "http://localhost:11434")
-    try:
-        start_t = time.monotonic()
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            resp = await client.get(f"{ollama_url}/api/tags")
-            latency = round((time.monotonic() - start_t) * 1000)
-            resp.raise_for_status()
-            models = [m["name"] for m in resp.json().get("models", [])]
-        components["ollama"] = {
-            "status": "ok",
-            "latency_ms": latency,
-            "models_available": models,
-            "url": ollama_url,
-        }
-    except Exception:
-        components["ollama"] = {"status": "error", "url": ollama_url}
-
-    # ── ChromaDB check ──
-    try:
-        from app.services.vector_store_service import get_vector_store_service, CHROMA_DIR
-        vs = get_vector_store_service()
-        kb_count = vs.collection.count()
-        # Check memory collection count
-        try:
-            from app.services.memory_service import get_memory_service
-            mem_count = get_memory_service().collection.count()
-        except Exception:
-            mem_count = 0
-        components["chromadb"] = {
-            "status": "ok",
-            "collections": {"knowledge_base": kb_count, "shared_memory": mem_count},
-            "data_path": str(CHROMA_DIR),
-        }
-    except Exception:
-        components["chromadb"] = {"status": "error"}
-
-    # ── Filesystem check ──
-    fs_cfg = s.get("filesystem", {})
-    allowed_dirs = fs_cfg.get("allowed_directories", [])
-    try:
-        usage = shutil.disk_usage(Path(__file__).parent.parent)
-        disk_free_gb = round(usage.free / (1024 ** 3), 1)
-    except Exception:
-        disk_free_gb = 0.0
-    fs_status = "ok" if allowed_dirs else "warning"
-    components["filesystem"] = {
-        "status": fs_status,
-        "allowed_dirs_count": len(allowed_dirs),
-        "disk_free_gb": disk_free_gb,
-    }
-
-    # ── Tesseract check ──
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "tesseract", "--version",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=2.0)
-        output = (stdout or stderr or b"").decode().strip()
-        version = output.split("\n")[0] if output else "unknown"
-        components["tesseract"] = {"status": "ok", "version": version}
-    except Exception:
-        components["tesseract"] = {"status": "unavailable"}
-
-    # ── Determine overall status ──
-    chromadb_ok = components.get("chromadb", {}).get("status") == "ok"
-    fs_ok = components.get("filesystem", {}).get("status") != "error"
-    ollama_ok = components.get("ollama", {}).get("status") == "ok"
-
-    if not chromadb_ok or not fs_ok:
-        overall = "error"
-    elif not ollama_ok or components.get("tesseract", {}).get("status") != "ok":
-        overall = "degraded"
-    else:
-        overall = "ok"
-
+    embeddings_svc = get_embeddings_service()
     return {
-        "status": overall,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "version": "0.3.0",
+        "status": "ok",
+        "message": "AI Home Hub Mac Control Center is running",
+        "version": "0.5.0",
         "ws_connections": ws_manager.connection_count,
-        "components": components,
+        "embeddings_cache": embeddings_svc.get_cache_stats(),
     }
 
 
-@app.get("/api/health/live", tags=["health"])
-async def health_live() -> dict:
-    """Liveness probe – always returns 200."""
-    return {"status": "ok"}
+@app.delete("/api/embeddings/cache", tags=["health"])
+async def clear_embeddings_cache() -> dict:
+    """Clear the embeddings cache."""
+    from app.services.embeddings_service import get_embeddings_service
 
-
-@app.get("/api/health/ready", tags=["health"])
-async def health_ready() -> dict:
-    """Readiness probe – ok only if ChromaDB is accessible."""
-    try:
-        from app.services.vector_store_service import get_vector_store_service
-        vs = get_vector_store_service()
-        vs.collection.count()
-        return {"status": "ok"}
-    except Exception as exc:
-        from fastapi.responses import JSONResponse
-        return JSONResponse(
-            status_code=503,
-            content={"status": "not_ready", "error": str(exc)},
-        )
+    svc = get_embeddings_service()
+    prev_stats = svc.clear_cache()
+    return {"cleared": True, "previous_stats": prev_stats}
 
 
 # ── SPA Static Files ────────────────────────────────────────

@@ -98,10 +98,136 @@ class SessionService:
         messages = data.get("messages", [])
         return messages[-limit:]
 
-    def get_history_for_llm(self, session_id: str, limit: int = 20) -> List[Dict[str, str]]:
-        """Return messages as Ollama-compatible dicts with role/content only."""
-        messages = self.load_history(session_id, limit)
-        return [{"role": m["role"], "content": m["content"]} for m in messages]
+    def get_history_for_llm(
+        self,
+        session_id: str,
+        limit: int = 20,
+        max_messages_before_summary: Optional[int] = None,
+    ) -> List[Dict[str, str]]:
+        """Return messages as Ollama-compatible dicts with role/content only.
+
+        If the session has more than *max_messages_before_summary* messages,
+        older messages are replaced with a cached summary. The summary is
+        regenerated only when needed (>= 10 new messages since last summary).
+        """
+        if not self.session_exists(session_id):
+            return []
+
+        data = self._read(session_id)
+        messages = data.get("messages", [])
+        all_msgs = [{"role": m["role"], "content": m["content"]} for m in messages]
+        total = len(all_msgs)
+
+        # Determine threshold – caller param or settings
+        if max_messages_before_summary is None:
+            try:
+                from app.services.settings_service import get_settings_service
+                settings = get_settings_service().load()
+                max_messages_before_summary = settings.get("session_max_messages_before_summary", 20)
+            except Exception:
+                max_messages_before_summary = 20
+
+        if max_messages_before_summary is None or total <= max_messages_before_summary:
+            return all_msgs[-limit:]
+
+        # Check if we have a cached summary that's still fresh
+        cached_summary = data.get("history_summary", "")
+        summary_msg_count = data.get("history_summary_msg_count", 0)
+        new_since_summary = total - summary_msg_count
+
+        if cached_summary and new_since_summary < 10:
+            # Use cached summary + recent messages
+            recent = all_msgs[-limit:]
+            return [{"role": "system", "content": f"Summary of earlier conversation: {cached_summary}"}] + recent
+
+        # Need to generate a new summary – mark for async summarization
+        # Store the messages that need summarization
+        older_count = total - limit
+        if older_count > 0:
+            older_msgs = all_msgs[:older_count]
+            summary = self._build_summary_text(older_msgs)
+            # Cache it
+            data["history_summary"] = summary
+            data["history_summary_msg_count"] = total
+            self._write(session_id, data)
+
+            recent = all_msgs[-limit:]
+            return [{"role": "system", "content": f"Summary of earlier conversation: {summary}"}] + recent
+
+        return all_msgs[-limit:]
+
+    @staticmethod
+    def _build_summary_text(messages: List[Dict[str, str]]) -> str:
+        """Build a simple extractive summary from older messages.
+
+        This is a synchronous fallback that extracts key points from
+        the conversation without calling Ollama. For LLM-based
+        summarization, use summarize_history_async().
+        """
+        parts = []
+        for m in messages:
+            role = m.get("role", "")
+            content = m.get("content", "").strip()
+            if role == "user" and content:
+                parts.append(f"User: {content[:150]}")
+            elif role == "assistant" and content:
+                parts.append(f"Assistant: {content[:150]}")
+        # Keep at most 10 key exchanges
+        return " | ".join(parts[:10])
+
+    async def summarize_history_async(
+        self, session_id: str, messages: List[Dict[str, str]]
+    ) -> str:
+        """Summarize conversation messages using Ollama LLM.
+
+        Returns the summary text. Caches it in the session file.
+        """
+        from app.services.llm_service import get_llm_service
+
+        llm_svc = get_llm_service()
+        conversation = "\n".join(
+            f"{m['role']}: {m['content']}" for m in messages
+        )
+        prompt = (
+            "Shrň tuto konverzaci do 3-5 vět. "
+            "Zaměř se na klíčová fakta, rozhodnutí a kontext. Buď stručný.\n\n"
+            f"{conversation}"
+        )
+        try:
+            reply, _ = await llm_svc.generate(message=prompt, mode="general")
+            summary = reply.strip()
+        except Exception as exc:
+            logger.warning("LLM summarization failed: %s", exc, exc_info=True)
+            summary = self._build_summary_text(messages)
+
+        # Cache
+        if self.session_exists(session_id):
+            data = self._read(session_id)
+            data["history_summary"] = summary
+            data["history_summary_msg_count"] = len(data.get("messages", []))
+            self._write(session_id, data)
+
+        return summary
+
+    # ── Model override ─────────────────────────────────────────
+
+    def set_model_override(self, session_id: str, model: Optional[str]) -> None:
+        """Set or clear the session-level model override."""
+        if not self.session_exists(session_id):
+            return
+        data = self._read(session_id)
+        if model:
+            data["model_override"] = model
+        else:
+            data.pop("model_override", None)
+        self._write(session_id, data)
+
+    def get_model_override(self, session_id: str) -> Optional[str]:
+        """Return the session-level model override, or None."""
+        if not self.session_exists(session_id):
+            return None
+        data = self._read(session_id)
+        return data.get("model_override")
 
     # ── Artifact / agent references ───────────────────────────
 

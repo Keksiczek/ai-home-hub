@@ -1,7 +1,8 @@
-"""LLM service – Ollama integration with graceful stub fallback and resilience."""
+"""LLM service – Ollama integration with graceful stub fallback."""
+import json
 import logging
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 import httpx
 
@@ -26,16 +27,20 @@ class LLMService:
         profile: Optional[str] = None,
         context_file_ids: Optional[List[str]] = None,
         history: Optional[List[Dict[str, str]]] = None,
+        model_override: Optional[str] = None,
     ) -> Tuple[str, Dict[str, Any]]:
         """
         Generate a response using Ollama or fall back to stub.
 
         *profile* selects the LLM profile (chat | powerbi | lean | vision) whose
         model and sampling params override the global defaults.
+        *model_override* overrides the model from profile/settings for this request.
 
         Returns (reply_text, meta_dict).
         """
         cfg = self._settings.get_llm_config(profile=profile)
+        if model_override:
+            cfg["model"] = model_override
         provider = cfg.get("provider", "ollama")
         start = time.monotonic()
 
@@ -60,9 +65,33 @@ class LLMService:
         model = cfg.get("model", "llama3.2")
         system_prompt = self._settings.get_system_prompt(mode)
 
+        # 5H-3: Add structured output hints based on message content
+        system_prompt = self._add_structured_hints(system_prompt, message)
+
         messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
         messages.extend(history)
         messages.append({"role": "user", "content": message})
+
+        # Token management – trim if approaching context limit
+        from app.utils.token_utils import (
+            estimate_messages_tokens,
+            get_model_context_limit,
+            trim_messages_to_fit,
+        )
+
+        context_limit = get_model_context_limit(model)
+        tokens_estimated = estimate_messages_tokens(messages)
+        history_trimmed = False
+
+        if tokens_estimated > int(context_limit * 0.8):
+            logger.warning(
+                "Token estimate %d exceeds 80%% of context limit %d for model %s, trimming",
+                tokens_estimated, context_limit, model,
+            )
+            messages, history_trimmed = trim_messages_to_fit(
+                messages, int(context_limit * 0.8)
+            )
+            tokens_estimated = estimate_messages_tokens(messages)
 
         # Build sampling options – include only non-None values
         options: Dict[str, Any] = {}
@@ -88,23 +117,63 @@ class LLMService:
         except (ValueError, TypeError):
             logger.warning("Invalid timeout value: %s, using default 180s", timeout)
             timeout = 180.0
-
-        # Check circuit breaker before calling Ollama
-        cb = get_ollama_circuit_breaker()
-        if not await cb.can_execute():
-            logger.warning("Ollama circuit breaker is open, falling back to stub")
-            return self._generate_stub(message, mode, [])[0], {
-                "provider": "stub",
-                "model": "stub",
-                "fallback_reason": "Circuit breaker open",
-            }
+        meta_base = {
+            "provider": "ollama",
+            "model": model,
+            "temperature": options.get("temperature"),
+            "tokens_estimated": tokens_estimated,
+            "context_limit": context_limit,
+            "context_usage_percent": round(tokens_estimated / context_limit * 100, 1),
+            "history_trimmed": history_trimmed,
+        }
 
         try:
-            reply, meta = await self._call_ollama_chat(
-                ollama_url, payload, model, options, timeout
-            )
-            await cb.record_success()
-            return reply, meta
+            reply = await self._call_ollama(ollama_url, payload, timeout)
+
+            # 5H-1: Retry on empty response (max 2 retries)
+            retries = 0
+            while not reply.strip() and retries < 2:
+                retries += 1
+                logger.warning("Empty response from Ollama (retry %d/2)", retries)
+                retry_payload = dict(payload)
+                retry_msgs = list(messages) + [
+                    {"role": "system", "content": "Předchozí pokus vrátil prázdnou odpověď. Odpověz prosím na otázku uživatele."}
+                ]
+                retry_payload["messages"] = retry_msgs
+                reply = await self._call_ollama(ollama_url, retry_payload, timeout)
+
+            if not reply.strip():
+                reply = "[Model nevrátil odpověď. Zkus jiný model nebo restartuj Ollamu.]"
+                meta_base["empty_response_fallback"] = True
+
+            # 5H-2: Language detection and auto-translation
+            meta_base["language_detected"] = "cs"
+            meta_base["auto_translated"] = False
+            settings = self._settings.load()
+            auto_translate = settings.get("auto_translate_to_czech", True)
+
+            if auto_translate and self._looks_english(reply):
+                meta_base["language_detected"] = "en"
+                logger.info("Response detected as English, auto-translating to Czech")
+                translate_payload = {
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": "Přelož následující text do češtiny. Zachovej formátování a odborné termíny."},
+                        {"role": "user", "content": f"Přelož do češtiny: {reply}"},
+                    ],
+                    "options": options,
+                    "stream": False,
+                }
+                try:
+                    translated = await self._call_ollama(ollama_url, translate_payload, timeout)
+                    if translated.strip():
+                        reply = translated
+                        meta_base["auto_translated"] = True
+                except Exception as exc:
+                    logger.warning("Auto-translation failed: %s", exc)
+
+            return reply, meta_base
+
         except httpx.ConnectError:
             await cb.record_failure()
             logger.warning("Ollama not available at %s, falling back to stub", ollama_url)
@@ -122,7 +191,6 @@ class LLMService:
                 "error": str(exc),
             }
         except Exception as exc:
-            await cb.record_failure()
             logger.error("Ollama error: %s", exc, exc_info=True)
             return f"[Chyba LLM: {exc}]", {
                 "provider": "error",
@@ -130,26 +198,44 @@ class LLMService:
                 "error": str(exc),
             }
 
-    @async_retry(max_attempts=3, backoff_base=1.5)
-    async def _call_ollama_chat(
-        self,
-        ollama_url: str,
-        payload: Dict[str, Any],
-        model: str,
-        options: Dict[str, Any],
-        timeout: float,
-    ) -> Tuple[str, Dict[str, Any]]:
-        """Execute the actual HTTP call to Ollama /api/chat with retry."""
+    @staticmethod
+    async def _call_ollama(ollama_url: str, payload: dict, timeout: float) -> str:
+        """Make a single non-streaming call to Ollama and return the reply text."""
         async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(f"{ollama_url}/api/chat", json=payload)
             resp.raise_for_status()
             data = resp.json()
-            reply = data.get("message", {}).get("content", "")
-            return reply, {
-                "provider": "ollama",
-                "model": model,
-                "temperature": options.get("temperature"),
-            }
+            return data.get("message", {}).get("content", "")
+
+    @staticmethod
+    def _add_structured_hints(system_prompt: str, message: str) -> str:
+        """Add formatting hints to system prompt based on message keywords."""
+        msg_lower = message.lower()
+        hints = []
+
+        comparison_keywords = ["porovnej", "rozdíl mezi", "rozdil mezi", "pros and cons",
+                               "výhody nevýhody", "vyhody nevyhody", "compare", "vs"]
+        if any(kw in msg_lower for kw in comparison_keywords):
+            hints.append("Uživatel požádal o porovnání. Použij markdown tabulku nebo strukturovaný seznam.")
+
+        step_keywords = ["jak", "postup", "návod", "navod", "steps", "how to", "kroky", "tutorial"]
+        if any(kw in msg_lower for kw in step_keywords):
+            hints.append("Odpověz jako číslovaný seznam kroků.")
+
+        if hints:
+            return system_prompt + "\n\n" + "\n".join(hints)
+        return system_prompt
+
+    @staticmethod
+    def _looks_english(text: str) -> bool:
+        """Heuristic: if text is >50 words and lacks Czech diacritics, it's likely English."""
+        words = text.split()
+        if len(words) < 50:
+            return False
+        czech_chars = set("áčďéěíňóřšťúůýžÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ")
+        czech_count = sum(1 for c in text if c in czech_chars)
+        # If less than 0.5% of characters are Czech diacritics, likely English
+        return (czech_count / max(len(text), 1)) < 0.005
 
     def _generate_stub(
         self, message: str, mode: str, context_file_ids: List[str]
@@ -160,6 +246,76 @@ class LLMService:
             f"MESSAGE={message}"
         )
         return reply, {"provider": "stub", "model": "stub"}
+
+    async def generate_stream(
+        self,
+        message: str,
+        mode: str = "general",
+        profile: Optional[str] = None,
+        history: Optional[List[Dict[str, str]]] = None,
+        model_override: Optional[str] = None,
+    ) -> AsyncGenerator[str, None]:
+        """Stream tokens from Ollama as an async generator.
+
+        Yields individual token strings as they arrive from the NDJSON stream.
+        Falls back to a single stub yield if Ollama is unavailable.
+        """
+        cfg = self._settings.get_llm_config(profile=profile)
+        ollama_url = cfg.get("ollama_url", "http://localhost:11434").rstrip("/")
+        model = model_override or cfg.get("model", "llama3.2")
+        system_prompt = self._settings.get_system_prompt(mode)
+
+        messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
+        messages.extend(history or [])
+        messages.append({"role": "user", "content": message})
+
+        options: Dict[str, Any] = {}
+        if cfg.get("temperature") is not None:
+            options["temperature"] = float(cfg["temperature"])
+        if cfg.get("top_p") is not None:
+            options["top_p"] = float(cfg["top_p"])
+        if cfg.get("top_k") is not None:
+            options["top_k"] = int(cfg["top_k"])
+        if cfg.get("max_tokens") is not None:
+            options["num_predict"] = int(cfg["max_tokens"])
+
+        payload = {
+            "model": model,
+            "messages": messages,
+            "options": options,
+            "stream": True,
+        }
+
+        timeout_val = cfg.get("timeout_seconds", 180)
+        try:
+            timeout_val = max(10, min(3600, float(timeout_val)))
+        except (ValueError, TypeError):
+            timeout_val = 180.0
+
+        try:
+            async with httpx.AsyncClient(timeout=timeout_val) as client:
+                async with client.stream(
+                    "POST", f"{ollama_url}/api/chat", json=payload
+                ) as resp:
+                    resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        if not line.strip():
+                            continue
+                        try:
+                            chunk = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if chunk.get("done"):
+                            break
+                        token = chunk.get("message", {}).get("content", "")
+                        if token:
+                            yield token
+        except httpx.ConnectError:
+            logger.warning("Ollama not available for streaming, yielding stub")
+            yield "[Stub] Ollama is not reachable. Please start Ollama."
+        except Exception as exc:
+            logger.error("Ollama stream error: %s", exc, exc_info=True)
+            yield f"[Chyba LLM: {exc}]"
 
     async def check_ollama_health(self) -> Dict[str, Any]:
         """Check if Ollama is running and return available models."""
