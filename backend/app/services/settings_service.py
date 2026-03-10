@@ -150,8 +150,16 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
             "start": "22:00",
             "end": "06:00",
         },
-        "day_allowed_job_types": ["long_llm_task"],
-        "night_only_job_types": ["dummy_long_task"],
+        "day_allowed_job_types": ["long_llm_task", "report_generation"],
+        "night_only_job_types": ["dummy_long_task", "media_ingest"],
+    },
+    "whisper_settings": {
+        "model": "base",
+        "device": "cpu",
+        "compute_type": "int8",
+    },
+    "media_settings": {
+        "max_upload_mb": 500,
     },
 }
 

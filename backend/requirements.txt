@@ -15,6 +15,10 @@ pytesseract==0.3.10
 python-magic==0.4.27
 chromadb==0.4.22
 slowapi==0.1
+faster-whisper
+ffmpeg-python
+markdown
+weasyprint
 
 # Testing
 pytest>=8.0.0

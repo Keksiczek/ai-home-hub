@@ -315,8 +315,108 @@
         <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
           <button class="btn btn--secondary btn--small" id="create-dummy-job-btn">Dummy long task</button>
           <button class="btn btn--secondary btn--small" id="create-llm-job-btn">Long LLM task</button>
+          <button class="btn btn--primary btn--small" id="open-doc-analysis-btn">Nov&aacute; anal&yacute;za dokument&#367;</button>
         </div>
       </section>
+
+      <!-- Media Upload panel -->
+      <section class="card" id="media-upload-section">
+        <h2 class="card-title">Nahr&aacute;t m&eacute;dium (audio/video)</h2>
+        <div class="form-group">
+          <label class="form-label" for="media-file-input">Soubor:</label>
+          <input type="file" class="input" id="media-file-input"
+                 accept=".mp3,.mp4,.wav,.m4a,.ogg,.webm,.mov" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="media-language">Jazyk:</label>
+          <select class="select" id="media-language" style="max-width:200px">
+            <option value="auto">Auto-detect</option>
+            <option value="cs">&#268;e&#353;tina</option>
+            <option value="en">English</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="toggle-label">
+            <input type="checkbox" id="media-post-analysis" checked />
+            <strong>Po transkripci spustit anal&yacute;zu</strong>
+          </label>
+        </div>
+        <div class="form-group" id="media-task-group">
+          <label class="form-label" for="media-task">Co chce&#353; z m&eacute;dia zjistit?</label>
+          <textarea class="textarea" id="media-task" rows="2"
+                    placeholder="nap&#345;. Shr&#328; kl&iacute;&#269;ov&eacute; body a vytvo&#345; ak&#269;n&iacute; body..."></textarea>
+        </div>
+        <div class="form-group">
+          <button class="btn btn--primary" id="media-upload-btn">
+            Nahr&aacute;t a napl&aacute;novat
+            <span class="spinner spinner--small hidden" id="media-upload-spinner"></span>
+          </button>
+        </div>
+        <div id="media-upload-status" class="hidden" style="margin-top:0.5rem"></div>
+      </section>
+
+      <!-- Document Analysis wizard modal -->
+      <div class="modal-overlay hidden" id="doc-analysis-modal">
+        <div class="modal" style="max-width:700px">
+          <div class="modal-header">
+            <h2 class="modal-title">Nov&aacute; anal&yacute;za dokument&#367;</h2>
+            <button class="btn-icon modal-close" id="doc-analysis-modal-close">&#10005;</button>
+          </div>
+          <div class="modal-body">
+            <!-- Step 1: Select files -->
+            <div id="da-step-1">
+              <h3 style="margin-bottom:0.75rem">1. Vyber dokumenty</h3>
+              <div id="da-files-loading" class="empty-state">Na&#269;&iacute;t&aacute;m soubory...</div>
+              <div id="da-uploads-section" class="hidden" style="margin-bottom:1rem">
+                <h4 style="margin-bottom:0.5rem;color:#94a3b8">Nahran&eacute; soubory</h4>
+                <div id="da-uploads-list"></div>
+              </div>
+              <div id="da-kb-section" class="hidden">
+                <h4 style="margin-bottom:0.5rem;color:#94a3b8">Knowledge Base</h4>
+                <div id="da-kb-list"></div>
+              </div>
+              <div style="margin-top:1rem;display:flex;justify-content:flex-end">
+                <button class="btn btn--primary btn--small" id="da-step1-next" disabled>Pokra&#269;ovat</button>
+              </div>
+            </div>
+            <!-- Step 2: Task description -->
+            <div id="da-step-2" class="hidden">
+              <h3 style="margin-bottom:0.75rem">2. Zadej &uacute;kol</h3>
+              <div class="form-group">
+                <label class="form-label" for="da-task">Co chce&#353; zjistit nebo ud&#283;lat s t&#283;mito dokumenty?</label>
+                <textarea class="textarea" id="da-task" rows="3" placeholder="nap&#345;. Porovnej kl&iacute;&#269;ov&eacute; metriky..."></textarea>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="da-profile">Profil:</label>
+                <select class="select" id="da-profile" style="max-width:200px">
+                  <option value="general">General</option>
+                  <option value="lean">Lean</option>
+                  <option value="powerbi">Power BI</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="da-language">Jazyk v&yacute;stupu:</label>
+                <select class="select" id="da-language" style="max-width:200px">
+                  <option value="cs">&#268;e&#353;tina</option>
+                  <option value="en">English</option>
+                </select>
+              </div>
+              <div style="display:flex;justify-content:space-between;margin-top:1rem">
+                <button class="btn btn--ghost btn--small" id="da-step2-back">Zp&#283;t</button>
+                <button class="btn btn--primary btn--small" id="da-step2-submit">Spustit anal&yacute;zu</button>
+              </div>
+            </div>
+            <!-- Step 3: Confirmation -->
+            <div id="da-step-3" class="hidden">
+              <h3 style="margin-bottom:0.75rem">3. Spu&#353;t&#283;no</h3>
+              <div id="da-result-info"></div>
+              <div style="margin-top:1rem;display:flex;justify-content:flex-end">
+                <button class="btn btn--primary btn--small" id="da-step3-done">Zobrazit v Jobs</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <!-- Jobs list -->
       <section class="card">
