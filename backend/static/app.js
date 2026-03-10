@@ -274,6 +274,13 @@ function updateModelBadge() {
   const badge = document.getElementById('model-badge');
   if (!badge) return;
 
+  // If a chat model is explicitly selected, show that
+  const chatModelSelect = document.getElementById('chat-model-select');
+  if (chatModelSelect && chatModelSelect.value) {
+    badge.textContent = chatModelSelect.value;
+    return;
+  }
+
   // Map UI pill → settings profile key
   const profileMap = { chat: 'chat', tech: 'powerbi', vision: 'vision', dolphin: 'lean' };
   const settingsProfileKey = profileMap[currentProfile] || currentProfile;
@@ -288,6 +295,44 @@ function updateModelBadge() {
       || _currentSettings?.llm?.model
       || 'llama3.2';
   }
+}
+
+function populateChatModelSelect() {
+  const select = document.getElementById('chat-model-select');
+  if (!select) return;
+
+  const prevValue = select.value;
+  select.innerHTML = '<option value="">Vychozi model</option>';
+
+  const visionModels = _ollamaModels.filter(m => m.profile === 'vision');
+  const chatModels = _ollamaModels.filter(m => m.profile !== 'vision');
+
+  if (chatModels.length) {
+    const group = document.createElement('optgroup');
+    group.label = 'Chat modely';
+    chatModels.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m.name;
+      opt.textContent = `${m.name} (${m.size_gb} GB)`;
+      group.appendChild(opt);
+    });
+    select.appendChild(group);
+  }
+
+  if (visionModels.length) {
+    const group = document.createElement('optgroup');
+    group.label = 'Vision modely';
+    visionModels.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m.name;
+      opt.textContent = `${m.name} (${m.size_gb} GB)`;
+      group.appendChild(opt);
+    });
+    select.appendChild(group);
+  }
+
+  if (prevValue) select.value = prevValue;
+  select.addEventListener('change', updateModelBadge);
 }
 
 /* ============================================================
@@ -597,6 +642,8 @@ async function sendMessage() {
       // Text-only chat – use streaming WebSocket
       const body = { message, mode, profile: llmProfile, context_file_ids: contextFileIds };
       if (currentSessionId) body.session_id = currentSessionId;
+      const chatModelSelect = document.getElementById('chat-model-select');
+      if (chatModelSelect && chatModelSelect.value) body.model = chatModelSelect.value;
 
       await sendMessageStreaming(body, sendBtn, chatSpinner);
       return; // sendMessageStreaming handles cleanup
@@ -1367,6 +1414,7 @@ async function loadOllamaModels() {
     const data = await res.json();
     _ollamaModels = data.models || [];
     populateModelDropdown();
+    populateChatModelSelect();
   } catch (err) {
     // Silently fail – models dropdown will have manual input fallback
   }

@@ -16,6 +16,7 @@ class ChatRequest(BaseModel):
     message: str
     mode: str = "general"
     profile: Optional[str] = None  # LLM profile: chat | powerbi | lean | vision
+    model: Optional[str] = None  # Override model for this request
     context_file_ids: List[str] = []
     session_id: Optional[str] = None
 

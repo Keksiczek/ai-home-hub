@@ -22,16 +22,20 @@ class LLMService:
         profile: Optional[str] = None,
         context_file_ids: Optional[List[str]] = None,
         history: Optional[List[Dict[str, str]]] = None,
+        model_override: Optional[str] = None,
     ) -> Tuple[str, Dict[str, Any]]:
         """
         Generate a response using Ollama or fall back to stub.
 
         *profile* selects the LLM profile (chat | powerbi | lean | vision) whose
         model and sampling params override the global defaults.
+        *model_override* overrides the model from profile/settings for this request.
 
         Returns (reply_text, meta_dict).
         """
         cfg = self._settings.get_llm_config(profile=profile)
+        if model_override:
+            cfg["model"] = model_override
         provider = cfg.get("provider", "ollama")
         start = time.monotonic()
 

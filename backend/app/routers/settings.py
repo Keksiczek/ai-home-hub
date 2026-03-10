@@ -153,30 +153,44 @@ async def list_ollama_models() -> Dict[str, Any]:
     except Exception as exc:
         return {"models": [], "error": str(exc)}
 
-    models = []
+    # Known embedding model prefixes to filter from chat model list
+    embedding_prefixes = ("nomic-embed", "all-minilm", "mxbai-embed", "snowflake-arctic-embed")
+
+    chat_models = []
+    embedding_models = []
     for m in data.get("models", []):
         name = m.get("name", "")
         size_bytes = m.get("size", 0)
         size_gb = round(size_bytes / (1024 ** 3), 1)
+        modified = m.get("modified_at", "")
+
+        name_lower = name.lower()
+        is_embedding = any(name_lower.startswith(p) for p in embedding_prefixes)
 
         # Auto-assign profile based on model name
-        name_lower = name.lower()
         if "coder" in name_lower or "code" in name_lower:
             profile = "tech"
-        elif "vision" in name_lower or "vl" in name_lower:
+        elif "vision" in name_lower or "vl" in name_lower or "llava" in name_lower:
             profile = "vision"
         elif "dolphin" in name_lower:
             profile = "dolphin"
         else:
             profile = "chat"
 
-        models.append({
+        entry = {
             "name": name,
             "size_gb": size_gb,
             "profile": profile,
-        })
+            "modified": modified,
+            "is_embedding": is_embedding,
+        }
 
-    return {"models": models}
+        if is_embedding:
+            embedding_models.append(entry)
+        else:
+            chat_models.append(entry)
+
+    return {"models": chat_models, "embedding_models": embedding_models}
 
 
 ## ── Quick Actions CRUD ──────────────────────────────────────

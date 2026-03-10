@@ -125,6 +125,11 @@ async def chat(request: ChatRequest) -> ChatResponse:
     # Enrich message with KB + memory context
     llm_message, context_meta = await enrich_message(request.message)
 
+    # Resolve model override: request.model > session override > profile default
+    model_override = request.model
+    if not model_override:
+        model_override = session_svc.get_model_override(session_id)
+
     # Generate response
     reply, meta = await llm_svc.generate(
         message=llm_message,
@@ -132,6 +137,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
         profile=request.profile,
         context_file_ids=request.context_file_ids,
         history=history,
+        model_override=model_override,
     )
 
     # Merge context meta flags

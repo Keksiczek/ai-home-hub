@@ -101,6 +101,26 @@ class SessionService:
         messages = self.load_history(session_id, limit)
         return [{"role": m["role"], "content": m["content"]} for m in messages]
 
+    # ── Model override ─────────────────────────────────────────
+
+    def set_model_override(self, session_id: str, model: Optional[str]) -> None:
+        """Set or clear the session-level model override."""
+        if not self.session_exists(session_id):
+            return
+        data = self._read(session_id)
+        if model:
+            data["model_override"] = model
+        else:
+            data.pop("model_override", None)
+        self._write(session_id, data)
+
+    def get_model_override(self, session_id: str) -> Optional[str]:
+        """Return the session-level model override, or None."""
+        if not self.session_exists(session_id):
+            return None
+        data = self._read(session_id)
+        return data.get("model_override")
+
     # ── Artifact / agent references ───────────────────────────
 
     def attach_artifact(self, session_id: str, artifact_id: str) -> None:
