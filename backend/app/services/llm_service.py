@@ -64,6 +64,27 @@ class LLMService:
         messages.extend(history)
         messages.append({"role": "user", "content": message})
 
+        # Token management – trim if approaching context limit
+        from app.utils.token_utils import (
+            estimate_messages_tokens,
+            get_model_context_limit,
+            trim_messages_to_fit,
+        )
+
+        context_limit = get_model_context_limit(model)
+        tokens_estimated = estimate_messages_tokens(messages)
+        history_trimmed = False
+
+        if tokens_estimated > int(context_limit * 0.8):
+            logger.warning(
+                "Token estimate %d exceeds 80%% of context limit %d for model %s, trimming",
+                tokens_estimated, context_limit, model,
+            )
+            messages, history_trimmed = trim_messages_to_fit(
+                messages, int(context_limit * 0.8)
+            )
+            tokens_estimated = estimate_messages_tokens(messages)
+
         # Build sampling options – include only non-None values
         options: Dict[str, Any] = {}
         if cfg.get("temperature") is not None:
@@ -98,6 +119,10 @@ class LLMService:
                     "provider": "ollama",
                     "model": model,
                     "temperature": options.get("temperature"),
+                    "tokens_estimated": tokens_estimated,
+                    "context_limit": context_limit,
+                    "context_usage_percent": round(tokens_estimated / context_limit * 100, 1),
+                    "history_trimmed": history_trimmed,
                 }
         except httpx.ConnectError:
             logger.warning("Ollama not available at %s, falling back to stub", ollama_url)
