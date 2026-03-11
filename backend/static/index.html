@@ -46,6 +46,16 @@
         <span class="nav-label">Akce</span>
       </button>
       <button class="nav-item" role="tab" aria-selected="false"
+              data-tab="resident" title="Resident Agent">
+        <span class="nav-icon">&#129302;</span>
+        <span class="nav-label">Resident</span>
+      </button>
+      <button class="nav-item" role="tab" aria-selected="false"
+              data-tab="overnight" title="Overnight Jobs">
+        <span class="nav-icon">&#127769;</span>
+        <span class="nav-label">No&#269;n&iacute; &uacute;lohy</span>
+      </button>
+      <button class="nav-item" role="tab" aria-selected="false"
               data-tab="settings" title="Settings">
         <span class="nav-icon">&#128736;</span>
         <span class="nav-label">Nastaven&iacute;</span>
@@ -284,6 +294,18 @@
         </div>
       </div>
 
+      <!-- Resource Monitor Widget -->
+      <div class="card resource-monitor" id="resource-monitor">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem">
+          <h2 class="card-title" style="margin:0">&#128202; Monitorov&aacute;n&iacute; zdroj&#367;</h2>
+          <span class="hint-text" id="resource-updated-at"></span>
+        </div>
+        <div id="resource-banners"></div>
+        <div class="resource-gauges" id="resource-gauges">
+          <p class="empty-state">Na&#269;&iacute;t&aacute;m...</p>
+        </div>
+      </div>
+
       <div id="overall-status-card" class="card" style="margin-bottom:1rem">
         <div style="display:flex;align-items:center;gap:1rem">
           <h2 class="card-title" style="margin:0">Overall Status</h2>
@@ -298,6 +320,111 @@
       <div id="status-alerts" class="status-alerts"></div>
 
     </div><!-- /tab-status -->
+
+    <!-- ======================== RESIDENT AGENT TAB ======================== -->
+    <div class="tab-panel hidden" id="tab-resident" role="tabpanel">
+
+      <!-- A1: StatusBar -->
+      <div class="resident-statusbar" id="resident-statusbar">
+        <div class="resident-statusbar__left">
+          <span class="resident-status-indicator resident-status--idle" id="resident-status-indicator">
+            <span class="resident-status-dot"></span>
+            <span id="resident-status-text">&#268;ek&aacute;</span>
+          </span>
+          <span class="resident-tick" id="resident-tick">Tick #0</span>
+          <span class="resident-current-task hidden" id="resident-current-task"></span>
+        </div>
+        <div class="resident-statusbar__right">
+          <button class="btn btn--primary btn--small" id="resident-start-btn">&#9654; Spustit</button>
+          <button class="btn btn--ghost btn--small" id="resident-stop-btn" disabled>&#9209; Zastavit</button>
+        </div>
+      </div>
+
+      <div class="panel-header">
+        <h1 class="panel-title">Resident Agent</h1>
+      </div>
+
+      <!-- A2: RecentSteps feed -->
+      <section class="card">
+        <h2 class="card-title">Posledn&iacute; kroky</h2>
+        <div id="resident-steps-feed">
+          <p class="empty-state" id="resident-steps-empty">Agent zat&iacute;m neprovedl &#382;&aacute;dnou akci</p>
+        </div>
+      </section>
+
+      <!-- A3: TaskSubmit -->
+      <section class="card">
+        <h2 class="card-title">P&#345;idat &uacute;kol</h2>
+        <div class="form-group">
+          <label class="form-label" for="resident-task-name">N&aacute;zev &uacute;kolu:</label>
+          <input type="text" class="input" id="resident-task-name" maxlength="100"
+                 placeholder="N&aacute;zev &uacute;kolu (povinn&yacute;)" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="resident-task-desc">Popis:</label>
+          <textarea class="textarea" id="resident-task-desc" rows="2" maxlength="500"
+                    placeholder="Popis (voliteln&yacute;, max 500 znak&#367;)"></textarea>
+        </div>
+        <div class="form-group form-group--right">
+          <button class="btn btn--primary" id="resident-task-submit-btn" disabled
+                  title="Nejd&#345;&iacute;v spus&#357; agenta">
+            P&#345;idat &uacute;kol
+            <span class="spinner spinner--small hidden" id="resident-task-spinner"></span>
+          </button>
+        </div>
+      </section>
+
+    </div><!-- /tab-resident -->
+
+    <!-- ======================== OVERNIGHT JOBS TAB ======================== -->
+    <div class="tab-panel hidden" id="tab-overnight" role="tabpanel">
+
+      <div class="panel-header">
+        <h1 class="panel-title">No&#269;n&iacute; &uacute;lohy</h1>
+      </div>
+
+      <!-- C1: Status Overview -->
+      <section class="card" id="overnight-status-card">
+        <div class="overnight-status-overview" id="overnight-status-overview">
+          <p class="empty-state">Na&#269;&iacute;t&aacute;m...</p>
+        </div>
+      </section>
+
+      <!-- C2: Last Run Cards -->
+      <div class="overnight-jobs-grid" id="overnight-jobs-grid">
+        <!-- KB Reindex card -->
+        <section class="card overnight-job-card" id="overnight-kb-card">
+          <h2 class="card-title">&#128218; KB Reindexov&aacute;n&iacute;</h2>
+          <div class="overnight-job-body" id="overnight-kb-body">
+            <p class="empty-state">Na&#269;&iacute;t&aacute;m...</p>
+          </div>
+        </section>
+        <!-- Git Sweep card -->
+        <section class="card overnight-job-card" id="overnight-git-card">
+          <h2 class="card-title">&#128187; Git Sweep</h2>
+          <div class="overnight-job-body" id="overnight-git-body">
+            <p class="empty-state">Na&#269;&iacute;t&aacute;m...</p>
+          </div>
+        </section>
+        <!-- Nightly Summary card -->
+        <section class="card overnight-job-card" id="overnight-summary-card">
+          <h2 class="card-title">&#128196; No&#269;n&iacute; Summary</h2>
+          <div class="overnight-job-body" id="overnight-summary-body">
+            <p class="empty-state">Na&#269;&iacute;t&aacute;m...</p>
+          </div>
+        </section>
+      </div>
+
+      <!-- C3: Live progress -->
+      <section class="card hidden" id="overnight-progress-section">
+        <h2 class="card-title">Pr&#367;b&#283;h no&#269;n&iacute;ch &uacute;loh</h2>
+        <div class="progress-bar-wrap" style="height:10px">
+          <div class="progress-bar" id="overnight-progress-bar" style="width:0%"></div>
+        </div>
+        <p class="hint-text" id="overnight-progress-text" style="margin-top:0.5rem"></p>
+      </section>
+
+    </div><!-- /tab-overnight -->
 
     <!-- ======================== JOBS TAB ======================== -->
     <div class="tab-panel hidden" id="tab-jobs" role="tabpanel">
@@ -897,6 +1024,17 @@
           <input type="text" class="input" id="new-project-key" placeholder="kl&iacute;&#269; (nap&#345;. lean-rpg)" style="flex:1;min-width:120px" />
           <input type="text" class="input" id="new-project-path" placeholder="/cesta/k/projektu" style="flex:2;min-width:180px" />
           <button class="btn btn--secondary btn--small" id="add-project-btn">+ P&#345;idat</button>
+        </div>
+      </section>
+
+      <!-- Experimental Features section -->
+      <section class="card settings-section" id="experimental-features-section">
+        <h2 class="card-title"><span class="section-icon">&#9888;</span> Experiment&aacute;ln&iacute; funkce</h2>
+        <div class="experimental-warning-banner">
+          &#9888; Experiment&aacute;ln&iacute; funkce mohou b&yacute;t nestabiln&iacute; nebo se rozb&iacute;t p&#345;i aktualizaci syst&eacute;mu.
+        </div>
+        <div id="experimental-features-list">
+          <p class="empty-state">Na&#269;&iacute;t&aacute;m...</p>
         </div>
       </section>
 
