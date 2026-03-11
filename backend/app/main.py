@@ -69,9 +69,8 @@ async def lifespan(app: FastAPI):
     from app.services.resource_monitor import get_resource_monitor
     resource_mon = get_resource_monitor()
     resource_mon.set_broadcast(ws_manager.broadcast)
-    resource_mon.start()
-    if resource_mon._task is not None:
-        _supervisor.register("resource_monitor", resource_mon._task, lambda: (resource_mon.start(), resource_mon._task)[1])
+    resource_task = resource_mon.start()
+    _supervisor.register("resource_monitor", resource_task, resource_mon.start)
 
     # Resident agent – initialize singleton, does NOT auto-start (waits for API call)
     from app.services.resident_agent import get_resident_agent
