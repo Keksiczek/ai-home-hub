@@ -100,6 +100,65 @@ const TEXTS = {
     enter_repo_path: 'Zadej cestu k repo',
     enter_commit_msg: 'Zadej commit zprávu',
 
+    // Resident Agent
+    resident_idle: 'Čeká',
+    resident_thinking: 'Přemýšlí...',
+    resident_executing: 'Provádí akci',
+    resident_error: 'Chyba',
+    resident_start: 'Spustit',
+    resident_stop: 'Zastavit',
+    resident_tick_label: 'Tick',
+    resident_no_actions: 'Agent zatím neprovedl žádnou akci',
+    resident_task_name: 'Název úkolu',
+    resident_task_desc: 'Popis',
+    resident_task_submit: 'Přidat úkol',
+    resident_task_success: 'Úkol přidán',
+    resident_agent_disabled: 'Nejdřív spusť agenta',
+    resident_ago: 'před',
+
+    // Resource Monitor
+    resource_ram: 'RAM',
+    resource_cpu: 'CPU',
+    resource_swap: 'Swap',
+    resource_ollama: 'Ollama',
+    resource_backend: 'Backend',
+    resource_throttle: 'Systém pod zátěží – agenti zpomaleni',
+    resource_block: 'Systém přetížen – nové agenty blokovány',
+    resource_updated: 'Aktualizováno',
+
+    // Overnight Jobs
+    overnight_active: 'Noční okno aktivní',
+    overnight_inactive: 'Mimo noční okno',
+    overnight_window: 'Noční okno',
+    overnight_next: 'Příští spuštění',
+    overnight_running_now: 'Probíhá nyní',
+    overnight_kb_reindex: 'KB Reindexování',
+    overnight_git_sweep: 'Git Sweep',
+    overnight_summary: 'Noční Summary',
+    overnight_done: 'Dokončeno',
+    overnight_error_status: 'Chyba',
+    overnight_waiting: 'Čeká',
+    overnight_running: 'Probíhá',
+    overnight_indexed: 'Indexováno',
+    overnight_skipped: 'přeskočeno',
+    overnight_checked: 'Zkontrolováno',
+    overnight_dirty: 'dirty',
+    overnight_no_summary: 'Žádné noční summary zatím. První proběhne tuto noc v 22:00.',
+    overnight_summary_ready: 'Noční summary připraveno',
+    overnight_show_all: 'zobrazit vše',
+
+    // Guardrails
+    guardrail_steps: 'Kroky',
+    guardrail_tokens: 'Tokeny',
+    guardrail_stopped: 'Guardrail zastaven',
+
+    // Experimental features
+    experimental_title: 'Experimentální funkce',
+    experimental_warning: 'Experimentální funkce mohou být nestabilní nebo se rozbít při aktualizaci systému.',
+
+    // Memory nightly
+    memory_filter_nightly: 'Noční summary',
+
     // Generic UI
     delete: 'Smazat',
     close: 'Zavřít',
