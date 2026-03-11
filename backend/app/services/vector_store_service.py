@@ -1,4 +1,5 @@
 """Vector store service – ChromaDB persistence for document embeddings."""
+import asyncio
 import logging
 import os
 import subprocess
@@ -6,7 +7,7 @@ import time
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import chromadb
 from chromadb.config import Settings
@@ -15,6 +16,20 @@ logger = logging.getLogger(__name__)
 
 CHROMA_DIR = Path(__file__).parent.parent.parent / "data" / "chroma"
 CHROMA_DIR.mkdir(parents=True, exist_ok=True)
+
+# ---------------------------------------------------------------------------
+# Process-wide write lock – serialises all Chroma mutations so that concurrent
+# asyncio tasks (ResidentAgent, NightScheduler, KB reindex, memory writes)
+# never trigger SQLite "database is locked" errors.
+# ---------------------------------------------------------------------------
+_VECTOR_WRITE_LOCK: asyncio.Lock | None = None
+
+
+def get_vector_write_lock() -> asyncio.Lock:
+    global _VECTOR_WRITE_LOCK
+    if _VECTOR_WRITE_LOCK is None:
+        _VECTOR_WRITE_LOCK = asyncio.Lock()
+    return _VECTOR_WRITE_LOCK
 
 
 class VectorStoreService:
@@ -32,7 +47,22 @@ class VectorStoreService:
             metadata={"hnsw:space": "cosine"},
         )
 
-    def add_documents(
+    async def _safe_write(
+        self,
+        operation: Callable[..., Any],
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        """Execute a synchronous Chroma write under the global write lock.
+
+        Runs the operation in a thread-pool so the event loop is not blocked,
+        and acquires the process-wide write lock first to serialise mutations.
+        """
+        lock = get_vector_write_lock()
+        async with lock:
+            return await asyncio.to_thread(operation, *args, **kwargs)
+
+    async def add_documents(
         self,
         ids: List[str],
         embeddings: List[List[float]],
@@ -43,7 +73,8 @@ class VectorStoreService:
         try:
             # ChromaDB metadata values must be str, int, float, or bool
             safe_metadatas = [_sanitize_metadata(m) for m in metadatas]
-            self.collection.add(
+            await self._safe_write(
+                self.collection.add,
                 ids=ids,
                 embeddings=embeddings,
                 documents=documents,
@@ -85,12 +116,14 @@ class VectorStoreService:
             logger.error("Search failed: %s", exc)
             return {"ids": [], "documents": [], "metadatas": [], "distances": []}
 
-    def delete_by_file_path(self, file_path: str) -> int:
+    async def delete_by_file_path(self, file_path: str) -> int:
         """Delete all chunks for a specific file. Returns count of deleted chunks."""
         try:
-            results = self.collection.get(where={"file_path": file_path})
+            results = await asyncio.to_thread(
+                self.collection.get, where={"file_path": file_path}
+            )
             if results and results["ids"]:
-                self.collection.delete(ids=results["ids"])
+                await self._safe_write(self.collection.delete, ids=results["ids"])
                 logger.info("Deleted %d chunks for %s", len(results["ids"]), file_path)
                 return len(results["ids"])
             return 0

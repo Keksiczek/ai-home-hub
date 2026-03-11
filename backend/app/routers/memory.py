@@ -72,7 +72,7 @@ async def get_all_memories(limit: int = 100):
 async def delete_memory(memory_id: str):
     """Delete a memory by ID."""
     svc = get_memory_service()
-    deleted = svc.delete_memory(memory_id)
+    deleted = await svc.delete_memory(memory_id)
     if not deleted:
         raise HTTPException(status_code=404, detail=f"Memory {memory_id} not found")
     return {"memory_id": memory_id, "deleted": True}

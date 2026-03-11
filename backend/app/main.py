@@ -238,9 +238,10 @@ async def health_ready():
     try:
         from app.services.vector_store_service import get_vector_store_service
         vs = get_vector_store_service()
-        vs.get_stats()
+        async with asyncio.timeout(2.0):
+            await asyncio.to_thread(vs.get_stats)
         return {"status": "ok"}
-    except Exception:
+    except (asyncio.TimeoutError, Exception):
         return JSONResponse(status_code=503, content={"status": "unavailable"})
 
 

@@ -265,8 +265,7 @@ class AgentOrchestrator:
                 mem = get_memory_service()
                 goal = record.task.get("goal", "unknown")
                 result_summary = record.message or ""
-                await asyncio.to_thread(
-                    mem.store_agent_run,
+                await mem.store_agent_run(
                     record.agent_id,
                     record.agent_type,
                     goal,
