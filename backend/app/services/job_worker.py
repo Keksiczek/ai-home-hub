@@ -2,7 +2,7 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Any, Callable, Coroutine, Dict, Optional, Set
+from typing import Any, Callable, Coroutine, Dict, List, Optional, Set
 
 from app.services.job_service import Job, JobService
 
@@ -11,8 +11,30 @@ logger = logging.getLogger(__name__)
 # Poll interval in seconds
 _POLL_INTERVAL = 10
 
+# Night scheduler check interval in seconds (every 5 minutes)
+_NIGHT_CHECK_INTERVAL = 300
+
 # Priority ordering for queue sorting
 _PRIORITY_ORDER = {"high": 0, "normal": 1, "low": 2}
+
+# Scheduled night jobs – created automatically during the night window
+NIGHT_SCHEDULED_JOBS: List[Dict[str, str]] = [
+    {
+        "type": "kb_reindex",
+        "title": "Noční KB reindexování",
+        "priority": "low",
+    },
+    {
+        "type": "git_sweep",
+        "title": "Noční Git sweep projektů",
+        "priority": "low",
+    },
+    {
+        "type": "nightly_summary",
+        "title": "Noční summary do paměti",
+        "priority": "low",
+    },
+]
 
 
 def is_now_in_night_window(job_settings: Dict[str, Any]) -> bool:
@@ -41,6 +63,102 @@ def is_now_in_night_window(job_settings: Dict[str, Any]) -> bool:
         return now_minutes >= start_minutes or now_minutes < end_minutes
 
 
+class NightScheduler:
+    """NightScheduler – rozhoduje zda jsme v nočním okně a spouští scheduled joby.
+
+    Noční okno je definováno v settings: job_settings.night_batch_window.start/end
+    Každý scheduled job se spustí MAX 1x za noc – tracked přes jednoduchý set s datem.
+    """
+
+    def __init__(
+        self,
+        job_service: JobService,
+        settings_fn: Callable[[], Dict[str, Any]],
+        broadcast_fn: Optional[Callable[[Dict[str, Any]], Coroutine]] = None,
+    ) -> None:
+        self._job_service = job_service
+        self._settings_fn = settings_fn
+        self._broadcast_fn = broadcast_fn
+        self._ran_today: Dict[str, str] = {}  # job_type → date string
+        self._last_day: Optional[str] = None
+
+    def is_night_window(self) -> bool:
+        """Check if current local time falls within the night batch window."""
+        job_settings = self._settings_fn()
+        return is_now_in_night_window(job_settings)
+
+    def get_today_key(self) -> str:
+        """Return 'YYYY-MM-DD' as deduplication key for the current day."""
+        return datetime.now().strftime("%Y-%m-%d")
+
+    def was_run_today(self, job_type: str) -> bool:
+        """Check if a job type was already run today."""
+        today = self.get_today_key()
+        return self._ran_today.get(job_type) == today
+
+    def mark_ran(self, job_type: str) -> None:
+        """Mark a job type as having been run today."""
+        self._ran_today[job_type] = self.get_today_key()
+
+    def reset_if_new_day(self) -> None:
+        """If the day has changed, reset the ran_today tracker."""
+        today = self.get_today_key()
+        if self._last_day is not None and self._last_day != today:
+            logger.info("NightScheduler: new day detected (%s → %s), resetting ran_today", self._last_day, today)
+            self._ran_today.clear()
+        self._last_day = today
+
+    async def schedule_night_jobs(self) -> None:
+        """Main scheduling method – called from worker loop every 5 minutes.
+
+        1. reset_if_new_day()
+        2. If not in night window → return
+        3. For each scheduled job type, check was_run_today() → if not, create job
+        """
+        self.reset_if_new_day()
+
+        if not self.is_night_window():
+            return
+
+        job_settings = self._settings_fn()
+        if not job_settings.get("night_batch_enabled", False):
+            return
+
+        night_jobs_config = job_settings.get("night_jobs", {})
+
+        for job_def in NIGHT_SCHEDULED_JOBS:
+            job_type = job_def["type"]
+
+            # Check per-type enabled flag
+            type_config = night_jobs_config.get(job_type, {})
+            if not type_config.get("enabled", True):
+                continue
+
+            if self.was_run_today(job_type):
+                continue
+
+            # Create the job
+            job = self._job_service.create_job(
+                type=job_type,
+                title=job_def["title"],
+                priority=job_def["priority"],
+            )
+            self.mark_ran(job_type)
+            logger.info("NightScheduler: scheduled %s → job %s", job_type, job.id)
+
+            # Broadcast night_job_started event
+            if self._broadcast_fn:
+                try:
+                    await self._broadcast_fn({
+                        "type": "night_job_started",
+                        "job_id": job.id,
+                        "job_type": job_type,
+                        "title": job_def["title"],
+                    })
+                except Exception as exc:
+                    logger.debug("NightScheduler broadcast failed: %s", exc)
+
+
 class JobWorker:
     def __init__(
         self,
@@ -53,6 +171,8 @@ class JobWorker:
         self._broadcast_fn = broadcast_fn
         self._running_job_ids: Set[str] = set()
         self._cancel_requested: Set[str] = set()
+        self._night_scheduler = NightScheduler(job_service, get_settings, broadcast_fn)
+        self._night_check_counter = 0
 
     def set_broadcast(self, fn: Callable[[Dict[str, Any]], Coroutine]) -> None:
         self._broadcast_fn = fn
@@ -121,6 +241,8 @@ class JobWorker:
 
         progress_callback = await self._make_progress_callback(job)
 
+        night_job_types = {"kb_reindex", "git_sweep", "nightly_summary"}
+
         try:
             result = await execute_job(job, progress_callback)
             job.status = "succeeded"
@@ -143,13 +265,45 @@ class JobWorker:
                 job.id, job.type, job.status,
             )
 
+            # Broadcast night-job-specific WS events
+            if self._broadcast_fn and job.type in night_job_types:
+                try:
+                    await self._broadcast_fn({
+                        "type": "night_job_done",
+                        "job_id": job.id,
+                        "job_type": job.type,
+                        "status": job.status,
+                    })
+                    # Special event for nightly summary
+                    if job.type == "nightly_summary" and job.status == "succeeded":
+                        result_data = job.meta.get("result", {})
+                        await self._broadcast_fn({
+                            "type": "nightly_summary_ready",
+                            "date": result_data.get("date", ""),
+                            "preview": result_data.get("preview", "")[:200],
+                        })
+                except Exception as exc:
+                    logger.debug("Night job broadcast failed: %s", exc)
+
     async def run(self) -> None:
         """Main worker loop – poll for queued jobs and dispatch them."""
         logger.info("JobWorker started (poll interval=%ds)", _POLL_INTERVAL)
+        # How many poll ticks per night-scheduler check
+        night_check_every = max(1, _NIGHT_CHECK_INTERVAL // _POLL_INTERVAL)
 
         while True:
             try:
                 await self._poll_and_dispatch()
+
+                # Check night scheduler every ~5 minutes (not every tick)
+                self._night_check_counter += 1
+                if self._night_check_counter >= night_check_every:
+                    self._night_check_counter = 0
+                    try:
+                        await self._night_scheduler.schedule_night_jobs()
+                    except Exception as exc:
+                        logger.error("NightScheduler error: %s", exc, exc_info=True)
+
             except asyncio.CancelledError:
                 logger.info("JobWorker shutting down")
                 return
