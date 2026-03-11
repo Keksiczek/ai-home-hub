@@ -15,6 +15,28 @@ from app.utils.retry import async_retry
 
 logger = logging.getLogger(__name__)
 
+# Model routing table – maps task profile to Ollama model name
+MODEL_ROUTING: dict[str, str] = {
+    "code":       "qwen2.5-coder:3b",   # coding tasks, git, vscode
+    "research":   "llama3.2",            # research, document analysis
+    "general":    "llama3.2",            # general chat
+    "powerbi":    "qwen2.5-coder:3b",   # DAX, Power BI
+    "lean":       "llama3.2",            # Lean/CI
+    "summarize":  "llama3.2",            # KB summarization, context compression
+    "vision":     "llava:7b",            # image analysis
+    "embed":      "nomic-embed-text",    # embeddings (nezměn stávající logiku)
+}
+
+
+def resolve_model(profile: str, settings_override: str | None = None) -> str:
+    """
+    Resolve which Ollama model to use for a given profile.
+    Priority: settings_override > MODEL_ROUTING[profile] > default llama3.2
+    """
+    if settings_override:
+        return settings_override
+    return MODEL_ROUTING.get(profile, "llama3.2")
+
 
 class LLMService:
     def __init__(self) -> None:
@@ -39,8 +61,7 @@ class LLMService:
         Returns (reply_text, meta_dict).
         """
         cfg = self._settings.get_llm_config(profile=profile)
-        if model_override:
-            cfg["model"] = model_override
+        cfg["model"] = resolve_model(profile or "general", model_override or cfg.get("model"))
         provider = cfg.get("provider", "ollama")
         start = time.monotonic()
 
@@ -262,7 +283,7 @@ class LLMService:
         """
         cfg = self._settings.get_llm_config(profile=profile)
         ollama_url = cfg.get("ollama_url", "http://localhost:11434").rstrip("/")
-        model = model_override or cfg.get("model", "llama3.2")
+        model = resolve_model(profile or "general", model_override or cfg.get("model"))
         system_prompt = self._settings.get_system_prompt(mode)
 
         messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]

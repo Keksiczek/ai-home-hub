@@ -159,6 +159,14 @@ class AgentOrchestrator:
                 "Interrupt or wait for existing agents to finish."
             )
 
+        from app.services.resource_monitor import get_resource_monitor
+        monitor = get_resource_monitor()
+        if monitor.is_blocked():
+            raise RuntimeError(
+                "System resources critical – new agents blocked. "
+                "Check RAM/CPU usage in System Status."
+            )
+
         if agent_type not in AGENT_TYPES:
             agent_type = "general"
 

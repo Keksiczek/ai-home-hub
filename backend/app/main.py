@@ -63,6 +63,10 @@ async def lifespan(app: FastAPI):
     )
     _background_tasks.append(job_worker_task)
 
+    # Start resource monitor (Phase 2)
+    from app.services.resource_monitor import get_resource_monitor
+    get_resource_monitor().start()
+
     logger.info("AI Home Hub started – Mac Control Center ready")
     yield
 

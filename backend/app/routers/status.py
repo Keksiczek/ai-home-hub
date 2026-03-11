@@ -364,6 +364,13 @@ async def get_system_status() -> Dict[str, Any]:
     }
 
 
+@router.get("/api/system/resources", tags=["status"])
+async def get_system_resources():
+    """Return current RAM/CPU/swap usage and resource throttle/block state."""
+    from app.services.resource_monitor import get_resource_monitor
+    return get_resource_monitor().to_dict()
+
+
 async def _broadcast_status_alert(
     component: str, message: str, severity: str = "warning"
 ) -> None:
