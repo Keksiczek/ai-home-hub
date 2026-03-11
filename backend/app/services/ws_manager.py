@@ -12,6 +12,9 @@ WS_EVENT_RESOURCE_UPDATE = "resource_update"
 WS_EVENT_RESIDENT_TICK = "resident_tick"
 WS_EVENT_RESIDENT_ACTION = "resident_action"
 WS_EVENT_KB_FILTERED = "kb_context_filtered"
+WS_EVENT_NIGHT_JOB_STARTED = "night_job_started"
+WS_EVENT_NIGHT_JOB_DONE = "night_job_done"
+WS_EVENT_NIGHTLY_SUMMARY = "nightly_summary_ready"
 
 
 class ConnectionManager:

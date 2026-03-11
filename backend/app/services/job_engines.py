@@ -19,6 +19,9 @@ from app.services.engines import (  # noqa: F401  (re-exported for backward comp
     run_long_llm_task,
     run_media_ingest,
     run_report_generation,
+    run_kb_reindex,
+    run_git_sweep,
+    run_nightly_summary,
 )
 from app.services.job_service import Job
 
@@ -32,6 +35,9 @@ _ENGINES = {
     "document_analysis": run_document_analysis,
     "media_ingest": run_media_ingest,
     "report_generation": run_report_generation,
+    "kb_reindex": run_kb_reindex,
+    "git_sweep": run_git_sweep,
+    "nightly_summary": run_nightly_summary,
 }
 
 

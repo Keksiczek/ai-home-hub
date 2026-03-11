@@ -71,3 +71,87 @@ async def cancel_job(job_id: str) -> Dict[str, Any]:
     job.finished_at = datetime.now(timezone.utc).isoformat()
     svc.update_job(job)
     return {"id": job.id, "status": job.status}
+
+
+@router.get("/overnight/status", tags=["jobs"])
+async def overnight_status() -> Dict[str, Any]:
+    """Return overnight scheduler status: night window, last runs, next scheduled."""
+    from datetime import datetime
+    from app.services.settings_service import get_settings_service
+    from app.services.job_worker import is_now_in_night_window
+    from app.services.memory_service import get_memory_service
+
+    settings_svc = get_settings_service()
+    job_settings = settings_svc.get_job_settings()
+
+    night_window = job_settings.get("night_batch_window", {"start": "22:00", "end": "06:00"})
+    in_night = is_now_in_night_window(job_settings)
+
+    # Get last run info from memory (system events tagged by type)
+    memory_svc = get_memory_service()
+    recent_events = memory_svc.get_recent_events(limit=100)
+
+    night_job_types = ["kb_reindex", "git_sweep", "nightly_summary"]
+    last_run: Dict[str, Any] = {}
+
+    for job_type in night_job_types:
+        matching = [
+            e for e in recent_events
+            if e.get("event_type") == job_type
+        ]
+        if matching:
+            latest = matching[0]  # already sorted DESC
+            entry: Dict[str, Any] = {
+                "date": latest.get("timestamp", "")[:10],
+                "timestamp": latest.get("timestamp", ""),
+            }
+            if job_type == "nightly_summary":
+                entry["preview"] = latest.get("text", "")[:200]
+            else:
+                entry["result"] = latest.get("text", "")[:500]
+            last_run[job_type] = entry
+        else:
+            last_run[job_type] = None
+
+    # Also check completed jobs for last run info
+    job_svc = get_job_service()
+    for job_type in night_job_types:
+        if last_run.get(job_type) is not None:
+            continue
+        completed_jobs = job_svc.list_jobs(type=job_type, limit=1)
+        if completed_jobs and completed_jobs[0].status == "succeeded":
+            j = completed_jobs[0]
+            entry = {
+                "date": (j.finished_at or j.created_at)[:10],
+                "timestamp": j.finished_at or j.created_at,
+            }
+            if job_type == "nightly_summary":
+                result = j.meta.get("result", {})
+                entry["preview"] = result.get("preview", "") if isinstance(result, dict) else ""
+            else:
+                entry["result"] = j.meta.get("result", {})
+            last_run[job_type] = entry
+
+    # Determine next_scheduled
+    now = datetime.now()
+    start_str = night_window.get("start", "22:00")
+
+    if in_night:
+        next_scheduled = "dnes probíhá"
+    else:
+        try:
+            start_h, start_m = map(int, start_str.split(":"))
+            start_today = now.replace(hour=start_h, minute=start_m, second=0)
+            if now < start_today:
+                next_scheduled = f"dnes v {start_str}"
+            else:
+                next_scheduled = f"zítra v {start_str}"
+        except (ValueError, AttributeError):
+            next_scheduled = f"v {start_str}"
+
+    return {
+        "is_night_window": in_night,
+        "night_window": night_window,
+        "last_run": last_run,
+        "next_scheduled": next_scheduled,
+    }
