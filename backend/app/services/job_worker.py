@@ -106,6 +106,13 @@ class JobWorker:
     async def _run_single_job(self, job: Job) -> None:
         """Execute a single job using the engine dispatcher."""
         from app.services.job_engines import execute_job
+        from app.services.resource_monitor import get_resource_monitor
+
+        if get_resource_monitor().is_blocked():
+            logger.warning("Job execution blocked – system resources critical")
+            # requeue or skip, don't raise – job worker musí přežít
+            self._running_job_ids.discard(job.id)
+            return
 
         job.status = "running"
         job.started_at = datetime.now(timezone.utc).isoformat()
