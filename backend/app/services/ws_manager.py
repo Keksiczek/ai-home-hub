@@ -7,6 +7,12 @@ from fastapi import WebSocket
 
 logger = logging.getLogger(__name__)
 
+# WebSocket event type constants
+WS_EVENT_RESOURCE_UPDATE = "resource_update"
+WS_EVENT_RESIDENT_TICK = "resident_tick"
+WS_EVENT_RESIDENT_ACTION = "resident_action"
+WS_EVENT_KB_FILTERED = "kb_context_filtered"
+
 
 class ConnectionManager:
     def __init__(self) -> None:

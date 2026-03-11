@@ -41,6 +41,12 @@ class ResourceMonitor:
         self._latest: Optional[ResourceSnapshot] = None
         self._task: Optional[asyncio.Task] = None
         self._process = psutil.Process(os.getpid())
+        self._tick_count: int = 0
+        self._broadcast_fn = None
+
+    def set_broadcast(self, fn) -> None:
+        """Register a coroutine for broadcasting WebSocket messages."""
+        self._broadcast_fn = fn
 
     def start(self) -> None:
         """Start background monitoring loop. Call once at app startup."""
@@ -53,14 +59,24 @@ class ResourceMonitor:
             self._task.cancel()
 
     async def _loop(self) -> None:
+        from app.services.ws_manager import WS_EVENT_RESOURCE_UPDATE
+
         while True:
             try:
+                self._tick_count += 1
                 snap = self._take_snapshot()
                 self._latest = snap
                 if snap.block:
                     logger.warning("RESOURCE BLOCK: RAM %s%% – new agents/jobs blocked", snap.ram_used_percent)
                 elif snap.throttle:
                     logger.warning("RESOURCE WARN: RAM %s%%", snap.ram_used_percent)
+
+                # Broadcast resource update every 60s (every 4th tick)
+                if self._tick_count % 4 == 0 and self._broadcast_fn:
+                    try:
+                        await self._broadcast_fn({"type": WS_EVENT_RESOURCE_UPDATE, **self.to_dict()})
+                    except Exception as exc:
+                        logger.debug("Resource broadcast failed: %s", exc)
             except Exception as exc:
                 logger.debug("ResourceMonitor error: %s", exc)
             await asyncio.sleep(15)  # check every 15s
