@@ -2405,3 +2405,562 @@ body {
   .jobs-table td { padding: 0.35rem 0.5rem; }
   .job-progress-bar { width: 50px; }
 }
+
+/* ============================================================
+   PHASE 6 – Resident Agent, Resource Monitor, Overnight Jobs,
+   Guardrails, Experimental Features, Nightly Memory
+   ============================================================ */
+
+/* ── Resident Agent StatusBar ────────────────────────────── */
+.resident-statusbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: #1a1d27;
+  border: 1px solid #2d3348;
+  border-radius: 10px;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.resident-statusbar__left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.resident-statusbar__right {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.resident-status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 0.25rem 0.625rem;
+  border-radius: 6px;
+}
+
+.resident-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.resident-status--idle {
+  background: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+}
+.resident-status--idle .resident-status-dot {
+  background: #94a3b8;
+}
+
+.resident-status--thinking {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+}
+.resident-status--thinking .resident-status-dot {
+  background: #3b82f6;
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+.resident-status--executing {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+}
+.resident-status--executing .resident-status-dot {
+  background: #22c55e;
+}
+
+.resident-status--error {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+}
+.resident-status--error .resident-status-dot {
+  background: #ef4444;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(1.3); }
+}
+
+.resident-tick {
+  font-family: monospace;
+  font-size: 0.8125rem;
+  color: #64748b;
+}
+
+.resident-current-task {
+  font-size: 0.8125rem;
+  color: #e2e8f0;
+  background: rgba(59, 130, 246, 0.1);
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+}
+
+/* ── Resident RecentSteps feed ───────────────────────────── */
+.resident-step-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding: 0.75rem 1rem;
+  background: #1a1d27;
+  border: 1px solid #2d3348;
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+}
+
+.resident-step-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.resident-step-badge {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+  letter-spacing: 0.03em;
+}
+
+.step-badge--no_op        { background: rgba(148,163,184,0.15); color: #94a3b8; }
+.step-badge--kb_search    { background: rgba(59,130,246,0.15);  color: #60a5fa; }
+.step-badge--git_status,
+.step-badge--git_log      { background: rgba(34,197,94,0.15);   color: #4ade80; }
+.step-badge--spawn_specialist { background: rgba(168,85,247,0.15); color: #c084fc; }
+.step-badge--send_notification { background: rgba(234,179,8,0.15); color: #facc15; }
+.step-badge--memory_store,
+.step-badge--memory_search { background: rgba(6,182,212,0.15);  color: #22d3ee; }
+.step-badge--system_status { background: rgba(148,163,184,0.15); color: #94a3b8; }
+.step-badge--error,
+.step-badge--blocked_high_risk { background: rgba(239,68,68,0.15); color: #f87171; }
+
+.resident-step-time {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin-left: auto;
+}
+
+.resident-step-reasoning {
+  font-size: 0.8125rem;
+  color: #94a3b8;
+  line-height: 1.4;
+}
+
+/* ── Resource Monitor ────────────────────────────────────── */
+.resource-monitor {
+  margin-bottom: 1rem;
+}
+
+.resource-gauges {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.75rem;
+}
+
+.resource-gauge {
+  background: #1a1d27;
+  border: 1px solid #2d3348;
+  border-radius: 8px;
+  padding: 0.75rem;
+}
+
+.resource-gauge__label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #94a3b8;
+  margin-bottom: 0.375rem;
+}
+
+.resource-gauge__bar {
+  height: 8px;
+  background: #2d3348;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 0.25rem;
+}
+
+.resource-gauge__fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.5s ease, background 0.3s;
+}
+
+.resource-gauge__fill--green  { background: #22c55e; }
+.resource-gauge__fill--orange { background: #f59e0b; }
+.resource-gauge__fill--red    { background: #ef4444; }
+
+.resource-gauge__text {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.resource-banner {
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+
+.resource-banner--throttle {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.resource-banner--block {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+/* ── Overnight Jobs ──────────────────────────────────────── */
+.overnight-status-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.overnight-big-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.125rem;
+  font-weight: 700;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+}
+
+.overnight-big-badge--active {
+  background: rgba(30, 58, 138, 0.3);
+  color: #93c5fd;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.overnight-big-badge--inactive {
+  background: rgba(148, 163, 184, 0.1);
+  color: #94a3b8;
+  border: 1px solid #2d3348;
+}
+
+.overnight-info-row {
+  font-size: 0.875rem;
+  color: #94a3b8;
+}
+
+.overnight-info-row strong {
+  color: #e2e8f0;
+}
+
+.overnight-jobs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.overnight-job-card {
+  min-height: 120px;
+}
+
+.overnight-job-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.overnight-job-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+}
+
+.overnight-job-status--done    { background: rgba(34,197,94,0.15);  color: #4ade80; }
+.overnight-job-status--error   { background: rgba(239,68,68,0.15);  color: #f87171; }
+.overnight-job-status--waiting { background: rgba(234,179,8,0.15);  color: #facc15; }
+.overnight-job-status--running { background: rgba(59,130,246,0.15); color: #60a5fa; }
+
+.overnight-job-date {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.overnight-job-result {
+  font-size: 0.8125rem;
+  color: #94a3b8;
+  line-height: 1.4;
+}
+
+.overnight-dirty-tag {
+  display: inline-block;
+  font-size: 0.6875rem;
+  padding: 0.1rem 0.4rem;
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border-radius: 4px;
+  cursor: pointer;
+  margin: 0.125rem;
+}
+
+.overnight-dirty-tag:hover {
+  background: rgba(239, 68, 68, 0.25);
+}
+
+.overnight-summary-preview {
+  font-size: 0.8125rem;
+  color: #94a3b8;
+  line-height: 1.4;
+}
+
+.overnight-summary-expand {
+  background: none;
+  border: none;
+  color: #60a5fa;
+  cursor: pointer;
+  font-size: 0.8125rem;
+  padding: 0;
+  margin-left: 0.25rem;
+}
+
+.overnight-summary-expand:hover {
+  text-decoration: underline;
+}
+
+/* ── Agent Guardrails ────────────────────────────────────── */
+.agent-guardrails {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 0.25rem;
+}
+
+.guardrail-item {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.75rem;
+}
+
+.guardrail-item__label {
+  color: #64748b;
+}
+
+.guardrail-mini-bar {
+  width: 48px;
+  height: 6px;
+  background: #2d3348;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.guardrail-mini-bar__fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+
+.guardrail-mini-bar__fill--ok     { background: #22c55e; }
+.guardrail-mini-bar__fill--warn   { background: #f59e0b; }
+.guardrail-mini-bar__fill--danger { background: #ef4444; }
+
+.guardrail-text-badge {
+  font-size: 0.6875rem;
+  padding: 0.1rem 0.375rem;
+  border-radius: 3px;
+}
+
+.guardrail-text-badge--ok     { background: rgba(34,197,94,0.15);  color: #4ade80; }
+.guardrail-text-badge--warn   { background: rgba(245,158,11,0.15); color: #fbbf24; }
+.guardrail-text-badge--danger { background: rgba(239,68,68,0.15);  color: #f87171; }
+
+.guardrail-stopped-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.1);
+  padding: 0.375rem 0.625rem;
+  border-radius: 6px;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  margin-top: 0.25rem;
+}
+
+/* ── Experimental Features ───────────────────────────────── */
+.experimental-warning-banner {
+  background: rgba(245, 158, 11, 0.12);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8125rem;
+  margin-bottom: 1rem;
+}
+
+.experimental-feature-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.625rem 0;
+  border-bottom: 1px solid #2d3348;
+}
+
+.experimental-feature-row:last-child {
+  border-bottom: none;
+}
+
+.experimental-toggle {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.experimental-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.experimental-toggle__slider {
+  position: absolute;
+  inset: 0;
+  background: #2d3348;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.experimental-toggle__slider::after {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #94a3b8;
+  top: 2px;
+  left: 2px;
+  transition: transform 0.2s, background 0.2s;
+}
+
+.experimental-toggle input:checked + .experimental-toggle__slider {
+  background: #3b82f6;
+}
+
+.experimental-toggle input:checked + .experimental-toggle__slider::after {
+  transform: translateX(16px);
+  background: #fff;
+}
+
+.experimental-toggle--flash .experimental-toggle__slider {
+  background: #22c55e;
+}
+
+.experimental-feature-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.experimental-feature-name {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.experimental-feature-reason {
+  font-size: 0.8125rem;
+  color: #64748b;
+  line-height: 1.3;
+}
+
+.experimental-feature-warn {
+  color: #f59e0b;
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+/* ── Nightly Memory Cards ────────────────────────────────── */
+.nightly-memory-card {
+  background: #1a1d27;
+  border: 1px solid #2d3348;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.nightly-memory-date {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin-bottom: 0.375rem;
+}
+
+.nightly-memory-text {
+  font-size: 0.8125rem;
+  color: #94a3b8;
+  line-height: 1.5;
+}
+
+.nightly-memory-text--collapsed {
+  max-height: 80px;
+  overflow: hidden;
+  position: relative;
+}
+
+.nightly-memory-text--collapsed::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 30px;
+  background: linear-gradient(transparent, #1a1d27);
+}
+
+.nightly-memory-expand {
+  background: none;
+  border: none;
+  color: #60a5fa;
+  cursor: pointer;
+  font-size: 0.8125rem;
+  padding: 0.25rem 0;
+}
+
+.nightly-memory-expand:hover {
+  text-decoration: underline;
+}
+
+/* ── Phase 6 responsive ──────────────────────────────────── */
+@media (max-width: 767px) {
+  .resident-statusbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .resource-gauges {
+    grid-template-columns: 1fr;
+  }
+  .overnight-jobs-grid {
+    grid-template-columns: 1fr;
+  }
+  .agent-guardrails {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

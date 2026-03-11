@@ -31,6 +31,19 @@ const MAX_IMAGES = 5;
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 
+// Phase 6 state
+let _residentStatus = null;
+let _residentSteps = [];
+let _resourceData = null;
+let _resourceLastUpdate = null;
+let _resourcePollTimer = null;
+let _overnightStatus = null;
+let _overnightJobs = {};
+let _overnightProgressActive = false;
+let _wsReconnectAttempts = 0;
+const WS_MAX_RECONNECT = 5;
+let _experimentalDebounceTimers = {};
+
 /* ============================================================
    I18N – Czech UI strings
    Add new keys here; never hard-code Czech strings elsewhere.
@@ -191,6 +204,9 @@ document.addEventListener('DOMContentLoaded', () => {
   bindSettingsEvents();
   bindStatusEvents();
   bindJobsEvents();
+  bindResidentEvents();
+  bindOvernightEvents();
+  bindNightlyMemoryEvents();
   initWebSocket();
   checkSetupStatus();
   bindMobileDragDrop();
@@ -218,12 +234,14 @@ function switchTab(tabName) {
   document.getElementById('sidebar').classList.remove('sidebar--open');
 
   // Lazy-load tab data
-  if (tabName === 'status') loadSystemStatus();
+  if (tabName === 'status') { loadSystemStatus(); loadResourceMonitor(); }
   if (tabName === 'agents') { refreshAgents(); loadAgentSkillSelect(); loadFsAgentSkillSelect(); }
   if (tabName === 'skills') loadSkills();
   if (tabName === 'jobs') loadJobs();
   if (tabName === 'actions') { loadQuickActions(); loadVSCodeProjects(); loadActionHistory(); }
   if (tabName === 'settings') { loadSettings(); loadOllamaModels(); }
+  if (tabName === 'resident') loadResidentStatus();
+  if (tabName === 'overnight') loadOvernightStatus();
 }
 
 function bindMobileMenu() {
@@ -268,16 +286,30 @@ function initWebSocket() {
 
   ws.onopen = () => {
     setWsStatus(true);
+    _wsReconnectAttempts = 0;
     clearTimeout(wsReconnectTimer);
+    // Stop resource polling fallback since WS is connected
+    if (_resourcePollTimer) { clearInterval(_resourcePollTimer); _resourcePollTimer = null; }
   };
   ws.onmessage = (event) => {
     try { handleWsMessage(JSON.parse(event.data)); } catch (e) { /* ignore */ }
   };
   ws.onclose = () => {
     setWsStatus(false);
-    wsReconnectTimer = setTimeout(initWebSocket, 5000);
+    wsReconnectWithBackoff();
   };
   ws.onerror = () => setWsStatus(false);
+}
+
+function wsReconnectWithBackoff() {
+  if (_wsReconnectAttempts >= WS_MAX_RECONNECT) {
+    // Start resource polling fallback
+    startResourcePolling();
+    return;
+  }
+  const delay = Math.min(1000 * Math.pow(2, _wsReconnectAttempts), 30000);
+  _wsReconnectAttempts++;
+  wsReconnectTimer = setTimeout(initWebSocket, delay);
 }
 
 function setWsStatus(connected) {
@@ -293,6 +325,13 @@ function handleWsMessage(msg) {
   else if (msg.type === 'ingest_progress') handleIngestProgress(msg);
   else if (msg.type === 'job_update') handleJobUpdate(msg.job);
   else if (msg.type === 'status_alert') handleStatusAlert(msg);
+  // Phase 6 events
+  else if (msg.type === 'resident_tick') handleResidentTick(msg);
+  else if (msg.type === 'resident_action') handleResidentAction(msg);
+  else if (msg.type === 'resource_update') handleResourceUpdate(msg);
+  else if (msg.type === 'night_job_started') handleNightJobStarted(msg);
+  else if (msg.type === 'night_job_done') handleNightJobDone(msg);
+  else if (msg.type === 'nightly_summary_ready') handleNightlySummaryReady(msg);
 }
 
 function handleIngestProgress(msg) {
@@ -1179,6 +1218,7 @@ function renderAgentCard(agent) {
         <div class="progress-bar" style="width:${agent.progress}%"></div>
       </div>
       <p class="agent-message">${escHtml(agent.message || '')}</p>
+      ${renderAgentGuardrails(agent)}
       <div style="display:flex;align-items:center;justify-content:space-between">
         <span class="agent-elapsed">${elapsed}</span>
         <div class="agent-actions">
@@ -1990,6 +2030,9 @@ async function loadSettings() {
 
     // Update model badge
     updateModelBadge();
+
+    // Experimental features
+    renderExperimentalFeatures(s);
   } catch (err) {
     showToast(`${t('settings_load_error')}: ${err.message}`, 'error');
   }
@@ -3945,4 +3988,631 @@ async function createReportFromJob(sourceJobId, format) {
   } catch (err) {
     showToast('Chyba: ' + err.message, 'error');
   }
+}
+
+/* ============================================================
+   PHASE 6 – RESIDENT AGENT DASHBOARD
+   ============================================================ */
+
+function bindResidentEvents() {
+  const startBtn = document.getElementById('resident-start-btn');
+  const stopBtn = document.getElementById('resident-stop-btn');
+  const submitBtn = document.getElementById('resident-task-submit-btn');
+
+  if (startBtn) startBtn.addEventListener('click', residentStart);
+  if (stopBtn) stopBtn.addEventListener('click', residentStop);
+  if (submitBtn) submitBtn.addEventListener('click', residentSubmitTask);
+}
+
+async function loadResidentStatus() {
+  try {
+    const res = await fetch('/api/resident/status');
+    if (!res.ok) throw new Error(await res.text());
+    _residentStatus = await res.json();
+    renderResidentStatusBar();
+    loadResidentSteps();
+  } catch (err) {
+    showToast(t('error_prefix') + ': ' + err.message, 'error');
+  }
+}
+
+async function loadResidentSteps() {
+  try {
+    const res = await fetch('/api/resident/steps?limit=5');
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    _residentSteps = Array.isArray(data) ? data : (data.steps || []);
+    renderResidentSteps();
+  } catch (_) { /* silently ignore on initial load */ }
+}
+
+function renderResidentStatusBar() {
+  if (!_residentStatus) return;
+  const s = _residentStatus;
+
+  // Status indicator
+  const indicator = document.getElementById('resident-status-indicator');
+  const statusText = document.getElementById('resident-status-text');
+  if (indicator) {
+    indicator.className = 'resident-status-indicator resident-status--' + (s.status || 'idle');
+  }
+  const statusMap = { idle: t('resident_idle'), thinking: t('resident_thinking'), executing: t('resident_executing'), error: t('resident_error') };
+  if (statusText) statusText.textContent = statusMap[s.status] || s.status || t('resident_idle');
+
+  // Tick
+  const tickEl = document.getElementById('resident-tick');
+  if (tickEl) tickEl.textContent = t('resident_tick_label') + ' #' + (s.tick || 0);
+
+  // Current task
+  const taskEl = document.getElementById('resident-current-task');
+  if (taskEl) {
+    if (s.current_task) {
+      taskEl.textContent = s.current_task;
+      taskEl.classList.remove('hidden');
+    } else {
+      taskEl.classList.add('hidden');
+    }
+  }
+
+  // Buttons
+  const startBtn = document.getElementById('resident-start-btn');
+  const stopBtn = document.getElementById('resident-stop-btn');
+  const submitBtn = document.getElementById('resident-task-submit-btn');
+  if (startBtn) startBtn.disabled = !!s.is_running;
+  if (stopBtn) stopBtn.disabled = !s.is_running;
+  if (submitBtn) {
+    submitBtn.disabled = !s.is_running;
+    submitBtn.title = s.is_running ? '' : t('resident_agent_disabled');
+  }
+}
+
+function renderResidentSteps() {
+  const feed = document.getElementById('resident-steps-feed');
+  const empty = document.getElementById('resident-steps-empty');
+  if (!feed) return;
+
+  if (!_residentSteps.length) {
+    feed.innerHTML = '';
+    if (empty) { feed.appendChild(empty); empty.classList.remove('hidden'); }
+    return;
+  }
+
+  if (empty) empty.classList.add('hidden');
+  feed.innerHTML = _residentSteps.map(step => {
+    const action = step.action || 'no_op';
+    const badgeClass = 'step-badge--' + action;
+    const timeAgo = formatRelativeTime(step.timestamp);
+    return `<div class="resident-step-card">
+      <div class="resident-step-header">
+        <span class="resident-step-badge ${badgeClass}">${escHtml(action)}</span>
+        <span class="resident-step-time">${escHtml(timeAgo)}</span>
+      </div>
+      ${step.reasoning_summary ? `<div class="resident-step-reasoning">${escHtml(step.reasoning_summary)}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+async function residentStart() {
+  const btn = document.getElementById('resident-start-btn');
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch('/api/resident/start', { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    await loadResidentStatus();
+  } catch (err) {
+    showToast(t('error_prefix') + ': ' + err.message, 'error');
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function residentStop() {
+  const btn = document.getElementById('resident-stop-btn');
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch('/api/resident/stop', { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    await loadResidentStatus();
+  } catch (err) {
+    showToast(t('error_prefix') + ': ' + err.message, 'error');
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function residentSubmitTask() {
+  const nameInput = document.getElementById('resident-task-name');
+  const descInput = document.getElementById('resident-task-desc');
+  const btn = document.getElementById('resident-task-submit-btn');
+  const spinner = document.getElementById('resident-task-spinner');
+
+  const name = (nameInput && nameInput.value || '').trim();
+  if (!name) {
+    showToast(t('resident_task_name') + ' je povinný', 'error');
+    return;
+  }
+
+  if (btn) btn.disabled = true;
+  if (spinner) spinner.classList.remove('hidden');
+
+  try {
+    const res = await fetch('/api/resident/task', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: name,
+        description: (descInput && descInput.value || '').trim() || undefined,
+      }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    showToast(t('resident_task_success') + ': ' + (data.job_id || ''), 'success');
+    if (nameInput) nameInput.value = '';
+    if (descInput) descInput.value = '';
+  } catch (err) {
+    showToast(t('error_prefix') + ': ' + err.message, 'error');
+  } finally {
+    if (spinner) spinner.classList.add('hidden');
+    if (btn) btn.disabled = !(_residentStatus && _residentStatus.is_running);
+  }
+}
+
+function handleResidentTick(msg) {
+  _residentStatus = { ..._residentStatus, ...msg };
+  renderResidentStatusBar();
+}
+
+function handleResidentAction(msg) {
+  const step = msg.step || msg;
+  _residentSteps.unshift(step);
+  if (_residentSteps.length > 5) _residentSteps = _residentSteps.slice(0, 5);
+  renderResidentSteps();
+}
+
+function formatRelativeTime(ts) {
+  if (!ts) return '';
+  const diff = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
+  if (diff < 5) return 'právě teď';
+  if (diff < 60) return t('resident_ago') + ' ' + diff + ' s';
+  if (diff < 3600) return t('resident_ago') + ' ' + Math.floor(diff / 60) + ' min';
+  if (diff < 86400) return t('resident_ago') + ' ' + Math.floor(diff / 3600) + ' h';
+  return t('resident_ago') + ' ' + Math.floor(diff / 86400) + ' d';
+}
+
+/* ============================================================
+   PHASE 6 – RESOURCE MONITOR WIDGET
+   ============================================================ */
+
+async function loadResourceMonitor() {
+  try {
+    const res = await fetch('/api/system/resources');
+    if (!res.ok) throw new Error(await res.text());
+    _resourceData = await res.json();
+    _resourceLastUpdate = Date.now();
+    renderResourceMonitor();
+  } catch (err) {
+    const gauges = document.getElementById('resource-gauges');
+    if (gauges) gauges.innerHTML = `<p class="empty-state">${t('error_prefix')}: ${escHtml(err.message)}</p>`;
+  }
+}
+
+function renderResourceMonitor() {
+  if (!_resourceData) return;
+  const d = _resourceData;
+
+  // Banners
+  const bannersEl = document.getElementById('resource-banners');
+  if (bannersEl) {
+    let bannerHtml = '';
+    if (d.block) {
+      bannerHtml += `<div class="resource-banner resource-banner--block">🚫 ${t('resource_block')}</div>`;
+    }
+    if (d.throttle) {
+      bannerHtml += `<div class="resource-banner resource-banner--throttle">⚠ ${t('resource_throttle')}</div>`;
+    }
+    bannersEl.innerHTML = bannerHtml;
+  }
+
+  // Gauges
+  const gaugesEl = document.getElementById('resource-gauges');
+  if (!gaugesEl) return;
+
+  let html = '';
+
+  // RAM
+  const ramPct = d.ram_percent || (d.ram_used_gb && d.ram_total_gb ? (d.ram_used_gb / d.ram_total_gb) * 100 : 0);
+  const ramColor = ramPct > 88 ? 'red' : ramPct > 75 ? 'orange' : 'green';
+  html += renderGauge(t('resource_ram'),
+    `${(d.ram_used_gb || 0).toFixed(1)} / ${(d.ram_total_gb || 0).toFixed(1)} GB (${Math.round(ramPct)}%)`,
+    ramPct, ramColor);
+
+  // CPU
+  const cpuPct = d.cpu_percent || 0;
+  const cpuColor = cpuPct > 88 ? 'red' : cpuPct > 75 ? 'orange' : 'green';
+  html += renderGauge(t('resource_cpu'), `${Math.round(cpuPct)}%`, cpuPct, cpuColor);
+
+  // Swap – only if > 0
+  const swapUsed = d.swap_used_mb || 0;
+  if (swapUsed > 0) {
+    const swapTotal = d.swap_total_mb || 1;
+    const swapPct = (swapUsed / swapTotal) * 100;
+    html += renderGauge(t('resource_swap') + ' ⚠',
+      `${formatMB(swapUsed)} / ${formatMB(swapTotal)}`,
+      swapPct, 'orange');
+  }
+
+  // Ollama RSS
+  if (d.ollama_rss_mb != null && d.ollama_rss_mb > 0) {
+    html += renderGauge(t('resource_ollama'), formatMB(d.ollama_rss_mb), null, 'green');
+  }
+
+  // Backend RSS
+  if (d.backend_rss_mb != null) {
+    html += renderGauge(t('resource_backend'), formatMB(d.backend_rss_mb), null, 'green');
+  }
+
+  gaugesEl.innerHTML = html;
+
+  // Updated at
+  const updatedEl = document.getElementById('resource-updated-at');
+  if (updatedEl) updatedEl.textContent = t('resource_updated') + ' ' + formatRelativeTime(new Date(_resourceLastUpdate).toISOString());
+}
+
+function renderGauge(label, text, percent, color) {
+  const barHtml = percent != null
+    ? `<div class="resource-gauge__bar"><div class="resource-gauge__fill resource-gauge__fill--${color}" style="width:${Math.min(100, Math.max(0, percent))}%"></div></div>`
+    : '';
+  return `<div class="resource-gauge">
+    <div class="resource-gauge__label">${escHtml(label)}</div>
+    ${barHtml}
+    <div class="resource-gauge__text">${escHtml(text)}</div>
+  </div>`;
+}
+
+function formatMB(mb) {
+  if (mb >= 1024) return (mb / 1024).toFixed(1) + ' GB';
+  return Math.round(mb) + ' MB';
+}
+
+function handleResourceUpdate(msg) {
+  _resourceData = msg;
+  _resourceLastUpdate = Date.now();
+  renderResourceMonitor();
+}
+
+function startResourcePolling() {
+  if (_resourcePollTimer) return;
+  _resourcePollTimer = setInterval(loadResourceMonitor, 30000);
+}
+
+// Keep the "updated X s ago" text fresh
+setInterval(() => {
+  if (!_resourceLastUpdate) return;
+  const updatedEl = document.getElementById('resource-updated-at');
+  if (updatedEl) updatedEl.textContent = t('resource_updated') + ' ' + formatRelativeTime(new Date(_resourceLastUpdate).toISOString());
+}, 5000);
+
+/* ============================================================
+   PHASE 6 – OVERNIGHT JOBS PANEL
+   ============================================================ */
+
+function bindOvernightEvents() {
+  // nothing to bind right now – purely data-driven
+}
+
+async function loadOvernightStatus() {
+  try {
+    const res = await fetch('/api/overnight/status');
+    if (!res.ok) throw new Error(await res.text());
+    _overnightStatus = await res.json();
+    renderOvernightStatus();
+  } catch (err) {
+    const overview = document.getElementById('overnight-status-overview');
+    if (overview) overview.innerHTML = `<p class="empty-state">${t('error_prefix')}: ${escHtml(err.message)}</p>`;
+  }
+}
+
+function renderOvernightStatus() {
+  if (!_overnightStatus) return;
+  const s = _overnightStatus;
+
+  // C1: Status overview
+  const overview = document.getElementById('overnight-status-overview');
+  if (overview) {
+    const isActive = s.is_active || s.active;
+    const badgeClass = isActive ? 'overnight-big-badge--active' : 'overnight-big-badge--inactive';
+    const badgeIcon = isActive ? '🌙' : '☀';
+    const badgeText = isActive ? t('overnight_active') : t('overnight_inactive');
+
+    let nextRun = '';
+    if (s.running_now) {
+      nextRun = t('overnight_running_now');
+    } else if (s.next_run) {
+      nextRun = s.next_run;
+    }
+
+    overview.innerHTML = `
+      <div class="overnight-big-badge ${badgeClass}">${badgeIcon} ${escHtml(badgeText)}</div>
+      <div class="overnight-info-row"><strong>${t('overnight_window')}:</strong> ${escHtml(s.window || '22:00 – 06:00')}</div>
+      ${nextRun ? `<div class="overnight-info-row"><strong>${t('overnight_next')}:</strong> ${escHtml(nextRun)}</div>` : ''}
+    `;
+  }
+
+  // C2: Last run cards
+  const jobs = s.jobs || s.last_runs || {};
+  renderOvernightKbCard(jobs.kb_reindex);
+  renderOvernightGitCard(jobs.git_sweep);
+  renderOvernightSummaryCard(jobs.nightly_summary);
+
+  // C3: Progress
+  if (s.running_now) {
+    const section = document.getElementById('overnight-progress-section');
+    if (section) section.classList.remove('hidden');
+  }
+}
+
+function overnightStatusBadge(status) {
+  const map = {
+    done: { icon: '✅', text: t('overnight_done'), cls: 'overnight-job-status--done' },
+    completed: { icon: '✅', text: t('overnight_done'), cls: 'overnight-job-status--done' },
+    error: { icon: '❌', text: t('overnight_error_status'), cls: 'overnight-job-status--error' },
+    failed: { icon: '❌', text: t('overnight_error_status'), cls: 'overnight-job-status--error' },
+    waiting: { icon: '⏳', text: t('overnight_waiting'), cls: 'overnight-job-status--waiting' },
+    pending: { icon: '⏳', text: t('overnight_waiting'), cls: 'overnight-job-status--waiting' },
+    running: { icon: '🔄', text: t('overnight_running'), cls: 'overnight-job-status--running' },
+  };
+  const m = map[status] || map.waiting;
+  return `<span class="overnight-job-status-badge ${m.cls}">${m.icon} ${m.text}</span>`;
+}
+
+function renderOvernightKbCard(job) {
+  const body = document.getElementById('overnight-kb-body');
+  if (!body) return;
+  if (!job) { body.innerHTML = `<p class="empty-state">${t('overnight_waiting')}</p>`; return; }
+
+  body.innerHTML = `
+    ${overnightStatusBadge(job.status)}
+    ${job.last_run ? `<div class="overnight-job-date">${escHtml(new Date(job.last_run).toLocaleString('cs'))}</div>` : ''}
+    ${job.result ? `<div class="overnight-job-result">${t('overnight_indexed')}: ${job.result.indexed || 0} souborů, ${t('overnight_skipped')}: ${job.result.skipped || 0}</div>` : ''}
+  `;
+}
+
+function renderOvernightGitCard(job) {
+  const body = document.getElementById('overnight-git-body');
+  if (!body) return;
+  if (!job) { body.innerHTML = `<p class="empty-state">${t('overnight_waiting')}</p>`; return; }
+
+  let dirtyHtml = '';
+  if (job.result && job.result.dirty && job.result.dirty.length) {
+    dirtyHtml = job.result.dirty.map(p => `<span class="overnight-dirty-tag">${escHtml(p)}</span>`).join(' ');
+  }
+
+  body.innerHTML = `
+    ${overnightStatusBadge(job.status)}
+    ${job.last_run ? `<div class="overnight-job-date">${escHtml(new Date(job.last_run).toLocaleString('cs'))}</div>` : ''}
+    ${job.result ? `<div class="overnight-job-result">${t('overnight_checked')}: ${job.result.checked || 0} projektů, ${t('overnight_dirty')}: ${job.result.dirty_count || (job.result.dirty ? job.result.dirty.length : 0)}</div>` : ''}
+    ${dirtyHtml ? `<div style="margin-top:0.25rem">${dirtyHtml}</div>` : ''}
+  `;
+}
+
+function renderOvernightSummaryCard(job) {
+  const body = document.getElementById('overnight-summary-body');
+  if (!body) return;
+  if (!job) { body.innerHTML = `<p class="empty-state">${t('overnight_waiting')}</p>`; return; }
+
+  let previewHtml = '';
+  if (job.summary_text) {
+    const text = job.summary_text;
+    const truncated = text.length > 200;
+    const previewText = truncated ? text.substring(0, 200) + '...' : text;
+    const id = 'overnight-summary-full-' + Date.now();
+    previewHtml = `<div class="overnight-summary-preview">
+      <span id="${id}-short">${escHtml(previewText)}</span>
+      <span id="${id}-full" class="hidden">${escHtml(text)}</span>
+      ${truncated ? `<button class="overnight-summary-expand" onclick="toggleOvernightSummary('${id}')">${t('overnight_show_all')}</button>` : ''}
+    </div>`;
+  }
+
+  body.innerHTML = `
+    ${overnightStatusBadge(job.status)}
+    ${job.last_run ? `<div class="overnight-job-date">${escHtml(new Date(job.last_run).toLocaleString('cs'))}</div>` : ''}
+    ${previewHtml}
+  `;
+}
+
+function toggleOvernightSummary(id) {
+  const short = document.getElementById(id + '-short');
+  const full = document.getElementById(id + '-full');
+  if (!short || !full) return;
+  const isHidden = full.classList.contains('hidden');
+  short.classList.toggle('hidden', isHidden);
+  full.classList.toggle('hidden', !isHidden);
+}
+
+function handleNightJobStarted(msg) {
+  const section = document.getElementById('overnight-progress-section');
+  if (section) section.classList.remove('hidden');
+  const text = document.getElementById('overnight-progress-text');
+  if (text) text.textContent = (msg.job_name || msg.job || '') + '...';
+  const bar = document.getElementById('overnight-progress-bar');
+  if (bar) bar.style.width = '10%';
+  _overnightProgressActive = true;
+}
+
+function handleNightJobDone(msg) {
+  const bar = document.getElementById('overnight-progress-bar');
+  if (bar) bar.style.width = '100%';
+  // Refresh overnight data
+  loadOvernightStatus();
+}
+
+function handleNightlySummaryReady(msg) {
+  showToast('🌙 ' + t('overnight_summary_ready'), 'success');
+  loadOvernightStatus();
+}
+
+/* ============================================================
+   PHASE 6 – AGENT GUARDRAILS VISUALIZATION
+   ============================================================ */
+
+/** Injects guardrail info into an existing agent card */
+function renderAgentGuardrails(agent) {
+  if (!agent || !agent.guardrails) return '';
+  const g = agent.guardrails;
+  let html = '<div class="agent-guardrails">';
+
+  // Steps progress
+  if (g.max_steps != null) {
+    const stepsUsed = g.steps || 0;
+    const stepsPct = (stepsUsed / g.max_steps) * 100;
+    const stepsColor = stepsPct > 80 ? 'danger' : stepsPct > 60 ? 'warn' : 'ok';
+    html += `<div class="guardrail-item">
+      <span class="guardrail-item__label">${t('guardrail_steps')}:</span>
+      <div class="guardrail-mini-bar"><div class="guardrail-mini-bar__fill guardrail-mini-bar__fill--${stepsColor}" style="width:${Math.min(100, stepsPct)}%"></div></div>
+      <span>${stepsUsed} / ${g.max_steps}</span>
+    </div>`;
+  }
+
+  // Tokens
+  if (g.max_tokens != null) {
+    const tokensUsed = g.tokens || 0;
+    const tokensPct = (tokensUsed / g.max_tokens) * 100;
+    const tokensColor = tokensPct > 70 ? 'warn' : 'ok';
+    html += `<div class="guardrail-item">
+      <span class="guardrail-item__label">${t('guardrail_tokens')}:</span>
+      <span class="guardrail-text-badge guardrail-text-badge--${tokensColor}">${tokensUsed} / ${g.max_tokens}</span>
+    </div>`;
+  }
+
+  html += '</div>';
+
+  // Guardrail stopped badge
+  if (agent.status === 'failed' && agent.message && agent.message.includes('[GUARDRAIL]')) {
+    const reason = agent.message.replace('[GUARDRAIL]', '').trim();
+    html += `<div class="guardrail-stopped-badge">⛔ ${t('guardrail_stopped')}: ${escHtml(reason)}</div>`;
+  }
+
+  return html;
+}
+
+/* ============================================================
+   PHASE 6 – SETTINGS: EXPERIMENTAL FEATURES
+   ============================================================ */
+
+function renderExperimentalFeatures(settings) {
+  const container = document.getElementById('experimental-features-list');
+  if (!container) return;
+
+  const features = settings && settings.integrations && settings.integrations.experimental_features;
+  if (!features || !Object.keys(features).length) {
+    container.innerHTML = '<p class="empty-state">Žádné experimentální funkce</p>';
+    return;
+  }
+
+  container.innerHTML = Object.entries(features).map(([key, feat]) => {
+    const enabled = feat.enabled || false;
+    const name = feat.name || key;
+    const reason = feat.reason || '';
+    return `<div class="experimental-feature-row" data-feature="${escHtml(key)}">
+      <label class="experimental-toggle">
+        <input type="checkbox" ${enabled ? 'checked' : ''} onchange="toggleExperimentalFeature('${escHtml(key)}', this.checked, this)" />
+        <span class="experimental-toggle__slider"></span>
+      </label>
+      <div class="experimental-feature-info">
+        <div class="experimental-feature-name">${escHtml(name)}</div>
+        ${reason ? `<div class="experimental-feature-reason">${escHtml(reason)}</div>` : ''}
+      </div>
+      <span class="experimental-feature-warn">⚠</span>
+    </div>`;
+  }).join('');
+}
+
+function toggleExperimentalFeature(key, enabled, inputEl) {
+  // Debounce 300ms
+  if (_experimentalDebounceTimers[key]) clearTimeout(_experimentalDebounceTimers[key]);
+  _experimentalDebounceTimers[key] = setTimeout(async () => {
+    try {
+      const patchBody = { integrations: { experimental_features: {} } };
+      patchBody.integrations.experimental_features[key] = { enabled };
+
+      const res = await fetch('/api/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patchBody),
+      });
+      if (!res.ok) throw new Error(await res.text());
+
+      // Green flash on success
+      const toggle = inputEl.closest('.experimental-toggle');
+      if (toggle) {
+        toggle.classList.add('experimental-toggle--flash');
+        setTimeout(() => toggle.classList.remove('experimental-toggle--flash'), 1000);
+      }
+    } catch (err) {
+      // Revert toggle
+      if (inputEl) inputEl.checked = !enabled;
+      showToast(t('error_prefix') + ': ' + err.message, 'error');
+    }
+  }, 300);
+}
+
+/* ============================================================
+   PHASE 6 – MEMORY: NIGHTLY SUMMARY FILTER
+   ============================================================ */
+
+function bindNightlyMemoryEvents() {
+  const btn = document.getElementById('view-nightly-memories-btn');
+  if (btn) btn.addEventListener('click', loadNightlyMemories);
+}
+
+async function loadNightlyMemories() {
+  const container = document.getElementById('nightly-memories-list');
+  if (!container) return;
+
+  // Toggle visibility
+  if (!container.classList.contains('hidden')) {
+    container.classList.add('hidden');
+    return;
+  }
+
+  container.classList.remove('hidden');
+  container.innerHTML = '<p class="empty-state">Načítám...</p>';
+
+  try {
+    const res = await fetch('/api/memory/all');
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    const memories = (Array.isArray(data) ? data : (data.memories || []));
+
+    // Filter for nightly tagged entries
+    const nightlyMemories = memories.filter(m => {
+      const tags = m.tags || [];
+      return tags.some(tag => tag.toLowerCase() === 'nightly' || tag.toLowerCase() === 'noční' || tag.toLowerCase() === 'nightly_summary');
+    });
+
+    if (!nightlyMemories.length) {
+      container.innerHTML = `<p class="empty-state">${t('overnight_no_summary')}</p>`;
+      return;
+    }
+
+    container.innerHTML = nightlyMemories.map((m, i) => {
+      const id = 'nightly-mem-' + i;
+      const date = m.created_at ? new Date(m.created_at).toLocaleString('cs') : '';
+      const text = m.text || m.content || '';
+      const isLong = text.length > 200;
+      return `<div class="nightly-memory-card">
+        <div class="nightly-memory-date">🌙 ${escHtml(date)}</div>
+        <div class="nightly-memory-text ${isLong ? 'nightly-memory-text--collapsed' : ''}" id="${id}">
+          ${escHtml(text)}
+        </div>
+        ${isLong ? `<button class="nightly-memory-expand" onclick="toggleNightlyMemory('${id}')">↕ ${t('overnight_show_all')}</button>` : ''}
+      </div>`;
+    }).join('');
+  } catch (err) {
+    container.innerHTML = `<p class="empty-state">${t('error_prefix')}: ${escHtml(err.message)}</p>`;
+  }
+}
+
+function toggleNightlyMemory(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.toggle('nightly-memory-text--collapsed');
 }
