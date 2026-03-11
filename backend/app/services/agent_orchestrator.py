@@ -259,6 +259,22 @@ class AgentOrchestrator:
         finally:
             record.updated_at = _now()
             await self._broadcast(record)
+            # Store agent run in memory
+            try:
+                from app.services.memory_service import get_memory_service
+                mem = get_memory_service()
+                goal = record.task.get("goal", "unknown")
+                result_summary = record.message or ""
+                await asyncio.to_thread(
+                    mem.store_agent_run,
+                    record.agent_id,
+                    record.agent_type,
+                    goal,
+                    result_summary,
+                    record.status,
+                )
+            except Exception as mem_exc:
+                logger.debug("Memory store for agent run failed: %s", mem_exc)
 
     async def _execute_agent_task(self, record: AgentRecord) -> None:
         """
@@ -490,6 +506,20 @@ class AgentOrchestrator:
                     "file_path": metadata.get("file_path", ""),
                     "score": score,
                 })
+
+            if results:
+                from app.services.kb_context_filter import filter_kb_results
+                from app.services.llm_service import get_llm_service
+                llm_svc = get_llm_service()
+                filtered_summary = await filter_kb_results(results, query, llm_svc)
+                if filtered_summary:
+                    results.insert(0, {
+                        "text": filtered_summary,
+                        "file_name": "[KB Summary]",
+                        "file_path": "",
+                        "score": 1.0,
+                        "filtered": True,
+                    })
 
             return results
         except Exception as exc:

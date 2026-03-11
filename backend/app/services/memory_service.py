@@ -188,6 +188,176 @@ class MemoryService:
             logger.error("Failed to delete memory %s: %s", memory_id, exc)
             return False
 
+    def store_agent_run(
+        self,
+        agent_id: str,
+        agent_type: str,
+        goal: str,
+        result: str,
+        status: str,
+    ) -> str:
+        """Uloží dokončený agent run jako memory entry. Returns memory entry ID."""
+        import asyncio
+
+        memory_id = f"mem_{uuid.uuid4().hex[:12]}"
+        timestamp = datetime.now(timezone.utc).isoformat()
+        content = f"[{agent_type}] Goal: {goal} | Status: {status} | Result: {result[:500]}"
+
+        metadata = {
+            "tags": "agent_run",
+            "source": f"agent_{agent_id}",
+            "importance": 5,
+            "timestamp": timestamp,
+            "category": "agent_run",
+            "agent_id": agent_id,
+            "agent_type": agent_type,
+            "status": status,
+        }
+
+        # Generate embedding synchronously (called from asyncio.to_thread)
+        embeddings_svc = get_embeddings_service()
+        loop = asyncio.new_event_loop()
+        try:
+            embedding = loop.run_until_complete(embeddings_svc.generate_embedding(content))
+        finally:
+            loop.close()
+
+        if not embedding:
+            logger.warning("Failed to generate embedding for agent run %s", agent_id)
+            # Store without embedding
+            self.collection.add(
+                ids=[memory_id],
+                documents=[content],
+                metadatas=[metadata],
+            )
+        else:
+            self.collection.add(
+                ids=[memory_id],
+                embeddings=[embedding],
+                documents=[content],
+                metadatas=[metadata],
+            )
+
+        logger.info("Stored agent run %s (type=%s, status=%s)", agent_id, agent_type, status)
+        return memory_id
+
+    def store_system_event(self, event_type: str, content: str) -> str:
+        """Uloží systémovou událost (resource warning, agent error, periodic check)."""
+        import asyncio
+
+        memory_id = f"mem_{uuid.uuid4().hex[:12]}"
+        timestamp = datetime.now(timezone.utc).isoformat()
+
+        metadata = {
+            "tags": "system_event",
+            "source": "system",
+            "importance": 4,
+            "timestamp": timestamp,
+            "category": "system_event",
+            "event_type": event_type,
+        }
+
+        embeddings_svc = get_embeddings_service()
+        loop = asyncio.new_event_loop()
+        try:
+            embedding = loop.run_until_complete(embeddings_svc.generate_embedding(content))
+        finally:
+            loop.close()
+
+        if not embedding:
+            self.collection.add(
+                ids=[memory_id],
+                documents=[content],
+                metadatas=[metadata],
+            )
+        else:
+            self.collection.add(
+                ids=[memory_id],
+                embeddings=[embedding],
+                documents=[content],
+                metadatas=[metadata],
+            )
+
+        logger.info("Stored system event: %s", event_type)
+        return memory_id
+
+    async def search_agent_history(self, query: str, top_k: int = 5) -> List[MemoryRecord]:
+        """Prohledá memory filtrovanou na category == 'agent_run'."""
+        embeddings_svc = get_embeddings_service()
+        embedding = await embeddings_svc.generate_embedding(query)
+        if not embedding:
+            return []
+
+        kwargs: Dict[str, Any] = {
+            "query_embeddings": [embedding],
+            "n_results": min(top_k, max(self.collection.count(), 1)),
+            "where": {"category": "agent_run"},
+        }
+
+        try:
+            results = self.collection.query(**kwargs)
+        except Exception as exc:
+            logger.error("Agent history search failed: %s", exc)
+            return []
+
+        records: List[MemoryRecord] = []
+        if not results["ids"] or not results["ids"][0]:
+            return records
+
+        for doc_id, doc, meta, dist in zip(
+            results["ids"][0],
+            results["documents"][0],
+            results["metadatas"][0],
+            results["distances"][0],
+        ):
+            tags_str = meta.get("tags", "")
+            records.append(
+                MemoryRecord(
+                    id=doc_id,
+                    text=doc,
+                    tags=[t.strip() for t in tags_str.split(",") if t.strip()],
+                    source=meta.get("source", ""),
+                    importance=int(meta.get("importance", 5)),
+                    timestamp=meta.get("timestamp", ""),
+                    distance=dist,
+                )
+            )
+
+        return records
+
+    def get_recent_events(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Vrátí posledních N system_event entries, seřazených podle timestamp DESC."""
+        try:
+            results = self.collection.get(
+                where={"category": "system_event"},
+                limit=limit,
+                include=["documents", "metadatas"],
+            )
+        except Exception as exc:
+            logger.error("Get recent events failed: %s", exc)
+            return []
+
+        events: List[Dict[str, Any]] = []
+        if not results["ids"]:
+            return events
+
+        for doc_id, doc, meta in zip(
+            results["ids"],
+            results["documents"],
+            results["metadatas"],
+        ):
+            events.append({
+                "id": doc_id,
+                "text": doc,
+                "event_type": meta.get("event_type", ""),
+                "timestamp": meta.get("timestamp", ""),
+                "importance": int(meta.get("importance", 4)),
+            })
+
+        # Sort by timestamp DESC
+        events.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
+        return events[:limit]
+
     async def update_memory(
         self,
         memory_id: str,

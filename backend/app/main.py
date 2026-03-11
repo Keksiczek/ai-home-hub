@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.routers import actions, agent_skills, chat, chat_multimodal, files, knowledge, memory, status
 from app.routers import agents, filesystem, integrations, jobs, settings, skills, tasks
+from app.routers import resident as resident_router
 from app.routers import media as media_router
 from app.routers import document_analysis as document_analysis_router
 from app.routers.websocket_router import router as ws_router
@@ -65,7 +66,13 @@ async def lifespan(app: FastAPI):
 
     # Start resource monitor (Phase 2)
     from app.services.resource_monitor import get_resource_monitor
-    get_resource_monitor().start()
+    resource_mon = get_resource_monitor()
+    resource_mon.set_broadcast(ws_manager.broadcast)
+    resource_mon.start()
+
+    # Resident agent – initialize singleton, does NOT auto-start (waits for API call)
+    from app.services.resident_agent import get_resident_agent
+    get_resident_agent().set_broadcast(ws_manager.broadcast)
 
     logger.info("AI Home Hub started – Mac Control Center ready")
     yield
@@ -121,6 +128,7 @@ app.include_router(agent_skills.router, prefix="/api", tags=["agent-skills"])
 app.include_router(knowledge.router, prefix="/api", tags=["knowledge"])
 app.include_router(memory.router, prefix="/api", tags=["memory"])
 app.include_router(jobs.router, prefix="/api", tags=["jobs"])
+app.include_router(resident_router.router, prefix="/api", tags=["resident"])
 app.include_router(media_router.router, prefix="/api", tags=["media"])
 app.include_router(document_analysis_router.router, prefix="/api/document-analysis", tags=["document-analysis"])
 
