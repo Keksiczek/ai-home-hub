@@ -154,8 +154,16 @@ body {
   flex-shrink: 0;
 }
 
-.ws-dot--connected { background: #22c55e; }
+.ws-dot--connected    { background: #22c55e; }
 .ws-dot--disconnected { background: #64748b; }
+.ws-dot--reconnecting {
+  background: #f59e0b;
+  animation: ws-pulse 1s ease-in-out infinite;
+}
+@keyframes ws-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
 
 /* ── Main content ─────────────────────────────────────────── */
 .main-content {
