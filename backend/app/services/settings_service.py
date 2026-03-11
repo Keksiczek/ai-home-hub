@@ -40,17 +40,25 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         },
         "antigravity": {
             "enabled": False,
+            "experimental": True,
             "api_endpoint": "http://localhost:8080",
             "api_key": "",
             "workspace_root": "",
             "auto_sync_artifacts": True,
         },
         "openclaw": {
-            "enabled": True,
+            "enabled": False,
+            "experimental": True,
             "binary_path": "/usr/local/bin/openclaw",
         },
         "macos": {
             "enabled": True,
+        },
+        "experimental_features": {
+            "openclaw": {"enabled": False, "experimental": True, "reason": "cliclick mouse simulation – fragile, breaks on UI changes"},
+            "antigravity": {"enabled": False, "experimental": True, "reason": "external unstable IDE integration"},
+            "devops_agent": {"enabled": False, "experimental": True, "reason": "high-risk OS ops, not production-ready"},
+            "testing_agent": {"enabled": False, "experimental": True, "reason": "limited value without real test runner integration"},
         },
     },
     "filesystem": {
@@ -64,8 +72,15 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         "topic": "ai-home-hub",
     },
     "agents": {
-        "max_concurrent": 5,
-        "timeout_minutes": 30,
+        "max_concurrent": 3,
+        "timeout_minutes": 15,
+        "configs": {
+            "general":  {"max_steps": 8,  "step_timeout_s": 30, "max_total_tokens": 8000},
+            "code":     {"max_steps": 8,  "step_timeout_s": 45, "max_total_tokens": 10000},
+            "research": {"max_steps": 12, "step_timeout_s": 30, "max_total_tokens": 12000},
+            "testing":  {"max_steps": 6,  "step_timeout_s": 30, "max_total_tokens": 6000},
+            "devops":   {"max_steps": 6,  "step_timeout_s": 30, "max_total_tokens": 6000},
+        },
     },
     "system_prompts": {
         "general": (
@@ -261,6 +276,26 @@ class SettingsService:
             )
 
         return result
+
+    def is_feature_enabled(self, feature_name: str) -> bool:
+        """Check if a feature/integration is enabled. Experimental features default to False."""
+        s = self.load()
+        # Check experimental_features first
+        exp = s.get("integrations", {}).get("experimental_features", {})
+        if feature_name in exp:
+            return exp[feature_name].get("enabled", False)
+        # Fall back to integrations
+        integrations = s.get("integrations", {})
+        if feature_name in integrations:
+            return integrations[feature_name].get("enabled", False)
+        return False
+
+    def get_agent_config(self, agent_type: str) -> dict:
+        """Return guardrail config for a given agent type."""
+        agents_cfg = self.load().get("agents", {})
+        configs = agents_cfg.get("configs", {})
+        default = {"max_steps": 8, "step_timeout_s": 30, "max_total_tokens": 8000}
+        return configs.get(agent_type, default)
 
     def get_integration_config(self, name: str) -> Dict[str, Any]:
         integrations = self.load().get("integrations", {})

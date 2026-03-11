@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -28,6 +29,25 @@ AGENT_TYPES = {"code", "research", "testing", "devops", "general"}
 
 # Sub-agent depth limit
 MAX_SUB_AGENT_DEPTH = 2
+
+
+@dataclass
+class AgentGuardrails:
+    max_steps: int = 8
+    step_timeout_s: int = 30
+    max_total_tokens: int = 8000
+    steps_used: int = 0
+    tokens_used: int = 0
+
+    def check_and_increment(self, tokens_this_step: int = 0) -> tuple[bool, str]:
+        """Returns (ok, reason). Call after each step."""
+        self.steps_used += 1
+        self.tokens_used += tokens_this_step
+        if self.steps_used > self.max_steps:
+            return False, f"max_steps ({self.max_steps}) exceeded"
+        if self.tokens_used > self.max_total_tokens:
+            return False, f"max_total_tokens ({self.max_total_tokens}) exceeded"
+        return True, ""
 
 
 class AgentRecord:
@@ -56,6 +76,7 @@ class AgentRecord:
         self.created_at = _now()
         self.updated_at = _now()
         self._asyncio_task: Optional[asyncio.Task] = None
+        self.guardrails: Optional[AgentGuardrails] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -75,6 +96,12 @@ class AgentRecord:
             "updated_at": self.updated_at,
             "depth": self.depth,
             "parent_agent_id": self.parent_agent_id,
+            "guardrails": {
+                "max_steps": self.guardrails.max_steps if self.guardrails else None,
+                "steps_used": self.guardrails.steps_used if self.guardrails else 0,
+                "max_total_tokens": self.guardrails.max_total_tokens if self.guardrails else None,
+                "tokens_used": self.guardrails.tokens_used if self.guardrails else 0,
+            } if self.guardrails else None,
         }
 
 
@@ -135,6 +162,15 @@ class AgentOrchestrator:
         if agent_type not in AGENT_TYPES:
             agent_type = "general"
 
+        # Block experimental agent types unless explicitly enabled
+        experimental_agent_types = {"testing", "devops"}
+        if agent_type in experimental_agent_types:
+            if not self._settings.is_feature_enabled(f"{agent_type}_agent"):
+                raise RuntimeError(
+                    f"Agent type '{agent_type}' is experimental and currently disabled. "
+                    f"Enable it in Settings → experimental_features.{agent_type}_agent."
+                )
+
         # Load CRUD-based skills and build system prompt additions
         if skill_ids:
             skills_svc = get_skills_service()
@@ -156,12 +192,20 @@ class AgentOrchestrator:
                 else:
                     task["_skill_prompt"] = agent_skills_section
 
+        # Load per-type guardrails from settings
+        guardrail_cfg = self._settings.get_agent_config(agent_type)
+
         agent_id = str(uuid.uuid4())[:8]
         record = AgentRecord(
             agent_id, agent_type, task, workspace,
             skill_ids=skill_ids,
             parent_agent_id=parent_agent_id,
             depth=depth,
+        )
+        record.guardrails = AgentGuardrails(
+            max_steps=guardrail_cfg.get("max_steps", 8),
+            step_timeout_s=guardrail_cfg.get("step_timeout_s", 30),
+            max_total_tokens=guardrail_cfg.get("max_total_tokens", 8000),
         )
         self._agents[agent_id] = record
 
@@ -221,6 +265,13 @@ class AgentOrchestrator:
         phases = self._get_agent_phases(agent_type)
 
         for i, (phase_name, phase_pct) in enumerate(phases):
+            if record.guardrails:
+                ok, reason = record.guardrails.check_and_increment()
+                if not ok:
+                    record.message = f"[GUARDRAIL] Stopped: {reason}"
+                    logger.warning("Agent %s stopped by guardrail: %s", record.agent_id, reason)
+                    raise RuntimeError(f"Guardrail triggered: {reason}")
+
             record.progress = phase_pct
             record.message = f"[{agent_type.upper()}] {phase_name}"
             record.updated_at = _now()
