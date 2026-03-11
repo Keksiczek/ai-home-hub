@@ -76,6 +76,28 @@ async def lifespan(app: FastAPI):
     from app.services.resident_agent import get_resident_agent
     get_resident_agent().set_broadcast(ws_manager.broadcast)
 
+    # KB filesystem watchdog – watches external_paths and enqueues incremental reindex
+    from app.services.kb_watchdog import KBWatchdog
+
+    async def _on_kb_change() -> None:
+        """Enqueue a kb_reindex job on first file change; skip if one is already queued."""
+        from app.services.job_service import get_job_service as _get_job_svc
+        job_svc = _get_job_svc()
+        already_queued = job_svc.list_jobs(status="queued", type="kb_reindex")
+        if not already_queued:
+            job_svc.create_job(
+                type="kb_reindex",
+                title="KB Incremental Reindex (file change detected)",
+                payload={"incremental": True},
+            )
+            logger.info("KBWatchdog: kb_reindex job enqueued")
+        else:
+            logger.debug("KBWatchdog: kb_reindex already in queue, skipping duplicate")
+
+    kb_watchdog = KBWatchdog(get_settings_service, _on_kb_change)
+    kb_watchdog_task = kb_watchdog.start()
+    _supervisor.register("kb_watchdog", kb_watchdog_task)
+
     logger.info("AI Home Hub started – Mac Control Center ready")
     yield
 
