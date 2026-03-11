@@ -176,6 +176,7 @@ class JobWorker(BackgroundService):
         get_settings: Callable[[], Dict[str, Any]],
         broadcast_fn: Optional[Callable[[Dict[str, Any]], Coroutine]] = None,
     ) -> None:
+        super().__init__("job_worker")
         self._job_service = job_service
         self._get_settings = get_settings
         self._broadcast_fn = broadcast_fn
