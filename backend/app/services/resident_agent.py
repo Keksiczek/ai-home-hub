@@ -301,11 +301,20 @@ class ResidentAgent(BackgroundService):
             f"Popis: {task.get('description', 'žádný')}"
         )
 
-        reply, meta = await llm_svc.generate(
-            message=user_message,
-            mode="resident",
-            profile="general",
-        )
+        step_timeout = get_settings_service().get_agent_config("general").get("step_timeout_s", 30)
+        try:
+            async with asyncio.timeout(step_timeout):
+                reply, meta = await llm_svc.generate(
+                    message=user_message,
+                    mode="resident",
+                    profile="general",
+                )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Resident agent LLM call timed out (tick=%d, timeout=%ds)",
+                self._state.tick_count, step_timeout,
+            )
+            return {"error": "llm_timeout", "action": "no_op"}
 
         # 4. Parsuj JSON response
         try:
