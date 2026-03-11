@@ -4,6 +4,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Callable, Coroutine, Dict, List, Optional, Set
 
+from app.services.background_service import BackgroundService
 from app.services.job_service import Job, JobService
 
 logger = logging.getLogger(__name__)
@@ -63,7 +64,7 @@ def is_now_in_night_window(job_settings: Dict[str, Any]) -> bool:
         return now_minutes >= start_minutes or now_minutes < end_minutes
 
 
-class NightScheduler:
+class NightScheduler(BackgroundService):
     """NightScheduler – rozhoduje zda jsme v nočním okně a spouští scheduled joby.
 
     Noční okno je definováno v settings: job_settings.night_batch_window.start/end
@@ -76,6 +77,7 @@ class NightScheduler:
         settings_fn: Callable[[], Dict[str, Any]],
         broadcast_fn: Optional[Callable[[Dict[str, Any]], Coroutine]] = None,
     ) -> None:
+        super().__init__("night_scheduler")
         self._job_service = job_service
         self._settings_fn = settings_fn
         self._broadcast_fn = broadcast_fn
@@ -158,8 +160,16 @@ class NightScheduler:
                 except Exception as exc:
                     logger.debug("NightScheduler broadcast failed: %s", exc)
 
+    async def _tick(self) -> None:
+        """Run one scheduling check then sleep until the next check interval."""
+        try:
+            await self.schedule_night_jobs()
+        except Exception as exc:
+            logger.error("NightScheduler error: %s", exc, exc_info=True)
+        await asyncio.sleep(_NIGHT_CHECK_INTERVAL)
 
-class JobWorker:
+
+class JobWorker(BackgroundService):
     def __init__(
         self,
         job_service: JobService,
@@ -172,7 +182,6 @@ class JobWorker:
         self._running_job_ids: Set[str] = set()
         self._cancel_requested: Set[str] = set()
         self._night_scheduler = NightScheduler(job_service, get_settings, broadcast_fn)
-        self._night_check_counter = 0
 
     def set_broadcast(self, fn: Callable[[Dict[str, Any]], Coroutine]) -> None:
         self._broadcast_fn = fn
@@ -285,32 +294,21 @@ class JobWorker:
                 except Exception as exc:
                     logger.debug("Night job broadcast failed: %s", exc)
 
-    async def run(self) -> None:
-        """Main worker loop – poll for queued jobs and dispatch them."""
-        logger.info("JobWorker started (poll interval=%ds)", _POLL_INTERVAL)
-        # How many poll ticks per night-scheduler check
-        night_check_every = max(1, _NIGHT_CHECK_INTERVAL // _POLL_INTERVAL)
+    async def _on_start(self) -> None:
+        """Start the night scheduler as a companion daemon."""
+        self._night_scheduler.start()
 
-        while True:
-            try:
-                await self._poll_and_dispatch()
+    async def _on_stop(self) -> None:
+        """Stop the night scheduler when the worker shuts down."""
+        await self._night_scheduler.stop()
 
-                # Check night scheduler every ~5 minutes (not every tick)
-                self._night_check_counter += 1
-                if self._night_check_counter >= night_check_every:
-                    self._night_check_counter = 0
-                    try:
-                        await self._night_scheduler.schedule_night_jobs()
-                    except Exception as exc:
-                        logger.error("NightScheduler error: %s", exc, exc_info=True)
-
-            except asyncio.CancelledError:
-                logger.info("JobWorker shutting down")
-                return
-            except Exception as exc:
-                logger.error("JobWorker poll error: %s", exc, exc_info=True)
-
-            await asyncio.sleep(_POLL_INTERVAL)
+    async def _tick(self) -> None:
+        """Poll for queued jobs and dispatch them, then sleep until the next poll."""
+        try:
+            await self._poll_and_dispatch()
+        except Exception as exc:
+            logger.error("JobWorker poll error: %s", exc, exc_info=True)
+        await asyncio.sleep(_POLL_INTERVAL)
 
     async def _poll_and_dispatch(self) -> None:
         job_settings = self._get_settings()
@@ -369,6 +367,4 @@ async def start_job_worker(
     job_service.reset_stale_running_jobs()
 
     _job_worker = JobWorker(job_service, get_settings, broadcast_fn)
-    task = asyncio.create_task(_job_worker.run())
-    logger.info("Job worker background task created")
-    return task
+    return _job_worker.start()
