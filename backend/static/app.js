@@ -12,7 +12,7 @@ const attachedImages = []; // {filename, data (base64), mime_type, previewUrl}
 let currentSessionId = null;
 let currentProfile = 'chat';
 let ws = null;
-let wsReconnectTimer = null;
+// wsReconnectTimer removed – handled inside ReconnectingWS
 let _currentSettings = null;
 let _settingsProjects = {};
 let _settingsAllowedDirs = [];
@@ -261,30 +261,116 @@ function initSidebarOverlay() {
 /* ============================================================
    WEBSOCKET
    ============================================================ */
+
+/**
+ * ReconnectingWS – drop-in wrapper around native WebSocket that:
+ *  - reconnects automatically with exponential back-off (up to 30 s)
+ *  - sends a JSON ping every 30 s to keep the connection alive
+ *  - updates the status indicator in three states: connected / reconnecting / disconnected
+ */
+class ReconnectingWS {
+  constructor(url) {
+    this.url = url;
+    this.ws = null;
+    this.reconnectAttempts = 0;
+    this.maxReconnectAttempts = 10;
+    this.reconnectDelay = 500;   // base delay (ms); doubled each retry
+    this.pingInterval = null;
+    this.connect();
+  }
+
+  connect() {
+    this.ws = new WebSocket(this.url);
+
+    this.ws.onopen = () => {
+      this.reconnectAttempts = 0;
+      setWsStatus('connected');
+      this._startPing();
+    };
+
+    this.ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'pong') return;   // heartbeat reply – ignore
+        handleWsMessage(msg);
+      } catch (e) { /* ignore parse errors */ }
+    };
+
+    this.ws.onclose = () => {
+      this._stopPing();
+      setWsStatus('reconnecting');
+      this._scheduleReconnect();
+    };
+
+    this.ws.onerror = () => {
+      // onerror is always followed by onclose – let onclose drive reconnection
+      this.ws.close();
+    };
+  }
+
+  _startPing() {
+    this._stopPing();
+    this.pingInterval = setInterval(() => {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'ping' }));
+      }
+    }, 30000);
+  }
+
+  _stopPing() {
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
+  }
+
+  _scheduleReconnect() {
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      setWsStatus('disconnected');
+      return;
+    }
+    // Exponential back-off with jitter, capped at 30 s
+    const delay = Math.min(
+      this.reconnectDelay * Math.pow(2, this.reconnectAttempts) + Math.random() * 1000,
+      30000,
+    );
+    this.reconnectAttempts++;
+    setTimeout(() => this.connect(), delay);
+  }
+
+  /** Send arbitrary data when the socket is open (no-op otherwise). */
+  send(data) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(data));
+    }
+  }
+
+  isConnected() {
+    return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+  }
+}
+
 function initWebSocket() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const wsUrl = `${proto}://${location.host}/ws`;
-  ws = new WebSocket(wsUrl);
-
-  ws.onopen = () => {
-    setWsStatus(true);
-    clearTimeout(wsReconnectTimer);
-  };
-  ws.onmessage = (event) => {
-    try { handleWsMessage(JSON.parse(event.data)); } catch (e) { /* ignore */ }
-  };
-  ws.onclose = () => {
-    setWsStatus(false);
-    wsReconnectTimer = setTimeout(initWebSocket, 5000);
-  };
-  ws.onerror = () => setWsStatus(false);
+  ws = new ReconnectingWS(wsUrl);
 }
 
-function setWsStatus(connected) {
+/**
+ * Update the sidebar status indicator.
+ * @param {'connected'|'reconnecting'|'disconnected'} state
+ */
+function setWsStatus(state) {
   const dot = document.getElementById('ws-dot');
   const label = document.getElementById('ws-label');
-  if (dot) dot.className = `ws-dot ${connected ? 'ws-dot--connected' : 'ws-dot--disconnected'}`;
-  if (label) label.textContent = connected ? 'Live' : 'Offline';
+  const map = {
+    connected:    ['ws-dot--connected',    'Live'],
+    reconnecting: ['ws-dot--reconnecting', 'Reconnecting…'],
+    disconnected: ['ws-dot--disconnected', 'Offline'],
+  };
+  const [cls, text] = map[state] || map.disconnected;
+  if (dot) dot.className = `ws-dot ${cls}`;
+  if (label) label.textContent = text;
 }
 
 function handleWsMessage(msg) {
@@ -310,12 +396,7 @@ function handleIngestProgress(msg) {
   show(results);
 }
 
-function wsPing() {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'ping' }));
-  }
-}
-setInterval(wsPing, 30000);
+// wsPing / setInterval removed – ping is now managed inside ReconnectingWS._startPing
 
 /* ============================================================
    PROFILE PILLS & MODEL SELECTOR

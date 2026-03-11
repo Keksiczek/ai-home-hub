@@ -109,12 +109,12 @@ async def run_kb_reindex(job: Job, progress_callback: ProgressCallback) -> Dict[
 
             # If file was previously indexed, delete old chunks first
             if file_str in existing_meta:
-                vector_svc.delete_by_file_path(file_str)
+                await vector_svc.delete_by_file_path(file_str)
 
             # Add to vector store
             import uuid
             chunk_id = f"kb_{uuid.uuid4().hex[:12]}"
-            vector_svc.add_documents(
+            await vector_svc.add_documents(
                 ids=[chunk_id],
                 embeddings=[embedding],
                 documents=[text[:8000]],
@@ -199,12 +199,12 @@ async def run_git_sweep(job: Job, progress_callback: ProgressCallback) -> Dict[s
             )
 
             # Store to memory
-            memory_svc.store_system_event("git_sweep", summary)
+            await memory_svc.store_system_event("git_sweep", summary)
 
         except Exception as exc:
             logger.warning("git_sweep: failed for project %s: %s", name, exc)
             dirty_projects.append(f"{name} (error)")
-            memory_svc.store_system_event(
+            await memory_svc.store_system_event(
                 "git_sweep",
                 f"[{name}] chyba při kontrole: {str(exc)[:200]}",
             )
@@ -258,7 +258,7 @@ async def run_nightly_summary(job: Job, progress_callback: ProgressCallback) -> 
     # 3. If nothing happened, store a simple note
     if total_records == 0:
         no_activity_msg = "Žádná aktivita za posledních 24 hodin."
-        memory_svc.store_system_event("nightly_summary", no_activity_msg)
+        await memory_svc.store_system_event("nightly_summary", no_activity_msg)
         await progress_callback(100.0, {"message": no_activity_msg})
         return {"summary": no_activity_msg, "events_processed": 0, "date": today}
 

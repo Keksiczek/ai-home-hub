@@ -203,8 +203,8 @@ async def _run_ingest_core(
                 for _, _, idx in valid_items
             ]
 
-            vector_store.delete_by_file_path(str(file_path))
-            vector_store.add_documents(
+            await vector_store.delete_by_file_path(str(file_path))
+            await vector_store.add_documents(
                 ids=ids,
                 embeddings=embs,
                 documents=docs,
@@ -422,7 +422,7 @@ async def delete_kb_file(path: str) -> Dict[str, Any]:
     Returns HTTP 404 if no chunks are found for the given path.
     """
     vector_store = get_vector_store_service()
-    deleted_chunks = vector_store.delete_by_file_path(path)
+    deleted_chunks = await vector_store.delete_by_file_path(path)
     if deleted_chunks == 0:
         raise HTTPException(
             status_code=404,

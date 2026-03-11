@@ -20,6 +20,24 @@ CPU_WARN_PERCENT   = 70   # % CPU (1s sample) → warn
 OLLAMA_PROCESS_NAMES = {"ollama", "ollama_llama_server"}
 
 
+def _find_ollama_processes() -> list[psutil.Process]:
+    """Return all processes whose name or cmdline contains 'ollama'.
+
+    Runs in a thread via asyncio.to_thread – never blocks the event loop.
+    Silently skips processes that disappear or deny access.
+    """
+    result: list[psutil.Process] = []
+    for p in psutil.process_iter(attrs=["pid", "name", "cmdline"]):
+        try:
+            name = (p.info.get("name") or "").lower()
+            cmd = " ".join(p.info.get("cmdline") or []).lower()
+        except (psutil.AccessDenied, psutil.NoSuchProcess):
+            continue
+        if "ollama" in name or "ollama" in cmd:
+            result.append(p)
+    return result
+
+
 @dataclass
 class ResourceSnapshot:
     timestamp: str
@@ -48,11 +66,15 @@ class ResourceMonitor:
         """Register a coroutine for broadcasting WebSocket messages."""
         self._broadcast_fn = fn
 
-    def start(self) -> None:
-        """Start background monitoring loop. Call once at app startup."""
+    def start(self) -> asyncio.Task:
+        """Start background monitoring loop. Call once at app startup.
+
+        Returns the created Task so callers (e.g. TaskSupervisor) can track it.
+        """
         if self._task is None or self._task.done():
             self._task = asyncio.create_task(self._loop())
             logger.info("ResourceMonitor started")
+        return self._task
 
     def stop(self) -> None:
         if self._task:
@@ -64,7 +86,7 @@ class ResourceMonitor:
         while True:
             try:
                 self._tick_count += 1
-                snap = self._take_snapshot()
+                snap = await asyncio.to_thread(self._take_snapshot)
                 self._latest = snap
                 if snap.block:
                     logger.warning("RESOURCE BLOCK: RAM %s%% – new agents/jobs blocked", snap.ram_used_percent)
@@ -82,18 +104,22 @@ class ResourceMonitor:
             await asyncio.sleep(15)  # check every 15s
 
     def _take_snapshot(self) -> ResourceSnapshot:
+        # interval=None returns the value computed since the last call (non-blocking).
+        # The 15-second asyncio.sleep in _loop provides the measurement window.
+        cpu = psutil.cpu_percent(interval=None)
         vm = psutil.virtual_memory()
         swap = psutil.swap_memory()
-        cpu = psutil.cpu_percent(interval=1)
-        backend_rss = self._process.memory_info().rss / 1024 / 1024
+        try:
+            backend_rss = self._process.memory_info().rss / 1024 / 1024
+        except (psutil.AccessDenied, psutil.NoSuchProcess):
+            backend_rss = 0.0
 
-        # Find Ollama process RSS
+        # Find Ollama process RSS using the robust helper (already in a thread)
         ollama_rss = 0.0
-        for proc in psutil.process_iter(["name", "memory_info"]):
+        for proc in _find_ollama_processes():
             try:
-                if proc.info["name"] in OLLAMA_PROCESS_NAMES:
-                    ollama_rss += proc.info["memory_info"].rss / 1024 / 1024
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                ollama_rss += proc.memory_info().rss / 1024 / 1024
+            except (psutil.AccessDenied, psutil.NoSuchProcess):
                 pass
 
         ram_pct = vm.percent

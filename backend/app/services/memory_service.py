@@ -5,17 +5,18 @@ It stores user facts, preferences, and summaries (not full documents)
 in a dedicated ChromaDB collection named "memory".
 """
 
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
 from dataclasses import dataclass, asdict
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import chromadb
 from chromadb.config import Settings
 
 from app.services.embeddings_service import get_embeddings_service
-from app.services.vector_store_service import CHROMA_DIR
+from app.services.vector_store_service import CHROMA_DIR, get_vector_write_lock
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,17 @@ class MemoryService:
             metadata={"hnsw:space": "cosine"},
         )
 
+    async def _safe_write(
+        self,
+        operation: Callable[..., Any],
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        """Execute a synchronous Chroma write under the global write lock."""
+        lock = get_vector_write_lock()
+        async with lock:
+            return await asyncio.to_thread(operation, *args, **kwargs)
+
     async def add_memory(
         self,
         text: str,
@@ -78,7 +90,8 @@ class MemoryService:
             "timestamp": timestamp,
         }
 
-        self.collection.add(
+        await self._safe_write(
+            self.collection.add,
             ids=[memory_id],
             embeddings=[embedding],
             documents=[text],
@@ -175,20 +188,22 @@ class MemoryService:
 
         return records
 
-    def delete_memory(self, memory_id: str) -> bool:
+    async def delete_memory(self, memory_id: str) -> bool:
         """Delete a memory by ID. Returns True if deleted."""
         try:
-            existing = self.collection.get(ids=[memory_id])
+            existing = await asyncio.to_thread(
+                self.collection.get, ids=[memory_id]
+            )
             if not existing["ids"]:
                 return False
-            self.collection.delete(ids=[memory_id])
+            await self._safe_write(self.collection.delete, ids=[memory_id])
             logger.info("Deleted memory %s", memory_id)
             return True
         except Exception as exc:
             logger.error("Failed to delete memory %s: %s", memory_id, exc)
             return False
 
-    def store_agent_run(
+    async def store_agent_run(
         self,
         agent_id: str,
         agent_type: str,
@@ -197,8 +212,6 @@ class MemoryService:
         status: str,
     ) -> str:
         """Uloží dokončený agent run jako memory entry. Returns memory entry ID."""
-        import asyncio
-
         memory_id = f"mem_{uuid.uuid4().hex[:12]}"
         timestamp = datetime.now(timezone.utc).isoformat()
         content = f"[{agent_type}] Goal: {goal} | Status: {status} | Result: {result[:500]}"
@@ -214,24 +227,20 @@ class MemoryService:
             "status": status,
         }
 
-        # Generate embedding synchronously (called from asyncio.to_thread)
         embeddings_svc = get_embeddings_service()
-        loop = asyncio.new_event_loop()
-        try:
-            embedding = loop.run_until_complete(embeddings_svc.generate_embedding(content))
-        finally:
-            loop.close()
+        embedding = await embeddings_svc.generate_embedding(content)
 
         if not embedding:
             logger.warning("Failed to generate embedding for agent run %s", agent_id)
-            # Store without embedding
-            self.collection.add(
+            await self._safe_write(
+                self.collection.add,
                 ids=[memory_id],
                 documents=[content],
                 metadatas=[metadata],
             )
         else:
-            self.collection.add(
+            await self._safe_write(
+                self.collection.add,
                 ids=[memory_id],
                 embeddings=[embedding],
                 documents=[content],
@@ -241,10 +250,8 @@ class MemoryService:
         logger.info("Stored agent run %s (type=%s, status=%s)", agent_id, agent_type, status)
         return memory_id
 
-    def store_system_event(self, event_type: str, content: str) -> str:
+    async def store_system_event(self, event_type: str, content: str) -> str:
         """Uloží systémovou událost (resource warning, agent error, periodic check)."""
-        import asyncio
-
         memory_id = f"mem_{uuid.uuid4().hex[:12]}"
         timestamp = datetime.now(timezone.utc).isoformat()
 
@@ -258,20 +265,18 @@ class MemoryService:
         }
 
         embeddings_svc = get_embeddings_service()
-        loop = asyncio.new_event_loop()
-        try:
-            embedding = loop.run_until_complete(embeddings_svc.generate_embedding(content))
-        finally:
-            loop.close()
+        embedding = await embeddings_svc.generate_embedding(content)
 
         if not embedding:
-            self.collection.add(
+            await self._safe_write(
+                self.collection.add,
                 ids=[memory_id],
                 documents=[content],
                 metadatas=[metadata],
             )
         else:
-            self.collection.add(
+            await self._safe_write(
+                self.collection.add,
                 ids=[memory_id],
                 embeddings=[embedding],
                 documents=[content],
@@ -367,8 +372,10 @@ class MemoryService:
     ) -> bool:
         """Update an existing memory. Returns True if updated."""
         try:
-            existing = self.collection.get(
-                ids=[memory_id], include=["documents", "metadatas"]
+            existing = await asyncio.to_thread(
+                self.collection.get,
+                ids=[memory_id],
+                include=["documents", "metadatas"],
             )
             if not existing["ids"]:
                 return False
@@ -400,7 +407,7 @@ class MemoryService:
             if embedding:
                 update_kwargs["embeddings"] = [embedding]
 
-            self.collection.update(**update_kwargs)
+            await self._safe_write(self.collection.update, **update_kwargs)
             logger.info("Updated memory %s", memory_id)
             return True
 

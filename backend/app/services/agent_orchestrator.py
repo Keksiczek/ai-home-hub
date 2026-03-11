@@ -265,8 +265,7 @@ class AgentOrchestrator:
                 mem = get_memory_service()
                 goal = record.task.get("goal", "unknown")
                 result_summary = record.message or ""
-                await asyncio.to_thread(
-                    mem.store_agent_run,
+                await mem.store_agent_run(
                     record.agent_id,
                     record.agent_type,
                     goal,
@@ -296,27 +295,38 @@ class AgentOrchestrator:
                     logger.warning("Agent %s stopped by guardrail: %s", record.agent_id, reason)
                     raise RuntimeError(f"Guardrail triggered: {reason}")
 
-            record.progress = phase_pct
-            record.message = f"[{agent_type.upper()}] {phase_name}"
-            record.updated_at = _now()
-            await self._broadcast(record)
+            step_timeout = record.guardrails.step_timeout_s if record.guardrails else 30
 
-            # Simulate work (in real impl, actual service calls happen here)
-            await asyncio.sleep(0.5)
+            try:
+                async with asyncio.timeout(step_timeout):
+                    record.progress = phase_pct
+                    record.message = f"[{agent_type.upper()}] {phase_name}"
+                    record.updated_at = _now()
+                    await self._broadcast(record)
 
-            # Generate artifact at 50% progress
-            if phase_pct == 50:
-                artifact_id = await self.generate_artifact(
-                    record.agent_id,
-                    "plan",
-                    {
-                        "goal": goal,
-                        "agent_type": agent_type,
-                        "phase": phase_name,
-                        "content": self._generate_plan_content(goal, agent_type),
-                    },
+                    # Simulate work (in real impl, actual service calls happen here)
+                    await asyncio.sleep(0.5)
+
+                    # Generate artifact at 50% progress
+                    if phase_pct == 50:
+                        artifact_id = await self.generate_artifact(
+                            record.agent_id,
+                            "plan",
+                            {
+                                "goal": goal,
+                                "agent_type": agent_type,
+                                "phase": phase_name,
+                                "content": self._generate_plan_content(goal, agent_type),
+                            },
+                        )
+                        record.artifacts.append(artifact_id)
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Agent %s step %r timed out after %ds (type=%s)",
+                    record.agent_id, phase_name, step_timeout, agent_type,
                 )
-                record.artifacts.append(artifact_id)
+                record.message = f"[TIMEOUT] Step '{phase_name}' exceeded {step_timeout}s"
+                raise
 
     def _get_agent_phases(self, agent_type: str) -> List[tuple]:
         """Return (phase_name, progress_pct) pairs for each agent type."""

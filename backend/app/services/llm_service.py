@@ -1,4 +1,5 @@
 """LLM service – Ollama integration with graceful stub fallback."""
+import asyncio
 import json
 import logging
 import time
@@ -38,6 +39,26 @@ def resolve_model(profile: str, settings_override: str | None = None) -> str:
     return MODEL_ROUTING.get(profile, "llama3.2")
 
 
+def get_keep_alive_for_model(model: str, *, for_overnight: bool = False) -> int | str:
+    """Return the Ollama keep_alive value appropriate for *model*.
+
+    Aggressive unloading keeps peak RAM low on an 8 GB machine:
+    - overnight / batch jobs → 0  (unload immediately after response)
+    - llava:7b (vision)       → 0  (large model, always unload)
+    - qwen2.5-coder variants  → "120s"
+    - llama3.2 / summarize    → "60s"
+    """
+    if for_overnight:
+        return 0
+    name = model.lower()
+    if "llava" in name:
+        return 0
+    if "qwen2.5-coder" in name or "coder" in name:
+        return "120s"
+    # default: small llama / summarizer
+    return "60s"
+
+
 class LLMService:
     def __init__(self) -> None:
         self._settings = get_settings_service()
@@ -50,6 +71,7 @@ class LLMService:
         context_file_ids: Optional[List[str]] = None,
         history: Optional[List[Dict[str, str]]] = None,
         model_override: Optional[str] = None,
+        for_overnight: bool = False,
     ) -> Tuple[str, Dict[str, Any]]:
         """
         Generate a response using Ollama or fall back to stub.
@@ -57,6 +79,8 @@ class LLMService:
         *profile* selects the LLM profile (chat | powerbi | lean | vision) whose
         model and sampling params override the global defaults.
         *model_override* overrides the model from profile/settings for this request.
+        *for_overnight* signals batch/overnight context → keep_alive=0 so the
+        model is unloaded from RAM immediately after the call.
 
         Returns (reply_text, meta_dict).
         """
@@ -65,8 +89,12 @@ class LLMService:
         provider = cfg.get("provider", "ollama")
         start = time.monotonic()
 
+        keep_alive = get_keep_alive_for_model(cfg["model"], for_overnight=for_overnight)
+
         if provider == "ollama":
-            reply, meta = await self._generate_ollama(message, mode, history or [], cfg)
+            reply, meta = await self._generate_ollama(
+                message, mode, history or [], cfg, keep_alive=keep_alive
+            )
         else:
             reply, meta = self._generate_stub(message, mode, context_file_ids or [])
 
@@ -81,6 +109,7 @@ class LLMService:
         mode: str,
         history: List[Dict[str, str]],
         cfg: Dict[str, Any],
+        keep_alive: int | str | None = None,
     ) -> Tuple[str, Dict[str, Any]]:
         ollama_url = cfg.get("ollama_url", "http://localhost:11434").rstrip("/")
         model = cfg.get("model", "llama3.2")
@@ -125,12 +154,14 @@ class LLMService:
         if cfg.get("max_tokens") is not None:
             options["num_predict"] = int(cfg["max_tokens"])
 
-        payload = {
+        payload: Dict[str, Any] = {
             "model": model,
             "messages": messages,
             "options": options,
             "stream": False,
         }
+        if keep_alive is not None:
+            payload["keep_alive"] = keep_alive
 
         timeout = cfg.get("timeout_seconds", 180)
         try:
@@ -146,55 +177,73 @@ class LLMService:
             "context_limit": context_limit,
             "context_usage_percent": round(tokens_estimated / context_limit * 100, 1),
             "history_trimmed": history_trimmed,
+            "keep_alive": keep_alive,
         }
 
         try:
-            reply = await self._call_ollama(ollama_url, payload, timeout)
+            async with asyncio.timeout(timeout):
+                reply = await self._call_ollama(ollama_url, payload, timeout)
 
-            # 5H-1: Retry on empty response (max 2 retries)
-            retries = 0
-            while not reply.strip() and retries < 2:
-                retries += 1
-                logger.warning("Empty response from Ollama (retry %d/2)", retries)
-                retry_payload = dict(payload)
-                retry_msgs = list(messages) + [
-                    {"role": "system", "content": "Předchozí pokus vrátil prázdnou odpověď. Odpověz prosím na otázku uživatele."}
-                ]
-                retry_payload["messages"] = retry_msgs
-                reply = await self._call_ollama(ollama_url, retry_payload, timeout)
+                # 5H-1: Retry on empty response (max 2 retries)
+                retries = 0
+                while not reply.strip() and retries < 2:
+                    retries += 1
+                    logger.warning("Empty response from Ollama (retry %d/2)", retries)
+                    retry_payload = dict(payload)
+                    retry_msgs = list(messages) + [
+                        {"role": "system", "content": "Předchozí pokus vrátil prázdnou odpověď. Odpověz prosím na otázku uživatele."}
+                    ]
+                    retry_payload["messages"] = retry_msgs
+                    reply = await self._call_ollama(ollama_url, retry_payload, timeout)
 
-            if not reply.strip():
-                reply = "[Model nevrátil odpověď. Zkus jiný model nebo restartuj Ollamu.]"
-                meta_base["empty_response_fallback"] = True
+                if not reply.strip():
+                    reply = "[Model nevrátil odpověď. Zkus jiný model nebo restartuj Ollamu.]"
+                    meta_base["empty_response_fallback"] = True
 
-            # 5H-2: Language detection and auto-translation
-            meta_base["language_detected"] = "cs"
-            meta_base["auto_translated"] = False
-            settings = self._settings.load()
-            auto_translate = settings.get("auto_translate_to_czech", True)
+                # 5H-2: Language detection and auto-translation
+                meta_base["language_detected"] = "cs"
+                meta_base["auto_translated"] = False
+                settings = self._settings.load()
+                auto_translate = settings.get("auto_translate_to_czech", True)
 
-            if auto_translate and self._looks_english(reply):
-                meta_base["language_detected"] = "en"
-                logger.info("Response detected as English, auto-translating to Czech")
-                translate_payload = {
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": "Přelož následující text do češtiny. Zachovej formátování a odborné termíny."},
-                        {"role": "user", "content": f"Přelož do češtiny: {reply}"},
-                    ],
-                    "options": options,
-                    "stream": False,
-                }
-                try:
-                    translated = await self._call_ollama(ollama_url, translate_payload, timeout)
-                    if translated.strip():
-                        reply = translated
-                        meta_base["auto_translated"] = True
-                except Exception as exc:
-                    logger.warning("Auto-translation failed: %s", exc)
+                if auto_translate and self._looks_english(reply):
+                    meta_base["language_detected"] = "en"
+                    logger.info("Response detected as English, auto-translating to Czech")
+                    translate_payload: Dict[str, Any] = {
+                        "model": model,
+                        "messages": [
+                            {"role": "system", "content": "Přelož následující text do češtiny. Zachovej formátování a odborné termíny."},
+                            {"role": "user", "content": f"Přelož do češtiny: {reply}"},
+                        ],
+                        "options": options,
+                        "stream": False,
+                    }
+                    if keep_alive is not None:
+                        translate_payload["keep_alive"] = keep_alive
+                    try:
+                        translated = await self._call_ollama(ollama_url, translate_payload, timeout)
+                        if translated.strip():
+                            reply = translated
+                            meta_base["auto_translated"] = True
+                    except Exception as exc:
+                        logger.warning("Auto-translation failed: %s", exc)
 
             return reply, meta_base
 
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Ollama call timed out for model %s after %.0fs (mode=%s)",
+                model, timeout, mode,
+            )
+            return (
+                f"[Timeout: model {model} neodpověděl do {timeout:.0f}s. "
+                "Zkus kratší zprávu nebo restartuj Ollamu.]",
+                {
+                    "provider": "timeout",
+                    "model": model,
+                    "error": f"asyncio timeout after {timeout}s",
+                },
+            )
         except httpx.ConnectError:
             await cb.record_failure()
             logger.warning("Ollama not available at %s, falling back to stub", ollama_url)
@@ -275,11 +324,13 @@ class LLMService:
         profile: Optional[str] = None,
         history: Optional[List[Dict[str, str]]] = None,
         model_override: Optional[str] = None,
+        for_overnight: bool = False,
     ) -> AsyncGenerator[str, None]:
         """Stream tokens from Ollama as an async generator.
 
         Yields individual token strings as they arrive from the NDJSON stream.
         Falls back to a single stub yield if Ollama is unavailable.
+        *for_overnight* triggers keep_alive=0 so the model is unloaded after the call.
         """
         cfg = self._settings.get_llm_config(profile=profile)
         ollama_url = cfg.get("ollama_url", "http://localhost:11434").rstrip("/")
@@ -300,12 +351,16 @@ class LLMService:
         if cfg.get("max_tokens") is not None:
             options["num_predict"] = int(cfg["max_tokens"])
 
-        payload = {
+        keep_alive = get_keep_alive_for_model(model, for_overnight=for_overnight)
+
+        payload: Dict[str, Any] = {
             "model": model,
             "messages": messages,
             "options": options,
             "stream": True,
         }
+        if keep_alive is not None:
+            payload["keep_alive"] = keep_alive
 
         timeout_val = cfg.get("timeout_seconds", 180)
         try:
@@ -314,23 +369,32 @@ class LLMService:
             timeout_val = 180.0
 
         try:
-            async with httpx.AsyncClient(timeout=timeout_val) as client:
-                async with client.stream(
-                    "POST", f"{ollama_url}/api/chat", json=payload
-                ) as resp:
-                    resp.raise_for_status()
-                    async for line in resp.aiter_lines():
-                        if not line.strip():
-                            continue
-                        try:
-                            chunk = json.loads(line)
-                        except json.JSONDecodeError:
-                            continue
-                        if chunk.get("done"):
-                            break
-                        token = chunk.get("message", {}).get("content", "")
-                        if token:
-                            yield token
+            async with asyncio.timeout(timeout_val):
+                async with httpx.AsyncClient(timeout=timeout_val) as client:
+                    async with client.stream(
+                        "POST", f"{ollama_url}/api/chat", json=payload
+                    ) as resp:
+                        resp.raise_for_status()
+                        async for line in resp.aiter_lines():
+                            if not line.strip():
+                                continue
+                            try:
+                                chunk = json.loads(line)
+                            except json.JSONDecodeError:
+                                continue
+                            if chunk.get("done"):
+                                break
+                            token = chunk.get("message", {}).get("content", "")
+                            if token:
+                                yield token
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Ollama stream timed out for model %s after %.0fs", model, timeout_val
+            )
+            yield (
+                f"[Timeout: model {model} neodpověděl do {timeout_val:.0f}s. "
+                "Zkus kratší zprávu nebo restartuj Ollamu.]"
+            )
         except httpx.ConnectError:
             logger.warning("Ollama not available for streaming, yielding stub")
             yield "[Stub] Ollama is not reachable. Please start Ollama."

@@ -1,4 +1,5 @@
 """WebSocket router – real-time updates for agents, tasks, and notifications."""
+import json
 import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -18,7 +19,10 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     - type: "agent_update"  → agent progress
     - type: "task_update"   → background task progress
     - type: "notification"  → push notification
-    - type: "ping"          → heartbeat
+    - type: "pong"          → heartbeat reply
+
+    Clients may send:
+    - type: "ping"          → server replies with {"type": "pong"}
     """
     ws_manager = get_ws_manager()
     await ws_manager.connect(websocket)
@@ -28,9 +32,14 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             websocket,
             {"type": "connected", "message": "AI Home Hub WebSocket connected"},
         )
-        # Keep the connection alive; handle incoming pings
+        # Keep the connection alive; handle incoming messages
         while True:
-            data = await websocket.receive_json()
+            raw = await websocket.receive_text()
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                # Ignore malformed frames – don't close the connection
+                continue
             if data.get("type") == "ping":
                 await ws_manager.send_to(websocket, {"type": "pong"})
     except WebSocketDisconnect:

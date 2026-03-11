@@ -1,4 +1,5 @@
 """WebSocket connection manager – broadcast messages to all connected clients."""
+import asyncio
 import json
 import logging
 from typing import Any, Dict, List
@@ -20,10 +21,12 @@ WS_EVENT_NIGHTLY_SUMMARY = "nightly_summary_ready"
 class ConnectionManager:
     def __init__(self) -> None:
         self._connections: List[WebSocket] = []
+        self._lock = asyncio.Lock()
 
     async def connect(self, websocket: WebSocket) -> None:
         await websocket.accept()
-        self._connections.append(websocket)
+        async with self._lock:
+            self._connections.append(websocket)
         logger.info("WS client connected. Total: %d", len(self._connections))
 
     def disconnect(self, websocket: WebSocket) -> None:
@@ -32,17 +35,25 @@ class ConnectionManager:
         logger.info("WS client disconnected. Total: %d", len(self._connections))
 
     async def broadcast(self, message: Dict[str, Any]) -> None:
-        """Send a JSON message to all connected WebSocket clients."""
-        if not self._connections:
+        """Send a JSON message to all connected clients in parallel.
+
+        Uses asyncio.gather so a slow or dead client never blocks the event loop
+        while other clients are being served. Disconnected clients are pruned
+        automatically after each broadcast.
+        """
+        data = json.dumps(message)
+        async with self._lock:
+            conns = list(self._connections)  # snapshot under lock
+        if not conns:
             return
-        dead: List[WebSocket] = []
-        for ws in list(self._connections):
-            try:
-                await ws.send_json(message)
-            except Exception:
-                dead.append(ws)
-        for ws in dead:
-            self.disconnect(ws)
+        results = await asyncio.gather(
+            *[c.send_text(data) for c in conns],
+            return_exceptions=True,
+        )
+        for conn, result in zip(conns, results):
+            if isinstance(result, Exception):
+                logger.debug("WS client disconnected during broadcast: %s", result)
+                self.disconnect(conn)
 
     async def send_to(self, websocket: WebSocket, message: Dict[str, Any]) -> None:
         """Send a JSON message to a single client."""

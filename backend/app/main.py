@@ -20,12 +20,13 @@ from app.services.ws_manager import get_ws_manager
 from app.services.agent_orchestrator import get_agent_orchestrator
 from app.services.task_manager import get_task_manager
 from app.services.settings_service import get_settings_service
+from app.services.task_supervisor import TaskSupervisor
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Background task handles (cancelled on shutdown)
-_background_tasks: list[asyncio.Task] = []
+# Supervised background task registry
+_supervisor = TaskSupervisor()
 
 
 @asynccontextmanager
@@ -47,12 +48,12 @@ async def lifespan(app: FastAPI):
     # Start KB stats cache background task (4D)
     from app.services.kb_stats_cache import start_kb_stats_refresh_loop
     kb_task = asyncio.create_task(start_kb_stats_refresh_loop())
-    _background_tasks.append(kb_task)
+    _supervisor.register("kb_stats_cache", kb_task, lambda: asyncio.create_task(start_kb_stats_refresh_loop()))
 
     # Start session auto-cleanup background task (4G)
     from app.services.session_service import start_session_auto_cleanup
     cleanup_task = asyncio.create_task(start_session_auto_cleanup())
-    _background_tasks.append(cleanup_task)
+    _supervisor.register("session_cleanup", cleanup_task, lambda: asyncio.create_task(start_session_auto_cleanup()))
 
     # Start job worker background task (6D)
     from app.services.job_service import get_job_service
@@ -62,25 +63,46 @@ async def lifespan(app: FastAPI):
         get_settings=get_settings_service().get_job_settings,
         broadcast_fn=ws_manager.broadcast,
     )
-    _background_tasks.append(job_worker_task)
+    _supervisor.register("job_worker", job_worker_task)
 
     # Start resource monitor (Phase 2)
     from app.services.resource_monitor import get_resource_monitor
     resource_mon = get_resource_monitor()
     resource_mon.set_broadcast(ws_manager.broadcast)
-    resource_mon.start()
+    resource_task = resource_mon.start()
+    _supervisor.register("resource_monitor", resource_task, resource_mon.start)
 
     # Resident agent – initialize singleton, does NOT auto-start (waits for API call)
     from app.services.resident_agent import get_resident_agent
     get_resident_agent().set_broadcast(ws_manager.broadcast)
 
+    # KB filesystem watchdog – watches external_paths and enqueues incremental reindex
+    from app.services.kb_watchdog import KBWatchdog
+
+    async def _on_kb_change() -> None:
+        """Enqueue a kb_reindex job on first file change; skip if one is already queued."""
+        from app.services.job_service import get_job_service as _get_job_svc
+        job_svc = _get_job_svc()
+        already_queued = job_svc.list_jobs(status="queued", type="kb_reindex")
+        if not already_queued:
+            job_svc.create_job(
+                type="kb_reindex",
+                title="KB Incremental Reindex (file change detected)",
+                payload={"incremental": True},
+            )
+            logger.info("KBWatchdog: kb_reindex job enqueued")
+        else:
+            logger.debug("KBWatchdog: kb_reindex already in queue, skipping duplicate")
+
+    kb_watchdog = KBWatchdog(get_settings_service, _on_kb_change)
+    kb_watchdog_task = kb_watchdog.start()
+    _supervisor.register("kb_watchdog", kb_watchdog_task)
+
     logger.info("AI Home Hub started – Mac Control Center ready")
     yield
 
-    # Cancel background tasks on shutdown
-    for task in _background_tasks:
-        task.cancel()
-    _background_tasks.clear()
+    # Cancel all supervised tasks on shutdown
+    await _supervisor.stop_all()
 
     logger.info("AI Home Hub shutting down")
 
@@ -205,8 +227,12 @@ async def health() -> dict:
     # Filesystem
     components["filesystem"] = {"status": "ok"}
 
+    bg_tasks = _supervisor.status()
+
     overall = "ok"
     if any(c.get("status") != "ok" for c in components.values()):
+        overall = "degraded"
+    if any(s == "error" for s in bg_tasks.values()):
         overall = "degraded"
 
     return {
@@ -217,6 +243,7 @@ async def health() -> dict:
         "ws_connections": ws_manager.connection_count,
         "embeddings_cache": embeddings_svc.get_cache_stats(),
         "components": components,
+        "background_tasks": bg_tasks,
     }
 
 
@@ -233,9 +260,10 @@ async def health_ready():
     try:
         from app.services.vector_store_service import get_vector_store_service
         vs = get_vector_store_service()
-        vs.get_stats()
+        async with asyncio.timeout(2.0):
+            await asyncio.to_thread(vs.get_stats)
         return {"status": "ok"}
-    except Exception:
+    except (asyncio.TimeoutError, Exception):
         return JSONResponse(status_code=503, content={"status": "unavailable"})
 
 

@@ -1,4 +1,5 @@
 """Multimodal chat router – LLM chat with base64-encoded image attachments."""
+import asyncio
 import logging
 from typing import Any, Dict, List
 
@@ -79,14 +80,24 @@ async def _call_ollama_generate(
         "images": [img.data for img in images],
         "options": options,
         "stream": False,
+        # Vision models (llava:7b) are large; always unload immediately after response
+        # to reclaim RAM on the 8 GB MacBook.
+        "keep_alive": 0,
     }
 
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(f"{ollama_url}/api/generate", json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            return data.get("response", ""), {"provider": "ollama", "model": model}
+        async with asyncio.timeout(timeout):
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.post(f"{ollama_url}/api/generate", json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+                return data.get("response", ""), {"provider": "ollama", "model": model}
+    except asyncio.TimeoutError:
+        logger.warning("Ollama vision call timed out for model %s after %.0fs", model, timeout)
+        return (
+            f"[Timeout: model {model} neodpověděl do {timeout:.0f}s.]",
+            {"provider": "timeout", "model": model, "error": f"asyncio timeout after {timeout}s"},
+        )
     except httpx.ConnectError:
         logger.warning("Ollama not available for vision, falling back to stub")
         reply = get_message("ollama_not_available")

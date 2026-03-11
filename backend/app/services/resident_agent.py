@@ -13,6 +13,8 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
+from app.services.background_service import BackgroundService
+
 logger = logging.getLogger(__name__)
 
 # WS event types (imported locally to avoid circular imports)
@@ -49,10 +51,10 @@ class ResidentAgentState:
         return asdict(self)
 
 
-class ResidentAgent:
+class ResidentAgent(BackgroundService):
     def __init__(self) -> None:
+        super().__init__("resident_agent")
         self._state = ResidentAgentState()
-        self._task: Optional[asyncio.Task] = None
         self._broadcast_fn: Optional[Callable] = None
 
     def set_broadcast(self, fn: Callable) -> None:
@@ -69,19 +71,7 @@ class ResidentAgent:
     def get_state(self) -> dict:
         return self._state.to_dict()
 
-    async def start(self) -> dict:
-        """Spustí async loop jako asyncio.Task, uloží do memory_service záznam o startu."""
-        if self._state.is_running:
-            return {"status": "already_running"}
-
-        self._state.is_running = True
-        self._state.status = "idle"
-        self._state.tick_count = 0
-        self._state.errors_since_start = 0
-        self._state.recent_steps = []
-        self._task = asyncio.create_task(self._loop())
-
-        # Ulož záznam o startu do memory
+    async def _on_start(self) -> None:
         try:
             from app.services.memory_service import get_memory_service
             mem = get_memory_service()
@@ -94,25 +84,7 @@ class ResidentAgent:
         except Exception as exc:
             logger.debug("Failed to store resident agent start in memory: %s", exc)
 
-        logger.info("Resident agent started")
-        return {"status": "started"}
-
-    async def stop(self) -> dict:
-        """Graceful shutdown, uloží stav do memory."""
-        if not self._state.is_running:
-            return {"status": "not_running"}
-
-        self._state.is_running = False
-        self._state.status = "idle"
-
-        if self._task and not self._task.done():
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
-
-        # Ulož stav do memory
+    async def _on_stop(self) -> None:
         try:
             from app.services.memory_service import get_memory_service
             mem = get_memory_service()
@@ -126,34 +98,52 @@ class ResidentAgent:
         except Exception as exc:
             logger.debug("Failed to store resident agent stop in memory: %s", exc)
 
-        logger.info("Resident agent stopped after %d ticks", self._state.tick_count)
-        return {"status": "stopped", "ticks": self._state.tick_count}
+    async def start(self) -> dict:
+        """Spustí async loop jako asyncio.Task, uloží do memory_service záznam o startu."""
+        if self._state.is_running:
+            return {"status": "already_running"}
 
-    async def _loop(self) -> None:
-        """Hlavní smyčka resident agenta."""
+        self._state.is_running = True
+        self._state.status = "idle"
+        self._state.tick_count = 0
+        self._state.errors_since_start = 0
+        self._state.recent_steps = []
+        super().start()  # creates the asyncio.Task (sync, non-awaited)
+        return {"status": "started"}
+
+    async def stop(self) -> dict:
+        """Graceful shutdown, uloží stav do memory."""
+        if not self._state.is_running:
+            return {"status": "not_running"}
+
+        self._state.is_running = False
+        self._state.status = "idle"
+        tick_count = self._state.tick_count
+        await super().stop()  # sets stop_event, cancels task, awaits _on_stop
+        logger.info("Resident agent stopped after %d ticks", tick_count)
+        return {"status": "stopped", "ticks": tick_count}
+
+    async def _tick(self) -> None:
+        """Single iteration of the resident agent loop."""
+        self._state.tick_count += 1
+        self._state.last_tick = _now()
+
         try:
-            while self._state.is_running:
-                self._state.tick_count += 1
-                self._state.last_tick = _now()
+            await self._process_task_queue()
+            await self._periodic_check()
+        except Exception as exc:
+            self._state.errors_since_start += 1
+            self._state.status = "error"
+            logger.error("Resident agent tick error: %s", exc)
 
-                try:
-                    await self._process_task_queue()
-                    await self._periodic_check()
-                except Exception as exc:
-                    self._state.errors_since_start += 1
-                    self._state.status = "error"
-                    logger.error("Resident agent tick error: %s", exc)
+        await self._broadcast({
+            "type": WS_EVENT_RESIDENT_TICK,
+            "tick": self._state.tick_count,
+            "status": self._state.status,
+            "last_tick": self._state.last_tick,
+        })
 
-                await self._broadcast({
-                    "type": WS_EVENT_RESIDENT_TICK,
-                    "tick": self._state.tick_count,
-                    "status": self._state.status,
-                    "last_tick": self._state.last_tick,
-                })
-
-                await asyncio.sleep(30)
-        except asyncio.CancelledError:
-            logger.info("Resident agent loop cancelled")
+        await asyncio.sleep(30)
 
     async def _process_task_queue(self) -> None:
         """Načte pending tasky z job_service kde job_type == 'resident_task'."""
@@ -311,11 +301,20 @@ class ResidentAgent:
             f"Popis: {task.get('description', 'žádný')}"
         )
 
-        reply, meta = await llm_svc.generate(
-            message=user_message,
-            mode="resident",
-            profile="general",
-        )
+        step_timeout = get_settings_service().get_agent_config("general").get("step_timeout_s", 30)
+        try:
+            async with asyncio.timeout(step_timeout):
+                reply, meta = await llm_svc.generate(
+                    message=user_message,
+                    mode="resident",
+                    profile="general",
+                )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Resident agent LLM call timed out (tick=%d, timeout=%ds)",
+                self._state.tick_count, step_timeout,
+            )
+            return {"error": "llm_timeout", "action": "no_op"}
 
         # 4. Parsuj JSON response
         try:
