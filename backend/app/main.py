@@ -113,7 +113,7 @@ app = FastAPI(
         "Unified Mac control hub integrating Ollama LLM, Claude MCP, "
         "VS Code, Antigravity IDE, filesystem, git, and macOS automation."
     ),
-    version="0.3.0",
+    version="0.5.0",
     lifespan=lifespan,
 )
 

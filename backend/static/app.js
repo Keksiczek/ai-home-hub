@@ -1,5 +1,5 @@
 /**
- * AI Home Hub v0.3.0 – Mac Control Center
+ * AI Home Hub – Mac Control Center
  * Vanilla JS, zero dependencies, zero build step.
  * Features: sidebar nav, skills CRUD, model selector, profile pills
  */
@@ -194,7 +194,20 @@ document.addEventListener('DOMContentLoaded', () => {
   initWebSocket();
   checkSetupStatus();
   bindMobileDragDrop();
+  loadVersionFromHealth();
 });
+
+async function loadVersionFromHealth() {
+  try {
+    const resp = await fetch('/api/health');
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (data.version) {
+      const el = document.getElementById('app-version');
+      if (el) el.textContent = `v${data.version}`;
+    }
+  } catch (e) { /* non-critical */ }
+}
 
 /* ============================================================
    SIDEBAR NAVIGATION
