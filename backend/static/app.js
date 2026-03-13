@@ -2726,11 +2726,80 @@ function bindStatusEvents() {
   if (refreshBtn) refreshBtn.addEventListener('click', loadSystemStatus);
 }
 
+async function loadResourceMonitor() {
+  const gauges = document.getElementById('resource-gauges');
+  const banners = document.getElementById('resource-banners');
+  const updatedAt = document.getElementById('resource-updated-at');
+  if (!gauges) return;
+
+  try {
+    const resp = await fetch('/api/status/system/resources');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+
+    if (data.status === 'no_data') {
+      gauges.innerHTML = '<p class="empty-state">Zatim zadna data...</p>';
+      return;
+    }
+
+    // Banners
+    if (banners) {
+      let bannerHtml = '';
+      if (data.throttle) {
+        bannerHtml += `<div class="resource-banner resource-banner--warning">${t('resource_throttle')}</div>`;
+      }
+      if (data.block) {
+        bannerHtml += `<div class="resource-banner resource-banner--error">${t('resource_block')}</div>`;
+      }
+      banners.innerHTML = bannerHtml;
+    }
+
+    // Gauges
+    const ramPct = data.ram_used_percent || 0;
+    const cpuPct = data.cpu_percent || 0;
+    const swapUsed = data.swap_used_mb || 0;
+    const swapTotal = data.swap_total_mb || 1;
+    const swapPct = swapTotal > 0 ? Math.round((swapUsed / swapTotal) * 100) : 0;
+
+    const ramColor = ramPct > 85 ? 'var(--color-error, #e74c3c)' : ramPct > 70 ? 'var(--color-warning, #f39c12)' : 'var(--color-success, #2ecc71)';
+    const cpuColor = cpuPct > 85 ? 'var(--color-error, #e74c3c)' : cpuPct > 70 ? 'var(--color-warning, #f39c12)' : 'var(--color-success, #2ecc71)';
+    const swapColor = swapPct > 80 ? 'var(--color-error, #e74c3c)' : swapPct > 50 ? 'var(--color-warning, #f39c12)' : 'var(--color-success, #2ecc71)';
+
+    gauges.innerHTML = `
+      <div class="resource-gauge">
+        <div class="resource-gauge-label">${t('resource_ram')}: ${ramPct.toFixed(1)}% (${data.ram_used_mb || 0} / ${data.ram_total_mb || 0} MB)</div>
+        <div class="progress-bar-wrap"><div class="progress-bar" style="width:${ramPct}%;background:${ramColor}"></div></div>
+      </div>
+      <div class="resource-gauge">
+        <div class="resource-gauge-label">${t('resource_cpu')}: ${cpuPct.toFixed(1)}%</div>
+        <div class="progress-bar-wrap"><div class="progress-bar" style="width:${cpuPct}%;background:${cpuColor}"></div></div>
+      </div>
+      <div class="resource-gauge">
+        <div class="resource-gauge-label">${t('resource_swap')}: ${swapUsed.toFixed(0)} / ${swapTotal.toFixed(0)} MB (${swapPct}%)</div>
+        <div class="progress-bar-wrap"><div class="progress-bar" style="width:${swapPct}%;background:${swapColor}"></div></div>
+      </div>
+      <div class="resource-gauge">
+        <div class="resource-gauge-label">${t('resource_ollama')}: ${(data.ollama_rss_mb || 0).toFixed(0)} MB</div>
+        <div class="resource-gauge-label" style="font-size:0.7rem">${t('resource_backend')}: ${(data.backend_rss_mb || 0).toFixed(0)} MB</div>
+      </div>
+    `;
+
+    if (updatedAt) {
+      updatedAt.textContent = `${t('resource_updated')}: ${new Date(data.timestamp).toLocaleTimeString()}`;
+    }
+  } catch (err) {
+    gauges.innerHTML = `<p class="empty-state">Chyba: ${escHtml(err.message)}</p>`;
+  }
+}
+
 async function loadSystemStatus() {
   const grid = document.getElementById('status-grid');
   const badge = document.getElementById('overall-status-badge');
   const timestamp = document.getElementById('status-timestamp');
   if (!grid) return;
+
+  // Load resource monitor in parallel
+  loadResourceMonitor();
 
   try {
     const response = await fetch('/api/status');
