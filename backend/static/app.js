@@ -3370,13 +3370,37 @@ async function checkSetupStatus() {
         <strong>Prvni nastaveni potreba</strong>
         <button class="setup-banner__dismiss" onclick="document.getElementById('setup-banner').remove()" title="${t('close')}">&#10005;</button>
         <ul class="setup-banner__list">
-          ${incomplete.map(i => `<li><button class="setup-banner__link" onclick="switchTab('settings')">${escHtml(i.label)}</button> – ${escHtml(i.hint)}</li>`).join('')}
+          ${incomplete.map(i => {
+            let action = `<button class="setup-banner__link" onclick="switchTab('settings')">${escHtml(i.label)}</button>`;
+            if (i.key === 'kb_indexed') {
+              action += ` <button class="btn btn--ghost btn--small" onclick="quickIndexKB(this)">Indexovat</button>`;
+            }
+            return `<li>${action} – ${escHtml(i.hint)}</li>`;
+          }).join('')}
         </ul>
       `;
       const panel = document.getElementById('tab-chat');
       if (panel) panel.prepend(banner);
     }
   } catch (e) { /* non-critical */ }
+}
+
+async function quickIndexKB(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Indexuji...'; }
+  try {
+    const resp = await fetch('/api/knowledge/ingest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(null),
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    const data = await resp.json();
+    showToast(`KB indexace spuštěna (job: ${data.job_id})`, 'success');
+    if (btn) btn.textContent = 'Spuštěno';
+  } catch (err) {
+    showToast(`Chyba: ${err.message}`, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Indexovat'; }
+  }
 }
 
 /* ============================================================
