@@ -224,6 +224,7 @@ function switchTab(tabName) {
   if (tabName === 'jobs') loadJobs();
   if (tabName === 'actions') { loadQuickActions(); loadVSCodeProjects(); loadActionHistory(); }
   if (tabName === 'settings') { loadSettings(); loadOllamaModels(); }
+  if (tabName === 'overnight') loadOvernightStatus();
 }
 
 function bindMobileMenu() {
@@ -4026,4 +4027,78 @@ async function createReportFromJob(sourceJobId, format) {
   } catch (err) {
     showToast('Chyba: ' + err.message, 'error');
   }
+}
+
+/* ============================================================
+   OVERNIGHT JOBS TAB
+   ============================================================ */
+async function loadOvernightStatus() {
+  const overview = document.getElementById('overnight-status-overview');
+  const kbBody = document.getElementById('overnight-kb-body');
+  const gitBody = document.getElementById('overnight-git-body');
+  const summaryBody = document.getElementById('overnight-summary-body');
+
+  try {
+    const resp = await fetch('/api/overnight/status');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+
+    // C1: Status overview panel
+    if (overview) {
+      const windowStatus = data.is_night_window
+        ? `<span class="badge badge--green">${t('overnight_active')}</span>`
+        : `<span class="badge badge--gray">${t('overnight_inactive')}</span>`;
+      const windowRange = data.night_window
+        ? `${data.night_window.start} – ${data.night_window.end}`
+        : '22:00 – 06:00';
+      overview.innerHTML = `
+        <div class="overnight-overview-grid">
+          <div class="overnight-overview-item">
+            <span class="overnight-overview-label">${t('overnight_window')}</span>
+            <span>${windowStatus} <span class="hint-text">(${escHtml(windowRange)})</span></span>
+          </div>
+          <div class="overnight-overview-item">
+            <span class="overnight-overview-label">${t('overnight_next')}</span>
+            <span>${escHtml(data.next_scheduled || '-')}</span>
+          </div>
+        </div>
+      `;
+    }
+
+    // C2: Last run cards
+    const lastRun = data.last_run || {};
+    _renderOvernightJobCard(kbBody, lastRun.kb_reindex, 'kb_reindex');
+    _renderOvernightJobCard(gitBody, lastRun.git_sweep, 'git_sweep');
+    _renderOvernightJobCard(summaryBody, lastRun.nightly_summary, 'nightly_summary');
+
+  } catch (err) {
+    if (overview) overview.innerHTML = `<p class="empty-state">Chyba: ${escHtml(err.message)}</p>`;
+  }
+}
+
+function _renderOvernightJobCard(el, runData, jobType) {
+  if (!el) return;
+  if (!runData) {
+    el.innerHTML = `<p class="empty-state">${t('overnight_waiting')}</p>`;
+    return;
+  }
+  const date = runData.date || '-';
+  const ts = runData.timestamp ? new Date(runData.timestamp).toLocaleString() : '';
+  let detail = '';
+  if (jobType === 'nightly_summary' && runData.preview) {
+    detail = `<p class="hint-text" style="margin-top:0.5rem">${escHtml(runData.preview)}</p>`;
+  } else if (runData.result) {
+    const resultText = typeof runData.result === 'string'
+      ? runData.result
+      : JSON.stringify(runData.result);
+    detail = `<p class="hint-text" style="margin-top:0.5rem">${escHtml(resultText.substring(0, 300))}</p>`;
+  }
+  el.innerHTML = `
+    <div class="overnight-job-status">
+      <span class="badge badge--green">${t('overnight_done')}</span>
+      <span class="hint-text">${escHtml(date)}</span>
+    </div>
+    ${ts ? `<p class="hint-text" style="font-size:0.7rem">${escHtml(ts)}</p>` : ''}
+    ${detail}
+  `;
 }
