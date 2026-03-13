@@ -1,0 +1,100 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "AI Home Hub: Run Dev",
+      "type": "shell",
+      "command": "./run-app.sh dev",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated",
+        "showReuseMessage": false,
+        "clear": true
+      },
+      "problemMatcher": [],
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    },
+    {
+      "label": "AI Home Hub: Run Prod",
+      "type": "shell",
+      "command": "./run-app.sh prod",
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated",
+        "showReuseMessage": false,
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "AI Home Hub: Stop",
+      "type": "shell",
+      "command": "./run-app.sh stop",
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "AI Home Hub: Run Tests",
+      "type": "shell",
+      "command": "source backend/.venv/bin/activate && cd backend && python -m pytest tests/ -v",
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "AI Home Hub: Tail Logs",
+      "type": "shell",
+      "command": "log=$(ls -t ai-home-hub-*.log 2>/dev/null | head -1); [ -n \"$log\" ] && tail -f \"$log\" || echo 'No log file found'",
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "AI Home Hub: Docker Up (fallback)",
+      "type": "shell",
+      "command": "docker compose up --build",
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated",
+        "clear": true
+      },
+      "problemMatcher": []
+    }
+  ]
+}
