@@ -8,7 +8,7 @@ import pytest_asyncio
 
 @pytest.fixture(autouse=True)
 def _patch_settings():
-    """Provide a minimal settings service for all tests in this module."""
+    """Provide a minimal settings service and circuit breaker for all tests in this module."""
     mock_svc = MagicMock()
     mock_svc.get_llm_config.return_value = {
         "provider": "ollama",
@@ -18,7 +18,15 @@ def _patch_settings():
         "timeout_seconds": 30,
     }
     mock_svc.get_system_prompt.return_value = "You are a helpful assistant."
-    with patch("app.services.llm_service.get_settings_service", return_value=mock_svc):
+
+    mock_cb = MagicMock()
+    mock_cb.can_execute = AsyncMock(return_value=True)
+    mock_cb.record_success = AsyncMock()
+    mock_cb.record_failure = AsyncMock()
+    mock_cb.recovery_timeout = 30.0
+
+    with patch("app.services.llm_service.get_settings_service", return_value=mock_svc), \
+         patch("app.services.llm_service.get_ollama_circuit_breaker", return_value=mock_cb):
         yield mock_svc
 
 

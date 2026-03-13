@@ -47,6 +47,19 @@ async def lifespan(app: FastAPI):
     # Log actionable first-time-setup warnings
     get_settings_service().warn_if_unconfigured()
 
+    # ── Startup validation ──────────────────────────────────────
+    from app.services.startup_checks import run_startup_checks
+
+    settings = get_settings_service().load()
+    ollama_url = settings.get("llm", {}).get("ollama_url", "http://localhost:11434").rstrip("/")
+
+    try:
+        startup_result = await run_startup_checks(ollama_url)
+        logger.info("Startup checks passed: %s", startup_result)
+    except RuntimeError as exc:
+        logger.critical("Startup check FAILED: %s", exc)
+        raise
+
     # Start KB stats cache background task (4D)
     from app.services.kb_stats_cache import start_kb_stats_refresh_loop
     kb_task = asyncio.create_task(start_kb_stats_refresh_loop())
