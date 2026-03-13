@@ -16,7 +16,16 @@ def _patch_settings():
     }
     mock_svc.get_system_prompt.return_value = "Test prompt."
     mock_svc.load.return_value = {"auto_translate_to_czech": True}
-    with patch("app.services.llm_service.get_settings_service", return_value=mock_svc):
+
+    # Mock circuit breaker so it always allows requests
+    mock_cb = MagicMock()
+    mock_cb.can_execute = AsyncMock(return_value=True)
+    mock_cb.record_success = AsyncMock()
+    mock_cb.record_failure = AsyncMock()
+    mock_cb.recovery_timeout = 30.0
+
+    with patch("app.services.llm_service.get_settings_service", return_value=mock_svc), \
+         patch("app.services.llm_service.get_ollama_circuit_breaker", return_value=mock_cb):
         yield mock_svc
 
 
@@ -37,7 +46,7 @@ async def test_empty_response_triggers_retry():
             return ""  # First call returns empty
         return "Actual response"
 
-    with patch.object(LLMService, "_call_ollama", side_effect=_fake_call):
+    with patch("app.services.llm_service._call_ollama_with_retry", side_effect=_fake_call):
         svc = LLMService()
         reply, meta = await svc._generate_ollama("test", "general", [], svc._settings.get_llm_config())
 
@@ -53,7 +62,7 @@ async def test_empty_response_fallback_after_retries():
     async def _always_empty(ollama_url, payload, timeout):
         return ""
 
-    with patch.object(LLMService, "_call_ollama", side_effect=_always_empty):
+    with patch("app.services.llm_service._call_ollama_with_retry", side_effect=_always_empty):
         svc = LLMService()
         reply, meta = await svc._generate_ollama("test", "general", [], svc._settings.get_llm_config())
 
@@ -154,8 +163,15 @@ async def test_auto_translate_disabled():
     mock_svc.get_system_prompt.return_value = "Test."
     mock_svc.load.return_value = {"auto_translate_to_czech": False}
 
+    mock_cb = MagicMock()
+    mock_cb.can_execute = AsyncMock(return_value=True)
+    mock_cb.record_success = AsyncMock()
+    mock_cb.record_failure = AsyncMock()
+    mock_cb.recovery_timeout = 30.0
+
     with patch("app.services.llm_service.get_settings_service", return_value=mock_svc), \
-         patch.object(LLMService, "_call_ollama", side_effect=_fake_call):
+         patch("app.services.llm_service.get_ollama_circuit_breaker", return_value=mock_cb), \
+         patch("app.services.llm_service._call_ollama_with_retry", side_effect=_fake_call):
         svc = LLMService()
         reply, meta = await svc._generate_ollama("test", "general", [], svc._settings.get_llm_config())
 

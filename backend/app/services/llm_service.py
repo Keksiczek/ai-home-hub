@@ -1,4 +1,4 @@
-"""LLM service – Ollama integration with graceful stub fallback."""
+"""LLM service – Ollama integration with circuit breaker, retry, and structured errors."""
 import asyncio
 import json
 import logging
@@ -6,13 +6,18 @@ import time
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 import httpx
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from app.services.settings_service import get_settings_service
 from app.utils.circuit_breaker import (
     CircuitBreakerOpen,
     get_ollama_circuit_breaker,
 )
-from app.utils.retry import async_retry
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +62,39 @@ def get_keep_alive_for_model(model: str, *, for_overnight: bool = False) -> int 
         return "120s"
     # default: small llama / summarizer
     return "60s"
+
+
+def _llm_unavailable_response(
+    model: str, reason: str, retry_after_s: int = 60
+) -> Tuple[str, Dict[str, Any]]:
+    """Build a structured 'llm_unavailable' response for the frontend."""
+    return (
+        f"[LLM nedostupné: {reason}]",
+        {
+            "status": "llm_unavailable",
+            "provider": "ollama",
+            "model": model,
+            "message": reason,
+            "retry_after_s": retry_after_s,
+        },
+    )
+
+
+# Retry decorator for raw Ollama HTTP calls.
+# Retries on transient errors (connect, timeout) but NOT on 4xx client errors.
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    retry=retry_if_exception_type((httpx.ConnectError, httpx.TimeoutException)),
+    reraise=True,
+)
+async def _call_ollama_with_retry(ollama_url: str, payload: dict, timeout: float) -> str:
+    """Make a single non-streaming call to Ollama with tenacity retry."""
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        resp = await client.post(f"{ollama_url}/api/chat", json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("message", {}).get("content", "")
 
 
 class LLMService:
@@ -113,6 +151,19 @@ class LLMService:
     ) -> Tuple[str, Dict[str, Any]]:
         ollama_url = cfg.get("ollama_url", "http://localhost:11434").rstrip("/")
         model = cfg.get("model", "llama3.2")
+        cb = get_ollama_circuit_breaker()
+
+        # Circuit breaker: fast-fail if Ollama has been failing repeatedly
+        if not await cb.can_execute():
+            logger.warning(
+                "Circuit breaker OPEN for Ollama – skipping request (model=%s)", model
+            )
+            return _llm_unavailable_response(
+                model,
+                "Ollama je dočasně nedostupná (circuit breaker otevřen). Zkus to za chvíli.",
+                retry_after_s=int(cb.recovery_timeout),
+            )
+
         system_prompt = self._settings.get_system_prompt(mode)
 
         # 5H-3: Add structured output hints based on message content
@@ -182,7 +233,7 @@ class LLMService:
 
         try:
             async with asyncio.timeout(timeout):
-                reply = await self._call_ollama(ollama_url, payload, timeout)
+                reply = await _call_ollama_with_retry(ollama_url, payload, timeout)
 
                 # 5H-1: Retry on empty response (max 2 retries)
                 retries = 0
@@ -194,7 +245,7 @@ class LLMService:
                         {"role": "system", "content": "Předchozí pokus vrátil prázdnou odpověď. Odpověz prosím na otázku uživatele."}
                     ]
                     retry_payload["messages"] = retry_msgs
-                    reply = await self._call_ollama(ollama_url, retry_payload, timeout)
+                    reply = await _call_ollama_with_retry(ollama_url, retry_payload, timeout)
 
                 if not reply.strip():
                     reply = "[Model nevrátil odpověď. Zkus jiný model nebo restartuj Ollamu.]"
@@ -221,45 +272,60 @@ class LLMService:
                     if keep_alive is not None:
                         translate_payload["keep_alive"] = keep_alive
                     try:
-                        translated = await self._call_ollama(ollama_url, translate_payload, timeout)
+                        translated = await _call_ollama_with_retry(ollama_url, translate_payload, timeout)
                         if translated.strip():
                             reply = translated
                             meta_base["auto_translated"] = True
                     except Exception as exc:
                         logger.warning("Auto-translation failed: %s", exc)
 
+            # Success – reset circuit breaker
+            await cb.record_success()
             return reply, meta_base
 
         except asyncio.TimeoutError:
+            await cb.record_failure()
             logger.warning(
                 "Ollama call timed out for model %s after %.0fs (mode=%s)",
                 model, timeout, mode,
             )
-            return (
-                f"[Timeout: model {model} neodpověděl do {timeout:.0f}s. "
-                "Zkus kratší zprávu nebo restartuj Ollamu.]",
-                {
-                    "provider": "timeout",
-                    "model": model,
-                    "error": f"asyncio timeout after {timeout}s",
-                },
+            return _llm_unavailable_response(
+                model,
+                f"Timeout: model {model} neodpověděl do {timeout:.0f}s.",
+                retry_after_s=30,
             )
         except httpx.ConnectError:
             await cb.record_failure()
             logger.warning("Ollama not available at %s, falling back to stub", ollama_url)
-            return self._generate_stub(message, mode, [])[0], {
-                "provider": "stub",
-                "model": "stub",
-                "fallback_reason": "Ollama not reachable",
-            }
-        except (httpx.TimeoutException, httpx.HTTPStatusError) as exc:
+            return _llm_unavailable_response(
+                model,
+                f"Ollama není dostupná na {ollama_url}. Spusť 'ollama serve'.",
+                retry_after_s=int(cb.recovery_timeout),
+            )
+        except httpx.HTTPStatusError as exc:
+            # 4xx errors are not retried by tenacity; don't trip circuit breaker
+            if exc.response.status_code < 500:
+                logger.error("Ollama client error %d: %s", exc.response.status_code, exc)
+                return f"[Chyba LLM: {exc}]", {
+                    "provider": "error",
+                    "model": model,
+                    "error": str(exc),
+                }
             await cb.record_failure()
-            logger.error("Ollama error after retries: %s", exc, exc_info=True)
-            return f"[Chyba LLM: {exc}]", {
-                "provider": "error",
-                "model": model,
-                "error": str(exc),
-            }
+            logger.error("Ollama server error after retries: %s", exc, exc_info=True)
+            return _llm_unavailable_response(
+                model,
+                f"Ollama vrátila chybu {exc.response.status_code}.",
+                retry_after_s=30,
+            )
+        except httpx.TimeoutException:
+            await cb.record_failure()
+            logger.error("Ollama HTTP timeout for model %s", model)
+            return _llm_unavailable_response(
+                model,
+                f"HTTP timeout při komunikaci s Ollamou (model {model}).",
+                retry_after_s=30,
+            )
         except Exception as exc:
             logger.error("Ollama error: %s", exc, exc_info=True)
             return f"[Chyba LLM: {exc}]", {
@@ -267,15 +333,6 @@ class LLMService:
                 "model": model,
                 "error": str(exc),
             }
-
-    @staticmethod
-    async def _call_ollama(ollama_url: str, payload: dict, timeout: float) -> str:
-        """Make a single non-streaming call to Ollama and return the reply text."""
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(f"{ollama_url}/api/chat", json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            return data.get("message", {}).get("content", "")
 
     @staticmethod
     def _add_structured_hints(system_prompt: str, message: str) -> str:
@@ -336,6 +393,17 @@ class LLMService:
         ollama_url = cfg.get("ollama_url", "http://localhost:11434").rstrip("/")
         model = resolve_model(profile or "general", model_override or cfg.get("model"))
         system_prompt = self._settings.get_system_prompt(mode)
+        cb = get_ollama_circuit_breaker()
+
+        # Circuit breaker: fast-fail if Ollama has been failing repeatedly
+        if not await cb.can_execute():
+            logger.warning("Circuit breaker OPEN – skipping stream request (model=%s)", model)
+            yield json.dumps({
+                "status": "llm_unavailable",
+                "message": "Ollama je dočasně nedostupná (circuit breaker otevřen).",
+                "retry_after_s": int(cb.recovery_timeout),
+            })
+            return
 
         messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
         messages.extend(history or [])
@@ -387,7 +455,10 @@ class LLMService:
                             token = chunk.get("message", {}).get("content", "")
                             if token:
                                 yield token
+            # Success – reset circuit breaker
+            await cb.record_success()
         except asyncio.TimeoutError:
+            await cb.record_failure()
             logger.warning(
                 "Ollama stream timed out for model %s after %.0fs", model, timeout_val
             )
@@ -396,9 +467,11 @@ class LLMService:
                 "Zkus kratší zprávu nebo restartuj Ollamu.]"
             )
         except httpx.ConnectError:
+            await cb.record_failure()
             logger.warning("Ollama not available for streaming, yielding stub")
             yield "[Stub] Ollama is not reachable. Please start Ollama."
         except Exception as exc:
+            await cb.record_failure()
             logger.error("Ollama stream error: %s", exc, exc_info=True)
             yield f"[Chyba LLM: {exc}]"
 
