@@ -45,9 +45,11 @@ def test_multimodal_chat_with_images_calls_generate_endpoint(client, mock_ollama
     assert data["reply"] == "mocked vision reply"
 
     generate_calls = [c for c in mock_ollama["calls"] if "/api/generate" in c["url"]]
-    assert len(generate_calls) == 1, "Expected exactly one /api/generate call"
+    # There may be an additional unload call (keep_alive=0, empty prompt) after inference
+    inference_calls = [c for c in generate_calls if c["json"].get("images")]
+    assert len(inference_calls) == 1, "Expected exactly one /api/generate inference call"
 
-    payload = generate_calls[0]["json"]
+    payload = inference_calls[0]["json"]
     assert "images" in payload, "Ollama generate payload must contain 'images' key"
     assert len(payload["images"]) == 1
 
