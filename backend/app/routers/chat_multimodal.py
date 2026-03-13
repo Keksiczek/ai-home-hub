@@ -7,7 +7,7 @@ import httpx
 from fastapi import APIRouter, HTTPException
 
 from app.models.schemas import ChatResponse, MultimodalChatRequest, MultimodalImageData
-from app.services.llm_service import get_llm_service
+from app.services.llm_service import get_llm_service, unload_model
 from app.services.session_service import get_session_service
 from app.services.settings_service import get_settings_service
 from app.utils.constants import (
@@ -135,6 +135,10 @@ async def multimodal_chat(request: MultimodalChatRequest) -> ChatResponse:
         profile = request.profile or "vision"
         cfg = get_settings_service().get_llm_config(profile=profile)
         reply, meta = await _call_ollama_generate(request.message, request.images, cfg)
+        # Explicitly unload vision model from RAM after inference (large model on 8 GB Mac)
+        model_used = cfg.get("model", "llava:7b")
+        if "llava" in model_used.lower():
+            await unload_model(model_used)
     else:
         history = session_svc.get_history_for_llm(session_id, limit=20)
 

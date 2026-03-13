@@ -417,6 +417,21 @@ class LLMService:
             return {"status": "unavailable", "error": str(exc), "url": ollama_url}
 
 
+async def unload_model(model_name: str) -> None:
+    """Explicitně uvolní model z Ollama RAM (keep_alive=0)."""
+    try:
+        cfg = get_settings_service().get_llm_config()
+        ollama_url = cfg.get("ollama_url", "http://localhost:11434").rstrip("/")
+        async with httpx.AsyncClient(timeout=10) as client:
+            await client.post(
+                f"{ollama_url}/api/generate",
+                json={"model": model_name, "keep_alive": 0, "prompt": ""},
+            )
+        logger.info("Unloaded model %s from Ollama RAM", model_name)
+    except Exception:
+        pass  # ignoruj chyby při unload
+
+
 _llm_service: Optional[LLMService] = None
 
 
