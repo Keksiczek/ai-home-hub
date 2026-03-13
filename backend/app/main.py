@@ -6,6 +6,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.routers import actions, agent_skills, chat, chat_multimodal, files, knowledge, memory, status
@@ -115,6 +117,8 @@ app = FastAPI(
     ),
     version="0.5.0",
     lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
 )
 
 # Request ID + structured logging middleware (4B)
@@ -275,6 +279,17 @@ async def clear_embeddings_cache() -> dict:
     svc = get_embeddings_service()
     prev_stats = svc.clear_cache()
     return {"cleared": True, "previous_stats": prev_stats}
+
+
+@app.get("/docs", include_in_schema=False)
+async def custom_swagger_ui():
+    """Serve Swagger UI with local assets (works behind Tailscale without CDN)."""
+    return get_swagger_ui_html(
+        openapi_url="/openapi.json",
+        title="AI Home Hub API Docs",
+        swagger_js_url="/static/swagger/swagger-ui-bundle.js",
+        swagger_css_url="/static/swagger/swagger-ui.css",
+    )
 
 
 # ── SPA Static Files ────────────────────────────────────────
