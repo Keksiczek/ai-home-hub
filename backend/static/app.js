@@ -402,6 +402,14 @@ function handleIngestProgress(msg) {
 /* ============================================================
    PROFILE PILLS & MODEL SELECTOR
    ============================================================ */
+// Fallback profile → default model mapping (used if settings not loaded)
+const PROFILE_DEFAULT_MODELS = {
+  chat: 'llama3.2:latest',
+  tech: 'qwen2.5-coder:3b',
+  vision: 'llava:7b',
+  dolphin: 'llama3.2',
+};
+
 function bindProfilePills() {
   document.querySelectorAll('#profile-pills .pill').forEach(pill => {
     pill.addEventListener('click', () => {
@@ -409,9 +417,33 @@ function bindProfilePills() {
       document.querySelectorAll('#profile-pills .pill').forEach(p =>
         p.classList.toggle('pill--active', p.dataset.profile === currentProfile)
       );
+      // Reset model dropdown to default for the selected profile
+      _resetModelForProfile(currentProfile);
       updateModelBadge();
     });
   });
+}
+
+function _resetModelForProfile(profile) {
+  const chatModelSelect = document.getElementById('chat-model-select');
+  if (!chatModelSelect) return;
+
+  // Try to get default model from settings
+  const profileMap = { chat: 'chat', tech: 'powerbi', vision: 'vision', dolphin: 'lean' };
+  const settingsKey = profileMap[profile] || profile;
+  const profiles = _currentSettings?.profiles || {};
+  const profileConfig = profiles[settingsKey] || profiles[profile];
+
+  let defaultModel = '';
+  if (profileConfig && profileConfig.model) {
+    defaultModel = profileConfig.model;
+  } else {
+    defaultModel = PROFILE_DEFAULT_MODELS[profile] || '';
+  }
+
+  // Set the dropdown – if model exists in options, select it; otherwise reset to empty (default)
+  const optionExists = Array.from(chatModelSelect.options).some(o => o.value === defaultModel);
+  chatModelSelect.value = optionExists ? defaultModel : '';
 }
 
 function updateModelBadge() {
