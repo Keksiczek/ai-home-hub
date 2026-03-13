@@ -433,6 +433,8 @@ function bindProfilePills() {
       // Reset model dropdown to default for the selected profile
       _resetModelForProfile(currentProfile);
       updateModelBadge();
+      // RAM warning for vision profile (llava:7b is 4.4 GB)
+      if (currentProfile === 'vision') _checkRamForVision();
     });
   });
 }
@@ -457,6 +459,23 @@ function _resetModelForProfile(profile) {
   // Set the dropdown – if model exists in options, select it; otherwise reset to empty (default)
   const optionExists = Array.from(chatModelSelect.options).some(o => o.value === defaultModel);
   chatModelSelect.value = optionExists ? defaultModel : '';
+}
+
+async function _checkRamForVision() {
+  try {
+    const resp = await fetch('/api/status/system/resources');
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (data.status === 'no_data') return;
+    const ramPct = data.ram_used_percent || 0;
+    if (ramPct > 75 || data.throttle) {
+      showToast(
+        `llava:7b (4.4 GB) – RAM je na ${ramPct.toFixed(0)}%. Hrozí timeout 180s. Spusť: ollama stop llama3.2`,
+        'warning',
+        8000
+      );
+    }
+  } catch (e) { /* non-critical */ }
 }
 
 function updateModelBadge() {
@@ -3298,12 +3317,12 @@ async function checkSetupStatus() {
 /* ============================================================
    TOAST
    ============================================================ */
-function showToast(message, type = 'info') {
+function showToast(message, type = 'info', duration = 4000) {
   clearTimeout(toastTimer);
   toast.textContent = message;
   toast.className = `toast toast--${type}`;
   toast.classList.remove('hidden');
-  toastTimer = setTimeout(() => toast.classList.add('hidden'), 4000);
+  toastTimer = setTimeout(() => toast.classList.add('hidden'), duration);
 }
 
 /* ============================================================

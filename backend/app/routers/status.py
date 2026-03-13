@@ -371,6 +371,42 @@ async def get_system_resources():
     return get_resource_monitor().to_dict()
 
 
+@router.post("/system/purge-models", tags=["status"])
+async def purge_models(keep_model: str = "") -> Dict[str, Any]:
+    """Unload all Ollama models from RAM except *keep_model*.
+
+    Calls `ollama stop` for each loaded model to free RAM before loading
+    a large model like llava:7b on an 8 GB machine.
+    """
+    from app.services.llm_service import unload_model
+
+    settings = get_settings_service().load()
+    ollama_url = settings.get("llm", {}).get("ollama_url", "http://localhost:11434").rstrip("/")
+
+    unloaded = []
+    freed_mb = 0.0
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{ollama_url}/api/ps")
+            if resp.status_code == 200:
+                data = resp.json()
+                for model_info in data.get("models", []):
+                    name = model_info.get("name", "")
+                    if name and name != keep_model:
+                        size_bytes = model_info.get("size", 0)
+                        await unload_model(name)
+                        unloaded.append(name)
+                        freed_mb += size_bytes / (1024 * 1024)
+    except Exception as exc:
+        logger.warning("Error during model purge: %s", exc)
+
+    return {
+        "unloaded": unloaded,
+        "freed_mb": round(freed_mb, 0),
+        "keep_model": keep_model,
+    }
+
+
 async def _broadcast_status_alert(
     component: str, message: str, severity: str = "warning"
 ) -> None:
