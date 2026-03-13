@@ -1,5 +1,5 @@
 /**
- * AI Home Hub v0.3.0 – Mac Control Center
+ * AI Home Hub – Mac Control Center
  * Vanilla JS, zero dependencies, zero build step.
  * Features: sidebar nav, skills CRUD, model selector, profile pills
  */
@@ -194,7 +194,20 @@ document.addEventListener('DOMContentLoaded', () => {
   initWebSocket();
   checkSetupStatus();
   bindMobileDragDrop();
+  loadVersionFromHealth();
 });
+
+async function loadVersionFromHealth() {
+  try {
+    const resp = await fetch('/api/health');
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (data.version) {
+      const el = document.getElementById('app-version');
+      if (el) el.textContent = `v${data.version}`;
+    }
+  } catch (e) { /* non-critical */ }
+}
 
 /* ============================================================
    SIDEBAR NAVIGATION
@@ -224,6 +237,7 @@ function switchTab(tabName) {
   if (tabName === 'jobs') loadJobs();
   if (tabName === 'actions') { loadQuickActions(); loadVSCodeProjects(); loadActionHistory(); }
   if (tabName === 'settings') { loadSettings(); loadOllamaModels(); }
+  if (tabName === 'overnight') loadOvernightStatus();
 }
 
 function bindMobileMenu() {
@@ -401,6 +415,14 @@ function handleIngestProgress(msg) {
 /* ============================================================
    PROFILE PILLS & MODEL SELECTOR
    ============================================================ */
+// Fallback profile → default model mapping (used if settings not loaded)
+const PROFILE_DEFAULT_MODELS = {
+  chat: 'llama3.2:latest',
+  tech: 'qwen2.5-coder:3b',
+  vision: 'llava:7b',
+  dolphin: 'llama3.2',
+};
+
 function bindProfilePills() {
   document.querySelectorAll('#profile-pills .pill').forEach(pill => {
     pill.addEventListener('click', () => {
@@ -408,9 +430,52 @@ function bindProfilePills() {
       document.querySelectorAll('#profile-pills .pill').forEach(p =>
         p.classList.toggle('pill--active', p.dataset.profile === currentProfile)
       );
+      // Reset model dropdown to default for the selected profile
+      _resetModelForProfile(currentProfile);
       updateModelBadge();
+      // RAM warning for vision profile (llava:7b is 4.4 GB)
+      if (currentProfile === 'vision') _checkRamForVision();
     });
   });
+}
+
+function _resetModelForProfile(profile) {
+  const chatModelSelect = document.getElementById('chat-model-select');
+  if (!chatModelSelect) return;
+
+  // Try to get default model from settings
+  const profileMap = { chat: 'chat', tech: 'powerbi', vision: 'vision', dolphin: 'lean' };
+  const settingsKey = profileMap[profile] || profile;
+  const profiles = _currentSettings?.profiles || {};
+  const profileConfig = profiles[settingsKey] || profiles[profile];
+
+  let defaultModel = '';
+  if (profileConfig && profileConfig.model) {
+    defaultModel = profileConfig.model;
+  } else {
+    defaultModel = PROFILE_DEFAULT_MODELS[profile] || '';
+  }
+
+  // Set the dropdown – if model exists in options, select it; otherwise reset to empty (default)
+  const optionExists = Array.from(chatModelSelect.options).some(o => o.value === defaultModel);
+  chatModelSelect.value = optionExists ? defaultModel : '';
+}
+
+async function _checkRamForVision() {
+  try {
+    const resp = await fetch('/api/status/system/resources');
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (data.status === 'no_data') return;
+    const ramPct = data.ram_used_percent || 0;
+    if (ramPct > 75 || data.throttle) {
+      showToast(
+        `llava:7b (4.4 GB) – RAM je na ${ramPct.toFixed(0)}%. Hrozí timeout 180s. Spusť: ollama stop llama3.2`,
+        'warning',
+        8000
+      );
+    }
+  } catch (e) { /* non-critical */ }
 }
 
 function updateModelBadge() {
@@ -865,6 +930,32 @@ async function sendMessageStreaming(body, sendBtn, chatSpinner) {
           cursor.remove();
           textEl.textContent = fullText;
 
+          // Detect timeout/error in streamed text
+          const isTimeout = fullText.startsWith('[Timeout:') || fullText.startsWith('[Chyba LLM:');
+          if (isTimeout) {
+            bubble.classList.add('bubble--error');
+            textEl.style.color = 'var(--color-error, #e74c3c)';
+            const actionsDiv = document.createElement('div');
+            actionsDiv.className = 'bubble-error-actions';
+            actionsDiv.style.cssText = 'margin-top:0.5rem;display:flex;gap:0.5rem';
+            const retryBtn = document.createElement('button');
+            retryBtn.className = 'btn btn--ghost btn--small';
+            retryBtn.textContent = 'Zkusit znovu';
+            retryBtn.addEventListener('click', () => {
+              document.getElementById('chat-input').value = body.message || '';
+              sendMessage();
+            });
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'btn btn--ghost btn--small';
+            copyBtn.textContent = 'Zkopirovat';
+            copyBtn.addEventListener('click', () => {
+              navigator.clipboard.writeText(body.message || '').then(() => showToast('Zkopirováno', 'success'));
+            });
+            actionsDiv.appendChild(retryBtn);
+            actionsDiv.appendChild(copyBtn);
+            bubble.appendChild(actionsDiv);
+          }
+
           if (msg.meta) {
             if (msg.meta.session_id) {
               currentSessionId = msg.meta.session_id;
@@ -960,6 +1051,11 @@ function appendBubble(role, text, meta, images) {
     inner += '</div>';
   }
 
+  // Style timeout / error bubbles differently
+  if (meta && meta.error) {
+    bubble.classList.add('bubble--error');
+  }
+
   if (meta) {
     const provider = meta.provider || '\u2014';
     const latency = meta.latency_ms ?? '\u2014';
@@ -968,8 +1064,42 @@ function appendBubble(role, text, meta, images) {
     if (latency !== '\u2014') metaStr += ` · ${latency} ms`;
     if (meta.images_processed) metaStr += ` · ${meta.images_processed} img`;
     inner += `<p class="bubble__meta">${metaStr}</p>`;
+
+    // Add retry + copy buttons for errors
+    if (meta.error) {
+      inner += `<div class="bubble-error-actions" style="margin-top:0.5rem;display:flex;gap:0.5rem">
+        <button class="btn btn--ghost btn--small bubble-retry-btn" title="Zkusit znovu">Zkusit znovu</button>
+        <button class="btn btn--ghost btn--small bubble-copy-btn" title="Zkopirovat zpravu">Zkopirovat</button>
+      </div>`;
+    }
   }
   bubble.innerHTML = inner;
+
+  // Bind error action buttons
+  if (meta && meta.error) {
+    const retryBtn = bubble.querySelector('.bubble-retry-btn');
+    const copyBtn = bubble.querySelector('.bubble-copy-btn');
+    if (retryBtn) {
+      retryBtn.addEventListener('click', () => {
+        // Find the previous user bubble text and resend
+        const userBubbles = document.querySelectorAll('#chat-history .bubble--user .bubble__text');
+        if (userBubbles.length) {
+          const lastMsg = userBubbles[userBubbles.length - 1].textContent;
+          document.getElementById('chat-input').value = lastMsg;
+          sendMessage();
+        }
+      });
+    }
+    if (copyBtn) {
+      copyBtn.addEventListener('click', () => {
+        const userBubbles = document.querySelectorAll('#chat-history .bubble--user .bubble__text');
+        if (userBubbles.length) {
+          const lastMsg = userBubbles[userBubbles.length - 1].textContent;
+          navigator.clipboard.writeText(lastMsg).then(() => showToast('Zkopirováno', 'success'));
+        }
+      });
+    }
+  }
 
   if (role === 'ai' && meta && meta.kb_context_used) {
     const badge = document.createElement('span');
@@ -2725,11 +2855,80 @@ function bindStatusEvents() {
   if (refreshBtn) refreshBtn.addEventListener('click', loadSystemStatus);
 }
 
+async function loadResourceMonitor() {
+  const gauges = document.getElementById('resource-gauges');
+  const banners = document.getElementById('resource-banners');
+  const updatedAt = document.getElementById('resource-updated-at');
+  if (!gauges) return;
+
+  try {
+    const resp = await fetch('/api/status/system/resources');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+
+    if (data.status === 'no_data') {
+      gauges.innerHTML = '<p class="empty-state">Zatim zadna data...</p>';
+      return;
+    }
+
+    // Banners
+    if (banners) {
+      let bannerHtml = '';
+      if (data.throttle) {
+        bannerHtml += `<div class="resource-banner resource-banner--warning">${t('resource_throttle')}</div>`;
+      }
+      if (data.block) {
+        bannerHtml += `<div class="resource-banner resource-banner--error">${t('resource_block')}</div>`;
+      }
+      banners.innerHTML = bannerHtml;
+    }
+
+    // Gauges
+    const ramPct = data.ram_used_percent || 0;
+    const cpuPct = data.cpu_percent || 0;
+    const swapUsed = data.swap_used_mb || 0;
+    const swapTotal = data.swap_total_mb || 1;
+    const swapPct = swapTotal > 0 ? Math.round((swapUsed / swapTotal) * 100) : 0;
+
+    const ramColor = ramPct > 85 ? 'var(--color-error, #e74c3c)' : ramPct > 70 ? 'var(--color-warning, #f39c12)' : 'var(--color-success, #2ecc71)';
+    const cpuColor = cpuPct > 85 ? 'var(--color-error, #e74c3c)' : cpuPct > 70 ? 'var(--color-warning, #f39c12)' : 'var(--color-success, #2ecc71)';
+    const swapColor = swapPct > 80 ? 'var(--color-error, #e74c3c)' : swapPct > 50 ? 'var(--color-warning, #f39c12)' : 'var(--color-success, #2ecc71)';
+
+    gauges.innerHTML = `
+      <div class="resource-gauge">
+        <div class="resource-gauge-label">${t('resource_ram')}: ${ramPct.toFixed(1)}% (${data.ram_used_mb || 0} / ${data.ram_total_mb || 0} MB)</div>
+        <div class="progress-bar-wrap"><div class="progress-bar" style="width:${ramPct}%;background:${ramColor}"></div></div>
+      </div>
+      <div class="resource-gauge">
+        <div class="resource-gauge-label">${t('resource_cpu')}: ${cpuPct.toFixed(1)}%</div>
+        <div class="progress-bar-wrap"><div class="progress-bar" style="width:${cpuPct}%;background:${cpuColor}"></div></div>
+      </div>
+      <div class="resource-gauge">
+        <div class="resource-gauge-label">${t('resource_swap')}: ${swapUsed.toFixed(0)} / ${swapTotal.toFixed(0)} MB (${swapPct}%)</div>
+        <div class="progress-bar-wrap"><div class="progress-bar" style="width:${swapPct}%;background:${swapColor}"></div></div>
+      </div>
+      <div class="resource-gauge">
+        <div class="resource-gauge-label">${t('resource_ollama')}: ${(data.ollama_rss_mb || 0).toFixed(0)} MB</div>
+        <div class="resource-gauge-label" style="font-size:0.7rem">${t('resource_backend')}: ${(data.backend_rss_mb || 0).toFixed(0)} MB</div>
+      </div>
+    `;
+
+    if (updatedAt) {
+      updatedAt.textContent = `${t('resource_updated')}: ${new Date(data.timestamp).toLocaleTimeString()}`;
+    }
+  } catch (err) {
+    gauges.innerHTML = `<p class="empty-state">Chyba: ${escHtml(err.message)}</p>`;
+  }
+}
+
 async function loadSystemStatus() {
   const grid = document.getElementById('status-grid');
   const badge = document.getElementById('overall-status-badge');
   const timestamp = document.getElementById('status-timestamp');
   if (!grid) return;
+
+  // Load resource monitor in parallel
+  loadResourceMonitor();
 
   try {
     const response = await fetch('/api/status');
@@ -3171,7 +3370,13 @@ async function checkSetupStatus() {
         <strong>Prvni nastaveni potreba</strong>
         <button class="setup-banner__dismiss" onclick="document.getElementById('setup-banner').remove()" title="${t('close')}">&#10005;</button>
         <ul class="setup-banner__list">
-          ${incomplete.map(i => `<li><button class="setup-banner__link" onclick="switchTab('settings')">${escHtml(i.label)}</button> – ${escHtml(i.hint)}</li>`).join('')}
+          ${incomplete.map(i => {
+            let action = `<button class="setup-banner__link" onclick="switchTab('settings')">${escHtml(i.label)}</button>`;
+            if (i.key === 'kb_indexed') {
+              action += ` <button class="btn btn--ghost btn--small" onclick="quickIndexKB(this)">Indexovat</button>`;
+            }
+            return `<li>${action} – ${escHtml(i.hint)}</li>`;
+          }).join('')}
         </ul>
       `;
       const panel = document.getElementById('tab-chat');
@@ -3180,15 +3385,33 @@ async function checkSetupStatus() {
   } catch (e) { /* non-critical */ }
 }
 
+async function quickIndexKB(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Indexuji...'; }
+  try {
+    const resp = await fetch('/api/knowledge/ingest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(null),
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    const data = await resp.json();
+    showToast(`KB indexace spuštěna (job: ${data.job_id})`, 'success');
+    if (btn) btn.textContent = 'Spuštěno';
+  } catch (err) {
+    showToast(`Chyba: ${err.message}`, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Indexovat'; }
+  }
+}
+
 /* ============================================================
    TOAST
    ============================================================ */
-function showToast(message, type = 'info') {
+function showToast(message, type = 'info', duration = 4000) {
   clearTimeout(toastTimer);
   toast.textContent = message;
   toast.className = `toast toast--${type}`;
   toast.classList.remove('hidden');
-  toastTimer = setTimeout(() => toast.classList.add('hidden'), 4000);
+  toastTimer = setTimeout(() => toast.classList.add('hidden'), duration);
 }
 
 /* ============================================================
@@ -4026,4 +4249,105 @@ async function createReportFromJob(sourceJobId, format) {
   } catch (err) {
     showToast('Chyba: ' + err.message, 'error');
   }
+}
+
+/* ============================================================
+   OVERNIGHT JOBS TAB
+   ============================================================ */
+async function loadOvernightStatus() {
+  const overview = document.getElementById('overnight-status-overview');
+  const kbBody = document.getElementById('overnight-kb-body');
+  const gitBody = document.getElementById('overnight-git-body');
+  const summaryBody = document.getElementById('overnight-summary-body');
+
+  try {
+    const resp = await fetch('/api/overnight/status');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+
+    // C1: Status overview panel
+    if (overview) {
+      const windowStatus = data.is_night_window
+        ? `<span class="badge badge--green">${t('overnight_active')}</span>`
+        : `<span class="badge badge--gray">${t('overnight_inactive')}</span>`;
+      const windowRange = data.night_window
+        ? `${data.night_window.start} – ${data.night_window.end}`
+        : '22:00 – 06:00';
+      overview.innerHTML = `
+        <div class="overnight-overview-grid">
+          <div class="overnight-overview-item">
+            <span class="overnight-overview-label">${t('overnight_window')}</span>
+            <span>${windowStatus} <span class="hint-text">(${escHtml(windowRange)})</span></span>
+          </div>
+          <div class="overnight-overview-item">
+            <span class="overnight-overview-label">${t('overnight_next')}</span>
+            <span>${escHtml(data.next_scheduled || '-')}</span>
+          </div>
+        </div>
+      `;
+    }
+
+    // C2: Last run cards
+    const lastRun = data.last_run || {};
+    _renderOvernightJobCard(kbBody, lastRun.kb_reindex, 'kb_reindex');
+    _renderOvernightJobCard(gitBody, lastRun.git_sweep, 'git_sweep');
+    _renderOvernightJobCard(summaryBody, lastRun.nightly_summary, 'nightly_summary');
+
+  } catch (err) {
+    if (overview) overview.innerHTML = `<p class="empty-state">Chyba: ${escHtml(err.message)}</p>`;
+  }
+}
+
+function _renderOvernightJobCard(el, runData, jobType) {
+  if (!el) return;
+
+  const runBtn = `<button class="btn btn--ghost btn--small overnight-run-btn" data-job="${escHtml(jobType)}" style="margin-top:0.5rem">Spustit nyni</button>`;
+
+  if (!runData) {
+    el.innerHTML = `<p class="empty-state">${t('overnight_waiting')}</p>${runBtn}`;
+    _bindOvernightRunBtn(el);
+    return;
+  }
+  const date = runData.date || '-';
+  const ts = runData.timestamp ? new Date(runData.timestamp).toLocaleString() : '';
+  let detail = '';
+  if (jobType === 'nightly_summary' && runData.preview) {
+    detail = `<p class="hint-text" style="margin-top:0.5rem">${escHtml(runData.preview)}</p>`;
+  } else if (runData.result) {
+    const resultText = typeof runData.result === 'string'
+      ? runData.result
+      : JSON.stringify(runData.result);
+    detail = `<p class="hint-text" style="margin-top:0.5rem">${escHtml(resultText.substring(0, 300))}</p>`;
+  }
+  el.innerHTML = `
+    <div class="overnight-job-status">
+      <span class="badge badge--green">${t('overnight_done')}</span>
+      <span class="hint-text">${escHtml(date)}</span>
+    </div>
+    ${ts ? `<p class="hint-text" style="font-size:0.7rem">${escHtml(ts)}</p>` : ''}
+    ${detail}
+    ${runBtn}
+  `;
+  _bindOvernightRunBtn(el);
+}
+
+function _bindOvernightRunBtn(container) {
+  const btn = container.querySelector('.overnight-run-btn');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    const jobName = btn.dataset.job;
+    btn.disabled = true;
+    btn.textContent = 'Spouštím...';
+    try {
+      const resp = await fetch(`/api/overnight/run/${jobName}`, { method: 'POST' });
+      if (!resp.ok) throw new Error(await resp.text());
+      const data = await resp.json();
+      showToast(`Job ${jobName} zařazen (${data.job_id})`, 'success');
+      btn.textContent = 'Zařazeno';
+    } catch (err) {
+      showToast(`Chyba: ${err.message}`, 'error');
+      btn.disabled = false;
+      btn.textContent = 'Spustit nyni';
+    }
+  });
 }

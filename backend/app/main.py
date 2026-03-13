@@ -6,6 +6,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.routers import actions, agent_skills, chat, chat_multimodal, files, knowledge, memory, status
@@ -113,8 +115,10 @@ app = FastAPI(
         "Unified Mac control hub integrating Ollama LLM, Claude MCP, "
         "VS Code, Antigravity IDE, filesystem, git, and macOS automation."
     ),
-    version="0.3.0",
+    version="0.5.0",
     lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
 )
 
 # Request ID + structured logging middleware (4B)
@@ -193,6 +197,21 @@ async def setup_check() -> dict:
         "label": "LLM provider",
         "ok": True,
         "hint": f"Current: {llm_provider}. Run 'ollama serve' for Ollama.",
+    })
+
+    # Knowledge Base indexed check
+    try:
+        from app.services.vector_store_service import get_vector_store_service
+        vs = get_vector_store_service()
+        stats = vs.get_stats()
+        kb_chunks = stats.get("total_chunks", 0)
+    except Exception:
+        kb_chunks = 0
+    items.append({
+        "key": "kb_indexed",
+        "label": "Knowledge Base indexována",
+        "ok": kb_chunks > 0,
+        "hint": f"Chunks: {kb_chunks}. Indexujte dokumenty v Nastavení → Knowledge Base.",
     })
 
     all_ok = all(i["ok"] for i in items)
@@ -275,6 +294,17 @@ async def clear_embeddings_cache() -> dict:
     svc = get_embeddings_service()
     prev_stats = svc.clear_cache()
     return {"cleared": True, "previous_stats": prev_stats}
+
+
+@app.get("/docs", include_in_schema=False)
+async def custom_swagger_ui():
+    """Serve Swagger UI with local assets (works behind Tailscale without CDN)."""
+    return get_swagger_ui_html(
+        openapi_url="/openapi.json",
+        title="AI Home Hub API Docs",
+        swagger_js_url="/static/swagger/swagger-ui-bundle.js",
+        swagger_css_url="/static/swagger/swagger-ui.css",
+    )
 
 
 # ── SPA Static Files ────────────────────────────────────────
