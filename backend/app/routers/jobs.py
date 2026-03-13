@@ -155,3 +155,27 @@ async def overnight_status() -> Dict[str, Any]:
         "last_run": last_run,
         "next_scheduled": next_scheduled,
     }
+
+
+@router.post("/overnight/run/{job_name}", tags=["jobs"])
+async def run_overnight_job_now(job_name: str) -> Dict[str, Any]:
+    """Manually trigger an overnight job regardless of the night window.
+
+    *job_name* must be one of: kb_reindex, git_sweep, nightly_summary.
+    Creates a queued job that the worker will pick up immediately.
+    """
+    allowed = {"kb_reindex", "git_sweep", "nightly_summary"}
+    if job_name not in allowed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown job: {job_name}. Allowed: {', '.join(sorted(allowed))}",
+        )
+
+    svc = get_job_service()
+    job = svc.create_job(
+        type=job_name,
+        title=f"Manual run: {job_name}",
+        payload={"manual": True},
+        priority="high",
+    )
+    return {"job_id": job.id, "status": "queued"}

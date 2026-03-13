@@ -4276,8 +4276,12 @@ async function loadOvernightStatus() {
 
 function _renderOvernightJobCard(el, runData, jobType) {
   if (!el) return;
+
+  const runBtn = `<button class="btn btn--ghost btn--small overnight-run-btn" data-job="${escHtml(jobType)}" style="margin-top:0.5rem">Spustit nyni</button>`;
+
   if (!runData) {
-    el.innerHTML = `<p class="empty-state">${t('overnight_waiting')}</p>`;
+    el.innerHTML = `<p class="empty-state">${t('overnight_waiting')}</p>${runBtn}`;
+    _bindOvernightRunBtn(el);
     return;
   }
   const date = runData.date || '-';
@@ -4298,5 +4302,28 @@ function _renderOvernightJobCard(el, runData, jobType) {
     </div>
     ${ts ? `<p class="hint-text" style="font-size:0.7rem">${escHtml(ts)}</p>` : ''}
     ${detail}
+    ${runBtn}
   `;
+  _bindOvernightRunBtn(el);
+}
+
+function _bindOvernightRunBtn(container) {
+  const btn = container.querySelector('.overnight-run-btn');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    const jobName = btn.dataset.job;
+    btn.disabled = true;
+    btn.textContent = 'Spouštím...';
+    try {
+      const resp = await fetch(`/api/overnight/run/${jobName}`, { method: 'POST' });
+      if (!resp.ok) throw new Error(await resp.text());
+      const data = await resp.json();
+      showToast(`Job ${jobName} zařazen (${data.job_id})`, 'success');
+      btn.textContent = 'Zařazeno';
+    } catch (err) {
+      showToast(`Chyba: ${err.message}`, 'error');
+      btn.disabled = false;
+      btn.textContent = 'Spustit nyni';
+    }
+  });
 }
