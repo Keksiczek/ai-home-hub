@@ -151,6 +151,11 @@ async def chat(request: ChatRequest) -> ChatResponse:
     meta["history_total_messages"] = len(all_messages)
     meta["history_sent_messages"] = len(history)
 
+    # Mark timeout errors explicitly for frontend UX
+    if meta.get("provider") == "timeout":
+        meta["error"] = True
+        meta["error_type"] = "timeout"
+
     # Persist both turns (store original message, not the one with KB context)
     session_svc.save_message(session_id, "user", request.message)
     session_svc.save_message(session_id, "assistant", reply, meta)

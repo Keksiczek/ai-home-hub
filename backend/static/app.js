@@ -930,6 +930,32 @@ async function sendMessageStreaming(body, sendBtn, chatSpinner) {
           cursor.remove();
           textEl.textContent = fullText;
 
+          // Detect timeout/error in streamed text
+          const isTimeout = fullText.startsWith('[Timeout:') || fullText.startsWith('[Chyba LLM:');
+          if (isTimeout) {
+            bubble.classList.add('bubble--error');
+            textEl.style.color = 'var(--color-error, #e74c3c)';
+            const actionsDiv = document.createElement('div');
+            actionsDiv.className = 'bubble-error-actions';
+            actionsDiv.style.cssText = 'margin-top:0.5rem;display:flex;gap:0.5rem';
+            const retryBtn = document.createElement('button');
+            retryBtn.className = 'btn btn--ghost btn--small';
+            retryBtn.textContent = 'Zkusit znovu';
+            retryBtn.addEventListener('click', () => {
+              document.getElementById('chat-input').value = body.message || '';
+              sendMessage();
+            });
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'btn btn--ghost btn--small';
+            copyBtn.textContent = 'Zkopirovat';
+            copyBtn.addEventListener('click', () => {
+              navigator.clipboard.writeText(body.message || '').then(() => showToast('Zkopirováno', 'success'));
+            });
+            actionsDiv.appendChild(retryBtn);
+            actionsDiv.appendChild(copyBtn);
+            bubble.appendChild(actionsDiv);
+          }
+
           if (msg.meta) {
             if (msg.meta.session_id) {
               currentSessionId = msg.meta.session_id;
@@ -1025,6 +1051,11 @@ function appendBubble(role, text, meta, images) {
     inner += '</div>';
   }
 
+  // Style timeout / error bubbles differently
+  if (meta && meta.error) {
+    bubble.classList.add('bubble--error');
+  }
+
   if (meta) {
     const provider = meta.provider || '\u2014';
     const latency = meta.latency_ms ?? '\u2014';
@@ -1033,8 +1064,42 @@ function appendBubble(role, text, meta, images) {
     if (latency !== '\u2014') metaStr += ` · ${latency} ms`;
     if (meta.images_processed) metaStr += ` · ${meta.images_processed} img`;
     inner += `<p class="bubble__meta">${metaStr}</p>`;
+
+    // Add retry + copy buttons for errors
+    if (meta.error) {
+      inner += `<div class="bubble-error-actions" style="margin-top:0.5rem;display:flex;gap:0.5rem">
+        <button class="btn btn--ghost btn--small bubble-retry-btn" title="Zkusit znovu">Zkusit znovu</button>
+        <button class="btn btn--ghost btn--small bubble-copy-btn" title="Zkopirovat zpravu">Zkopirovat</button>
+      </div>`;
+    }
   }
   bubble.innerHTML = inner;
+
+  // Bind error action buttons
+  if (meta && meta.error) {
+    const retryBtn = bubble.querySelector('.bubble-retry-btn');
+    const copyBtn = bubble.querySelector('.bubble-copy-btn');
+    if (retryBtn) {
+      retryBtn.addEventListener('click', () => {
+        // Find the previous user bubble text and resend
+        const userBubbles = document.querySelectorAll('#chat-history .bubble--user .bubble__text');
+        if (userBubbles.length) {
+          const lastMsg = userBubbles[userBubbles.length - 1].textContent;
+          document.getElementById('chat-input').value = lastMsg;
+          sendMessage();
+        }
+      });
+    }
+    if (copyBtn) {
+      copyBtn.addEventListener('click', () => {
+        const userBubbles = document.querySelectorAll('#chat-history .bubble--user .bubble__text');
+        if (userBubbles.length) {
+          const lastMsg = userBubbles[userBubbles.length - 1].textContent;
+          navigator.clipboard.writeText(lastMsg).then(() => showToast('Zkopirováno', 'success'));
+        }
+      });
+    }
+  }
 
   if (role === 'ai' && meta && meta.kb_context_used) {
     const badge = document.createElement('span');

@@ -598,6 +598,15 @@ body {
   border-bottom-left-radius: 4px;
 }
 
+.bubble--error {
+  border-left: 3px solid var(--color-error, #e74c3c);
+  background: #2d2030;
+}
+
+.bubble--error .bubble__text {
+  color: var(--color-error, #e74c3c);
+}
+
 .bubble__text {
   white-space: pre-wrap;
 }
