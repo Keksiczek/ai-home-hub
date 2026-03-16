@@ -334,55 +334,93 @@
     <!-- ======================== RESIDENT AGENT TAB ======================== -->
     <div class="tab-panel hidden" id="tab-resident" role="tabpanel">
 
-      <!-- A1: StatusBar -->
+      <!-- Status bar -->
       <div class="resident-statusbar" id="resident-statusbar">
         <div class="resident-statusbar__left">
-          <span class="resident-status-indicator resident-status--idle" id="resident-status-indicator">
+          <span class="resident-status-indicator resident-status--stopped" id="resident-status-indicator">
             <span class="resident-status-dot"></span>
-            <span id="resident-status-text">&#268;ek&aacute;</span>
+            <span id="resident-status-text">Zastaven</span>
           </span>
-          <span class="resident-tick" id="resident-tick">Tick #0</span>
-          <span class="resident-current-task hidden" id="resident-current-task"></span>
+          <span class="resident-uptime" id="resident-uptime"></span>
+          <span class="resident-heartbeat hidden" id="resident-heartbeat"></span>
         </div>
         <div class="resident-statusbar__right">
-          <button class="btn btn--primary btn--small" id="resident-start-btn">&#9654; Spustit</button>
-          <button class="btn btn--ghost btn--small" id="resident-stop-btn" disabled>&#9209; Zastavit</button>
+          <button class="btn btn--primary btn--small" id="resident-start-btn">Spustit</button>
+          <button class="btn btn--ghost btn--small" id="resident-stop-btn" disabled>Zastavit</button>
         </div>
       </div>
 
       <div class="panel-header">
-        <h1 class="panel-title">Resident Agent</h1>
+        <h1 class="panel-title">Resident Agent Dashboard</h1>
       </div>
 
-      <!-- A2: RecentSteps feed -->
-      <section class="card">
-        <h2 class="card-title">Posledn&iacute; kroky</h2>
-        <div id="resident-steps-feed">
-          <p class="empty-state" id="resident-steps-empty">Agent zat&iacute;m neprovedl &#382;&aacute;dnou akci</p>
-        </div>
-      </section>
+      <!-- Loading skeleton -->
+      <div id="resident-loading" class="resident-loading hidden">
+        <div class="skeleton skeleton--card"></div>
+        <div class="skeleton skeleton--card"></div>
+      </div>
 
-      <!-- A3: TaskSubmit -->
-      <section class="card">
-        <h2 class="card-title">P&#345;idat &uacute;kol</h2>
-        <div class="form-group">
-          <label class="form-label" for="resident-task-name">N&aacute;zev &uacute;kolu:</label>
-          <input type="text" class="input" id="resident-task-name" maxlength="100"
-                 placeholder="N&aacute;zev &uacute;kolu (povinn&yacute;)" />
+      <!-- Dashboard content -->
+      <div id="resident-dashboard-content">
+
+        <!-- Current task -->
+        <section class="card hidden" id="resident-current-task-card">
+          <h2 class="card-title">Aktu&aacute;ln&iacute; &uacute;kol</h2>
+          <div id="resident-current-task-info"></div>
+        </section>
+
+        <!-- Stat cards -->
+        <div class="resident-stats-grid" id="resident-stats-grid">
+          <div class="stat-card">
+            <div class="stat-card__value" id="resident-stat-total">-</div>
+            <div class="stat-card__label">&Uacute;koly (24h)</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__value" id="resident-stat-success">-</div>
+            <div class="stat-card__label">&Uacute;sp&#283;&#353;nost</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__value" id="resident-stat-duration">-</div>
+            <div class="stat-card__label">Pr&#367;m. doba</div>
+          </div>
         </div>
-        <div class="form-group">
-          <label class="form-label" for="resident-task-desc">Popis:</label>
-          <textarea class="textarea" id="resident-task-desc" rows="2" maxlength="500"
-                    placeholder="Popis (voliteln&yacute;, max 500 znak&#367;)"></textarea>
-        </div>
-        <div class="form-group form-group--right">
-          <button class="btn btn--primary" id="resident-task-submit-btn" disabled
-                  title="Nejd&#345;&iacute;v spus&#357; agenta">
-            P&#345;idat &uacute;kol
-            <span class="spinner spinner--small hidden" id="resident-task-spinner"></span>
-          </button>
-        </div>
-      </section>
+
+        <!-- Alerts -->
+        <section class="card hidden" id="resident-alerts-card">
+          <h2 class="card-title">Upozorn&#283;n&iacute;</h2>
+          <div id="resident-alerts-list"></div>
+        </section>
+
+        <!-- Recent tasks table -->
+        <section class="card">
+          <h2 class="card-title">Posledn&iacute; &uacute;koly</h2>
+          <div id="resident-recent-tasks">
+            <p class="empty-state" id="resident-tasks-empty">&#381;&aacute;dn&eacute; &uacute;koly za 24 h</p>
+          </div>
+        </section>
+
+        <!-- Task submit -->
+        <section class="card">
+          <h2 class="card-title">P&#345;idat &uacute;kol</h2>
+          <div class="form-group">
+            <label class="form-label" for="resident-task-name">N&aacute;zev &uacute;kolu:</label>
+            <input type="text" class="input" id="resident-task-name" maxlength="100"
+                   placeholder="N&aacute;zev &uacute;kolu (povinn&yacute;)" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="resident-task-desc">Popis:</label>
+            <textarea class="textarea" id="resident-task-desc" rows="2" maxlength="500"
+                      placeholder="Popis (voliteln&yacute;, max 500 znak&#367;)"></textarea>
+          </div>
+          <div class="form-group form-group--right">
+            <button class="btn btn--primary" id="resident-task-submit-btn" disabled
+                    title="Nejd&#345;&iacute;v spus&#357; agenta">
+              P&#345;idat &uacute;kol
+              <span class="spinner spinner--small hidden" id="resident-task-spinner"></span>
+            </button>
+          </div>
+        </section>
+      </div>
 
     </div><!-- /tab-resident -->
 

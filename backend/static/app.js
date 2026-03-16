@@ -209,6 +209,7 @@ document.addEventListener('DOMContentLoaded', () => {
   bindSettingsEvents();
   bindStatusEvents();
   bindJobsEvents();
+  bindResidentEvents();
   bindKnowledgeManagerEvents();
   initWebSocket();
   checkSetupStatus();
@@ -256,6 +257,7 @@ function switchTab(tabName) {
   if (tabName === 'jobs') loadJobs();
   if (tabName === 'actions') { loadQuickActions(); loadVSCodeProjects(); loadActionHistory(); }
   if (tabName === 'settings') { loadSettings(); loadOllamaModels(); }
+  if (tabName === 'resident') loadResidentDashboard();
   if (tabName === 'overnight') loadOvernightStatus();
   if (tabName === 'knowledge') loadKbOverview();
 }
@@ -413,6 +415,8 @@ function handleWsMessage(msg) {
   else if (msg.type === 'ingest_progress') handleIngestProgress(msg);
   else if (msg.type === 'job_update') handleJobUpdate(msg.job);
   else if (msg.type === 'status_alert') handleStatusAlert(msg);
+  else if (msg.type === 'resident_tick') handleResidentTick(msg);
+  else if (msg.type === 'resident_action') handleResidentAction(msg);
 }
 
 function handleIngestProgress(msg) {
@@ -4911,4 +4915,272 @@ function getFileTypeIcon(type) {
     png: '&#128247;', jpg: '&#128247;', jpeg: '&#128247;',
   };
   return icons[type] || '&#128196;';
+}
+
+
+/* ============================================================
+   RESIDENT AGENT DASHBOARD
+   ============================================================ */
+let _residentPollTimer = null;
+let _residentDashboardData = null;
+
+function bindResidentEvents() {
+  const startBtn = document.getElementById('resident-start-btn');
+  const stopBtn = document.getElementById('resident-stop-btn');
+  const taskSubmitBtn = document.getElementById('resident-task-submit-btn');
+  const taskNameInput = document.getElementById('resident-task-name');
+
+  if (startBtn) startBtn.addEventListener('click', residentStart);
+  if (stopBtn) stopBtn.addEventListener('click', residentStop);
+  if (taskSubmitBtn) taskSubmitBtn.addEventListener('click', residentSubmitTask);
+
+  // Enable submit only when name is filled
+  if (taskNameInput) {
+    taskNameInput.addEventListener('input', () => {
+      if (taskSubmitBtn) taskSubmitBtn.disabled = !taskNameInput.value.trim();
+    });
+  }
+}
+
+async function loadResidentDashboard() {
+  const loading = document.getElementById('resident-loading');
+  const content = document.getElementById('resident-dashboard-content');
+  if (loading) show(loading);
+
+  try {
+    const res = await fetch('/api/resident/dashboard');
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    _residentDashboardData = data;
+    renderResidentDashboard(data);
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  } finally {
+    if (loading) hide(loading);
+    if (content) show(content);
+  }
+
+  // Poll while tab is visible
+  clearInterval(_residentPollTimer);
+  _residentPollTimer = setInterval(() => {
+    const panel = document.getElementById('tab-resident');
+    if (panel && !panel.classList.contains('hidden')) {
+      loadResidentDashboard();
+    } else {
+      clearInterval(_residentPollTimer);
+    }
+  }, 15000);
+}
+
+function renderResidentDashboard(data) {
+  // Status indicator
+  const indicator = document.getElementById('resident-status-indicator');
+  const statusText = document.getElementById('resident-status-text');
+  if (indicator) {
+    indicator.className = 'resident-status-indicator resident-status--' + data.status;
+  }
+  const statusLabels = { running: 'Běží', stopped: 'Zastaven', error: 'Chyba' };
+  if (statusText) statusText.textContent = statusLabels[data.status] || data.status;
+
+  // Uptime
+  const uptimeEl = document.getElementById('resident-uptime');
+  if (uptimeEl) {
+    uptimeEl.textContent = data.status !== 'stopped' ? formatUptime(data.uptime_seconds) : '';
+  }
+
+  // Heartbeat badge
+  const hbEl = document.getElementById('resident-heartbeat');
+  if (hbEl) {
+    if (data.status !== 'stopped') {
+      show(hbEl);
+      hbEl.className = 'resident-heartbeat resident-hb--' + data.heartbeat_status;
+      hbEl.textContent = data.heartbeat_status;
+    } else {
+      hide(hbEl);
+    }
+  }
+
+  // Start/Stop buttons
+  const startBtn = document.getElementById('resident-start-btn');
+  const stopBtn = document.getElementById('resident-stop-btn');
+  if (startBtn) startBtn.disabled = data.status === 'running';
+  if (stopBtn) stopBtn.disabled = data.status === 'stopped';
+
+  // Current task
+  const taskCard = document.getElementById('resident-current-task-card');
+  const taskInfo = document.getElementById('resident-current-task-info');
+  if (data.current_task) {
+    if (taskCard) show(taskCard);
+    if (taskInfo) {
+      taskInfo.innerHTML = `
+        <div class="resident-current-task-detail">
+          <span class="job-status-badge job-status--running">${escHtml(data.current_task.status)}</span>
+          <strong>${escHtml(data.current_task.title)}</strong>
+          <span class="text-muted">${data.current_task.started_at ? formatJobDate(data.current_task.started_at) : ''}</span>
+        </div>`;
+    }
+  } else {
+    if (taskCard) hide(taskCard);
+  }
+
+  // Stat cards
+  const stats = data.stats_24h || {};
+  const totalEl = document.getElementById('resident-stat-total');
+  const successEl = document.getElementById('resident-stat-success');
+  const durationEl = document.getElementById('resident-stat-duration');
+  if (totalEl) totalEl.textContent = stats.tasks_total ?? '-';
+  if (successEl) successEl.textContent = stats.tasks_total > 0 ? Math.round(stats.success_rate * 100) + '%' : '-';
+  if (durationEl) durationEl.textContent = stats.avg_task_duration_s > 0 ? stats.avg_task_duration_s + ' s' : '-';
+
+  // Alerts
+  const alertsCard = document.getElementById('resident-alerts-card');
+  const alertsList = document.getElementById('resident-alerts-list');
+  if (data.alerts && data.alerts.length > 0) {
+    if (alertsCard) show(alertsCard);
+    if (alertsList) {
+      alertsList.innerHTML = data.alerts.map(a =>
+        `<div class="resident-alert-item">${escHtml(a)}</div>`
+      ).join('');
+    }
+  } else {
+    if (alertsCard) hide(alertsCard);
+  }
+
+  // Recent tasks table
+  renderResidentRecentTasks(data.recent_tasks || []);
+}
+
+function renderResidentRecentTasks(tasks) {
+  const container = document.getElementById('resident-recent-tasks');
+  const emptyEl = document.getElementById('resident-tasks-empty');
+  if (!container) return;
+
+  if (!tasks.length) {
+    container.innerHTML = '';
+    if (emptyEl) { container.appendChild(emptyEl); show(emptyEl); }
+    return;
+  }
+  if (emptyEl) hide(emptyEl);
+
+  container.innerHTML = `
+    <table class="jobs-table">
+      <thead>
+        <tr>
+          <th>Název</th>
+          <th>Stav</th>
+          <th>Trvání</th>
+          <th>Vytvořeno</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${tasks.map(t => `
+          <tr class="jobs-row" onclick="showJobDetail('${escHtml(t.id)}')" style="cursor:pointer">
+            <td>${escHtml(t.title)}</td>
+            <td><span class="job-status-badge job-status--${t.status}">${escHtml(t.status)}</span></td>
+            <td>${t.duration_s != null ? t.duration_s + ' s' : '-'}</td>
+            <td class="jobs-cell-date">${formatJobDate(t.created_at)}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>`;
+}
+
+function formatUptime(seconds) {
+  if (!seconds || seconds <= 0) return '';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (h > 0) return h + 'h ' + m + 'm';
+  if (m > 0) return m + 'm ' + s + 's';
+  return s + 's';
+}
+
+async function residentStart() {
+  const startBtn = document.getElementById('resident-start-btn');
+  if (startBtn) startBtn.disabled = true;
+  try {
+    const res = await fetch('/api/resident/start', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || data.message || 'Failed');
+    showToast(data.message || 'Agent spuštěn', 'success');
+    await loadResidentDashboard();
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+    if (startBtn) startBtn.disabled = false;
+  }
+}
+
+async function residentStop() {
+  const stopBtn = document.getElementById('resident-stop-btn');
+  if (stopBtn) stopBtn.disabled = true;
+  try {
+    const res = await fetch('/api/resident/stop', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || data.message || 'Failed');
+    showToast(data.message || 'Agent zastaven', 'success');
+    await loadResidentDashboard();
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+    if (stopBtn) stopBtn.disabled = false;
+  }
+}
+
+async function residentSubmitTask() {
+  const nameInput = document.getElementById('resident-task-name');
+  const descInput = document.getElementById('resident-task-desc');
+  const submitBtn = document.getElementById('resident-task-submit-btn');
+  const spinner = document.getElementById('resident-task-spinner');
+  const name = (nameInput && nameInput.value || '').trim();
+  if (!name) return;
+
+  setLoading(submitBtn, spinner, true);
+  try {
+    const res = await fetch('/api/resident/task', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: name, description: (descInput && descInput.value || '').trim() }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    showToast('Úkol přidán', 'success');
+    if (nameInput) nameInput.value = '';
+    if (descInput) descInput.value = '';
+    await loadResidentDashboard();
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  } finally {
+    setLoading(submitBtn, spinner, false);
+  }
+}
+
+function handleResidentTick(msg) {
+  // Live update status indicator from WS
+  const indicator = document.getElementById('resident-status-indicator');
+  const statusText = document.getElementById('resident-status-text');
+  if (indicator && msg.status) {
+    const mapped = msg.status === 'idle' ? 'running' : msg.status === 'thinking' || msg.status === 'executing' ? 'running' : msg.status;
+    indicator.className = 'resident-status-indicator resident-status--' + mapped;
+  }
+  if (statusText && msg.status) {
+    const labels = { idle: 'Běží', thinking: 'Přemýšlí...', executing: 'Provádí akci', error: 'Chyba' };
+    statusText.textContent = labels[msg.status] || msg.status;
+  }
+  // Update heartbeat badge live
+  const hbEl = document.getElementById('resident-heartbeat');
+  if (hbEl && msg.heartbeat_status) {
+    show(hbEl);
+    hbEl.className = 'resident-heartbeat resident-hb--' + msg.heartbeat_status;
+    hbEl.textContent = msg.heartbeat_status;
+  }
+}
+
+function handleResidentAction(msg) {
+  // Show toast for completed actions
+  if (msg.action) {
+    showToast(`Resident: ${msg.action}`, 'info', 3000);
+  }
+  // Refresh dashboard if the tab is visible
+  const panel = document.getElementById('tab-resident');
+  if (panel && !panel.classList.contains('hidden')) {
+    loadResidentDashboard();
+  }
 }
