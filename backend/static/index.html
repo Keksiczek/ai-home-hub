@@ -359,6 +359,12 @@
           <div id="resident-autonomous-warning" class="resident-autonomous-warning hidden">
             &#9888; Bezpe&#269;n&eacute; akce se spou&#353;t&iacute; automaticky, maz&aacute;n&iacute; jen se souhlasem.
           </div>
+          <!-- Panic / toggle autonomy – always visible, prominent -->
+          <button class="btn btn--danger btn--small" id="resident-panic-btn"
+                  onclick="toggleResidentAutonomy()"
+                  title="Okam&#382;it&#283; pozastavit autonomn&iacute; re&#382;im Residenta">
+            &#9208;&#65039; Pozastavit autonomii
+          </button>
           <button class="btn btn--primary btn--small" id="resident-start-btn">Spustit</button>
           <button class="btn btn--ghost btn--small" id="resident-stop-btn" disabled>Zastavit</button>
         </div>
@@ -1174,6 +1180,26 @@
         </div>
         <div id="experimental-features-list">
           <p class="empty-state">Na&#269;&iacute;t&aacute;m...</p>
+        </div>
+      </section>
+
+      <!-- System Controls section -->
+      <section class="card settings-section" id="system-controls-section">
+        <h2 class="card-title"><span class="section-icon">&#9881;</span> Spr&aacute;va syst&eacute;mu</h2>
+        <p class="hint-text">Lok&aacute;ln&iacute; operace &ndash; ur&#269;eno pro localhost nebo Tailscale s&iacute;&#357;.</p>
+        <div class="system-controls-row">
+          <div class="system-control-item">
+            <button class="btn btn--danger" id="restart-app-btn" onclick="restartApp()">
+              &#128257; Restartovat AI Home Hub
+            </button>
+            <div id="restart-status" class="hint-text"></div>
+          </div>
+          <div class="system-control-item">
+            <button class="btn btn--primary" id="update-app-btn" onclick="updateApp()">
+              &#8595; Update z Gitu
+            </button>
+            <div id="update-status" class="hint-text"></div>
+          </div>
         </div>
       </section>
 

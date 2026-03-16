@@ -5666,6 +5666,80 @@ function updateResidentModeHint(mode) {
   }
 }
 
+// ── Panic / toggle autonomy ──────────────────────────────────────────────────
+async function toggleResidentAutonomy() {
+  const btn = document.getElementById('resident-panic-btn');
+  const modeSelect = document.getElementById('resident-mode-select');
+  const currentMode = modeSelect ? modeSelect.value : 'advisor';
+  // If currently autonomous → pause (advisor). Otherwise → autonomous.
+  const targetMode = currentMode === 'autonomous' ? 'advisor' : 'autonomous';
+  const endpoint = targetMode === 'advisor' ? '/api/resident/mode/pause' : '/api/resident/mode/autonomous';
+
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch(endpoint, { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    if (modeSelect) modeSelect.value = data.mode;
+    updateResidentModeHint(data.mode);
+    // Update button label
+    if (btn) {
+      if (data.mode === 'autonomous') {
+        btn.textContent = '⏸️ Pozastavit autonomii';
+        btn.classList.add('btn--danger');
+        btn.classList.remove('btn--primary');
+      } else {
+        btn.textContent = '🤖 Zapnout autonomii';
+        btn.classList.remove('btn--danger');
+        btn.classList.add('btn--primary');
+      }
+    }
+    showToast(data.message || 'Režim změněn', 'success');
+  } catch (e) {
+    showToast('Chyba při změně režimu: ' + e.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// ── System controls (restart / update) ───────────────────────────────────────
+async function restartApp() {
+  const btn = document.getElementById('restart-app-btn');
+  const statusEl = document.getElementById('restart-status');
+  if (!confirm('Opravdu restartovat AI Home Hub? Backend se na ~30 s nedostupný.')) return;
+  if (btn) btn.disabled = true;
+  if (statusEl) statusEl.textContent = 'Restart zahájen…';
+  try {
+    const res = await fetch('/api/admin/restart', { method: 'POST' });
+    const data = await res.json();
+    if (statusEl) statusEl.textContent = data.message || 'Restart zahájen';
+    showToast('Restart zahájen – backend se vrátí za cca 30 s', 'info');
+  } catch (e) {
+    if (statusEl) statusEl.textContent = 'Chyba: ' + e.message;
+    showToast('Restart selhal: ' + e.message, 'error');
+    if (btn) btn.disabled = false;
+  }
+  // Leave button disabled – backend is restarting and connection will drop
+}
+
+async function updateApp() {
+  const btn = document.getElementById('update-app-btn');
+  const statusEl = document.getElementById('update-status');
+  if (!confirm('Stáhnout aktualizace z Gitu a restartovat? Backend bude cca 30 s nedostupný.')) return;
+  if (btn) btn.disabled = true;
+  if (statusEl) statusEl.textContent = 'Update zahájen…';
+  try {
+    const res = await fetch('/api/admin/update', { method: 'POST' });
+    const data = await res.json();
+    if (statusEl) statusEl.textContent = data.message || 'Update zahájen';
+    showToast('Update zahájen (git pull + restart)', 'info');
+  } catch (e) {
+    if (statusEl) statusEl.textContent = 'Chyba: ' + e.message;
+    showToast('Update selhal: ' + e.message, 'error');
+    if (btn) btn.disabled = false;
+  }
+}
+
 function renderResidentAutoLogbook(data) {
   const card = document.getElementById('resident-auto-logbook-card');
   const list = document.getElementById('resident-auto-logbook-list');

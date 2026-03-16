@@ -111,6 +111,30 @@ async def set_resident_mode(req: ResidentModeRequest) -> dict:
     return {"mode": req.mode, "message": f"Režim změněn na {req.mode}"}
 
 
+@router.post("/mode/pause")
+async def pause_resident_mode() -> dict:
+    """Panic / pause: immediately switch Resident to 'advisor' mode.
+
+    Disables autonomous action execution without stopping the agent daemon.
+    Always safe to call – never raises even if already in advisor/observer mode.
+    """
+    get_settings_service().update({"resident_mode": "advisor"})
+    logger.warning("Resident PANIC/PAUSE – mode forced to advisor")
+    return {"status": "ok", "mode": "advisor", "message": "Autonomie pozastavena – přepnuto na advisor"}
+
+
+@router.post("/mode/autonomous")
+async def enable_resident_autonomous() -> dict:
+    """Enable autonomous mode (safe actions may run without confirmation).
+
+    Note: destructive actions (delete, overwrite) always require confirmation
+    regardless of this setting – that logic lives in the job worker, not here.
+    """
+    get_settings_service().update({"resident_mode": "autonomous"})
+    logger.info("Resident autonomous mode enabled")
+    return {"status": "ok", "mode": "autonomous", "message": "Autonomous mód zapnut"}
+
+
 # ── Suggestions ──────────────────────────────────────────────
 
 @router.get("/suggestions")

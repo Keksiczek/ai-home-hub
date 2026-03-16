@@ -114,3 +114,56 @@ class TestJobsDuration:
             assert "created_at" in j, f"Job {j.get('id')} missing 'created_at'"
             assert "started_at" in j, f"Job {j.get('id')} missing 'started_at'"
             assert "finished_at" in j, f"Job {j.get('id')} missing 'finished_at'"
+
+
+# ── Test 3: Panic/Pause endpoint ──────────────────────────────────────────────
+
+class TestResidentPanic:
+    """POST /api/resident/mode/pause forces advisor mode (panic button)."""
+
+    def test_pause_sets_advisor_mode(self, client: TestClient):
+        resp = client.post("/api/resident/mode/pause")
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert data["mode"] == "advisor"
+
+    def test_autonomous_endpoint_enables_autonomous(self, client: TestClient):
+        resp = client.post("/api/resident/mode/autonomous")
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert data["mode"] == "autonomous"
+
+    def test_pause_after_autonomous_resets_to_advisor(self, client: TestClient):
+        """Calling pause after enabling autonomous must force advisor."""
+        client.post("/api/resident/mode/autonomous")
+        resp = client.post("/api/resident/mode/pause")
+        assert resp.status_code == 200
+        assert resp.json()["mode"] == "advisor"
+
+
+# ── Test 4: Admin restart / update endpoints ──────────────────────────────────
+
+class TestAdminEndpoints:
+    """Admin endpoints must return 200 and a status/message payload.
+
+    The actual shell commands are not executed during tests – the subprocess is
+    patched so the test suite works without dev.sh on the CI file system.
+    """
+
+    def test_restart_returns_ok(self, client: TestClient):
+        with patch("app.routers.admin._run_dev_command", new_callable=AsyncMock) as mock_cmd:
+            resp = client.post("/api/admin/restart")
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert "message" in data
+
+    def test_update_returns_ok(self, client: TestClient):
+        with patch("app.routers.admin._run_dev_command", new_callable=AsyncMock):
+            resp = client.post("/api/admin/update")
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert "message" in data

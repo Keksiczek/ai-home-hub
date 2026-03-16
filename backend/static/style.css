@@ -367,6 +367,12 @@ body {
 }
 .btn--ghost:hover:not(:disabled) { background: #1a1d27; color: #e2e8f0; }
 
+.btn--danger {
+  background: #dc2626;
+  color: #fff;
+}
+.btn--danger:hover:not(:disabled) { background: #b91c1c; }
+
 .btn--small {
   min-height: 34px;
   padding: 0.375rem 0.75rem;
@@ -3038,6 +3044,19 @@ details[open].reasoning-cycle-item > .reasoning-cycle-summary::before {
   padding: 5px 10px;
   margin-top: 4px;
   line-height: 1.4;
+}
+
+/* ── System controls (Settings → Správa systému) ─── */
+.system-controls-row {
+  display: flex;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+.system-control-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
 }
 
 /* ── KB collection row hover ─────────────────────── */
