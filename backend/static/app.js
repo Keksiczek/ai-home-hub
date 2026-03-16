@@ -575,7 +575,9 @@ function bindChatEvents() {
 
   document.getElementById('send-btn').addEventListener('click', sendMessage);
   document.getElementById('chat-input').addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') sendMessage();
+    // Enter alone = send; Shift+Enter = new line; Ctrl/Meta+Enter also sends
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); sendMessage(); }
     if (e.key === 'Escape' && _isStreaming) stopStreaming();
   });
   document.getElementById('summarize-session-btn').addEventListener('click', summarizeSession);
@@ -920,6 +922,8 @@ async function sendMessageStreaming(body, sendBtn, chatSpinner) {
   const wsLabel = document.getElementById('ws-label');
   const prevLabel = wsLabel ? wsLabel.textContent : '';
   if (wsLabel) wsLabel.textContent = 'AI píše...';
+  const streamingIndicator = document.getElementById('chat-streaming-indicator');
+  if (streamingIndicator) streamingIndicator.classList.remove('hidden');
 
   // Show stop button
   if (sendBtn) {
@@ -971,9 +975,10 @@ async function sendMessageStreaming(body, sendBtn, chatSpinner) {
             });
             const copyBtn = document.createElement('button');
             copyBtn.className = 'btn btn--ghost btn--small';
-            copyBtn.textContent = 'Zkopirovat';
+            copyBtn.textContent = '📋 Kopírovat';
+            copyBtn.title = 'Zkopírovat do schránky';
             copyBtn.addEventListener('click', () => {
-              navigator.clipboard.writeText(body.message || '').then(() => showToast('Zkopirováno', 'success'));
+              navigator.clipboard.writeText(body.message || '').then(() => showToast('Zkopírováno', 'success'));
             });
             actionsDiv.appendChild(retryBtn);
             actionsDiv.appendChild(copyBtn);
@@ -1009,6 +1014,22 @@ async function sendMessageStreaming(body, sendBtn, chatSpinner) {
               bubble.appendChild(memBadge);
             }
           }
+          // Add copy button to completed streaming response
+          if (fullText) {
+            const cpBtn = document.createElement('button');
+            cpBtn.className = 'btn btn--ghost btn--small bubble-copy-ai-btn';
+            cpBtn.title = 'Zkopírovat do schránky';
+            cpBtn.textContent = '📋';
+            cpBtn.style.cssText = 'position:absolute;top:0.4rem;right:0.4rem;opacity:0.6;font-size:0.85rem;padding:2px 5px;line-height:1';
+            cpBtn.addEventListener('click', () => {
+              navigator.clipboard.writeText(fullText).then(() => {
+                showToast('Odpověď zkopírována', 'success');
+                cpBtn.textContent = '✓';
+                setTimeout(() => { cpBtn.textContent = '📋'; }, 2000);
+              });
+            });
+            bubble.appendChild(cpBtn);
+          }
           loadSessions();
         } else if (msg.type === 'error') {
           cursor.remove();
@@ -1041,6 +1062,8 @@ function _finishStreaming(sendBtn, chatSpinner, wsLabel, prevLabel) {
   _isStreaming = false;
   _streamingWs = null;
   if (wsLabel) wsLabel.textContent = prevLabel;
+  const streamingIndicator = document.getElementById('chat-streaming-indicator');
+  if (streamingIndicator) streamingIndicator.classList.add('hidden');
   setLoading(sendBtn, chatSpinner, false);
   if (sendBtn) {
     sendBtn.textContent = sendBtn.dataset.prevText || 'Odeslat';
@@ -1133,14 +1156,14 @@ function appendBubble(role, text, meta, images) {
   if (isCopyable) {
     const copyBtn = document.createElement('button');
     copyBtn.className = 'btn btn--ghost btn--small bubble-copy-ai-btn';
-    copyBtn.title = 'Zkopírovat odpověď';
-    copyBtn.textContent = 'Kopírovat';
-    copyBtn.style.cssText = 'position:absolute;top:0.4rem;right:0.4rem;opacity:0.6;font-size:0.7rem';
+    copyBtn.title = 'Zkopírovat do schránky';
+    copyBtn.textContent = '📋';
+    copyBtn.style.cssText = 'position:absolute;top:0.4rem;right:0.4rem;opacity:0.6;font-size:0.85rem;padding:2px 5px;line-height:1';
     copyBtn.addEventListener('click', () => {
       navigator.clipboard.writeText(text).then(() => {
         showToast('Odpověď zkopírována', 'success');
-        copyBtn.textContent = 'Zkopírováno';
-        setTimeout(() => { copyBtn.textContent = 'Kopírovat'; }, 2000);
+        copyBtn.textContent = '✓';
+        setTimeout(() => { copyBtn.textContent = '📋'; }, 2000);
       });
     });
     bubble.appendChild(copyBtn);
@@ -3179,7 +3202,7 @@ async function loadKbOverview() {
         </thead>
         <tbody>
           ${data.collections.map(c => `
-            <tr>
+            <tr class="kb-collection-row" title="Klikni pro detail (připravujeme)">
               <td><strong>${escHtml(c.name)}</strong></td>
               <td>${c.document_count}</td>
               <td>${c.chunk_count}</td>
@@ -4051,9 +4074,12 @@ function renderJobsList(jobs) {
             </td>
             <td class="jobs-cell-duration">${formatJobDuration(j.started_at, j.finished_at)}</td>
             <td class="jobs-cell-date">${formatJobDate(j.created_at)}</td>
-            <td>
+            <td style="white-space:nowrap">
               ${(j.status === 'queued' || j.status === 'running')
-                ? `<button class="btn btn--ghost btn--small" onclick="cancelJob('${escHtml(j.id)}')">Zrušit</button>`
+                ? `<button class="btn btn--ghost btn--small jobs-action-cancel" onclick="cancelJob('${escHtml(j.id)}',this)">Zrušit</button>`
+                : ''}
+              ${(j.status === 'failed' || j.status === 'cancelled')
+                ? `<button class="btn btn--secondary btn--small jobs-action-retry" onclick="retryJob('${escHtml(j.id)}',this)">Znovu</button>`
                 : ''}
             </td>
           </tr>
@@ -4176,10 +4202,10 @@ function renderJobDetail(job) {
     </div>
     <div style="margin-top:0.75rem;display:flex;gap:0.5rem;flex-wrap:wrap">
       ${(job.status === 'queued' || job.status === 'running')
-        ? `<button class="btn btn--ghost btn--small" onclick="cancelJob('${escHtml(job.id)}')">Zrušit job</button>`
+        ? `<button class="btn btn--ghost btn--small jobs-action-cancel" onclick="cancelJob('${escHtml(job.id)}',this)">Zrušit job</button>`
         : ''}
       ${(job.status === 'failed' || job.status === 'cancelled')
-        ? `<button class="btn btn--secondary btn--small" onclick="retryJob('${escHtml(job.id)}')">Zkusit znovu</button>`
+        ? `<button class="btn btn--secondary btn--small jobs-action-retry" onclick="retryJob('${escHtml(job.id)}',this)">Zkusit znovu</button>`
         : ''}
     </div>
     ${(job.type === 'document_analysis' && job.status === 'succeeded')
@@ -4198,7 +4224,11 @@ function closeJobDetail() {
   if (section) section.classList.add('hidden');
 }
 
-async function cancelJob(jobId) {
+async function cancelJob(jobId, triggerBtn) {
+  // Disable the button that triggered the action to prevent double-clicks
+  if (triggerBtn) { triggerBtn.disabled = true; triggerBtn.textContent = 'Ruším…'; }
+  // Also disable any matching buttons in the table row
+  document.querySelectorAll(`[data-job-id="${CSS.escape(jobId)}"] .jobs-action-cancel`).forEach(b => { b.disabled = true; });
   try {
     const res = await fetch('/api/jobs/' + encodeURIComponent(jobId) + '/cancel', { method: 'POST' });
     if (!res.ok) throw new Error(await res.text());
@@ -4207,20 +4237,23 @@ async function cancelJob(jobId) {
     if (_selectedJobId === jobId) showJobDetail(jobId);
   } catch (err) {
     showToast('Chyba: ' + err.message, 'error');
+    if (triggerBtn) { triggerBtn.disabled = false; triggerBtn.textContent = 'Zrušit'; }
   }
 }
 
-async function retryJob(jobId) {
+async function retryJob(jobId, triggerBtn) {
+  if (triggerBtn) { triggerBtn.disabled = true; triggerBtn.textContent = 'Zařazuji…'; }
+  document.querySelectorAll(`[data-job-id="${CSS.escape(jobId)}"] .jobs-action-retry`).forEach(b => { b.disabled = true; });
   try {
     const res = await fetch('/api/jobs/' + encodeURIComponent(jobId) + '/retry', { method: 'POST' });
     if (!res.ok) throw new Error(await res.text());
     const data = await res.json();
-    showToast('Nový pokus zařazen do fronty', 'success');
+    showToast('Job znovu zařazen do fronty', 'success');
     loadJobs();
-    // Open the new job detail
     if (data.id) showJobDetail(data.id);
   } catch (err) {
     showToast('Chyba: ' + err.message, 'error');
+    if (triggerBtn) { triggerBtn.disabled = false; triggerBtn.textContent = 'Zkusit znovu'; }
   }
 }
 
@@ -5610,10 +5643,27 @@ const _modeHints = {
   advisor: 'Navrhuje akce, ty klikneš Spustit',
   autonomous: 'Spouští bezpečné akce sám',
 };
+const _modeIcons = {
+  observer: '👁️',
+  advisor: '🧑‍🏫',
+  autonomous: '🤖',
+};
 
 function updateResidentModeHint(mode) {
   const hint = document.getElementById('resident-mode-hint');
   if (hint) hint.textContent = _modeHints[mode] || '';
+
+  const icon = document.getElementById('resident-mode-icon');
+  if (icon) icon.textContent = _modeIcons[mode] || '🤖';
+
+  const warning = document.getElementById('resident-autonomous-warning');
+  if (warning) {
+    if (mode === 'autonomous') {
+      warning.classList.remove('hidden');
+    } else {
+      warning.classList.add('hidden');
+    }
+  }
 }
 
 function renderResidentAutoLogbook(data) {
