@@ -191,6 +191,7 @@ document.addEventListener('DOMContentLoaded', () => {
   bindSettingsEvents();
   bindStatusEvents();
   bindJobsEvents();
+  bindKnowledgeBaseEvents();
   initWebSocket();
   checkSetupStatus();
   bindMobileDragDrop();
@@ -238,6 +239,7 @@ function switchTab(tabName) {
   if (tabName === 'actions') { loadQuickActions(); loadVSCodeProjects(); loadActionHistory(); }
   if (tabName === 'settings') { loadSettings(); loadOllamaModels(); }
   if (tabName === 'overnight') loadOvernightStatus();
+  if (tabName === 'knowledge') loadKBOverview();
 }
 
 function bindMobileMenu() {
@@ -4350,4 +4352,252 @@ function _bindOvernightRunBtn(container) {
       btn.textContent = 'Spustit nyni';
     }
   });
+}
+
+
+/* ============================================================
+   KNOWLEDGE BASE – Upload, Overview, Collections
+   ============================================================ */
+
+function bindKnowledgeBaseEvents() {
+  const dropzone = document.getElementById('kb-dropzone');
+  const fileInput = document.getElementById('kb-file-input');
+  const browseBtn = document.getElementById('kb-browse-btn');
+  const refreshBtn = document.getElementById('kb-refresh-overview');
+
+  if (!dropzone) return;
+
+  // Browse button
+  if (browseBtn) browseBtn.addEventListener('click', (e) => { e.preventDefault(); fileInput.click(); });
+
+  // File input change
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files.length > 0) handleKBUpload(fileInput.files);
+  });
+
+  // Drag & drop
+  dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('kb-dropzone--active'); });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('kb-dropzone--active'));
+  dropzone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropzone.classList.remove('kb-dropzone--active');
+    if (e.dataTransfer.files.length > 0) handleKBUpload(e.dataTransfer.files);
+  });
+
+  // Mode selector styling
+  document.querySelectorAll('.kb-mode-option input').forEach(radio => {
+    radio.addEventListener('change', () => {
+      document.querySelectorAll('.kb-mode-option').forEach(opt => opt.classList.remove('kb-mode-option--active'));
+      radio.closest('.kb-mode-option').classList.add('kb-mode-option--active');
+    });
+  });
+
+  // Refresh button
+  if (refreshBtn) refreshBtn.addEventListener('click', loadKBOverview);
+}
+
+
+async function handleKBUpload(fileList) {
+  const progressEl = document.getElementById('kb-upload-progress');
+  const statusEl = document.getElementById('kb-upload-status');
+  const fillEl = document.getElementById('kb-progress-fill');
+  const resultsEl = document.getElementById('kb-upload-results');
+  const fileInput = document.getElementById('kb-file-input');
+
+  const mode = document.querySelector('input[name="kb-upload-mode"]:checked')?.value || 'index';
+
+  show(progressEl);
+  hide(resultsEl);
+  statusEl.textContent = `Nahravám ${fileList.length} soubor${fileList.length > 1 ? 'ů' : ''}...`;
+  fillEl.style.width = '10%';
+
+  const formData = new FormData();
+  formData.append('mode', mode);
+  formData.append('collection', 'default');
+  for (const file of fileList) {
+    formData.append('files', file);
+  }
+
+  try {
+    fillEl.style.width = '40%';
+
+    const resp = await fetch('/api/knowledge/upload/batch', {
+      method: 'POST',
+      body: formData,
+    });
+
+    fillEl.style.width = '80%';
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ detail: `HTTP ${resp.status}` }));
+      throw new Error(err.detail || `HTTP ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    fillEl.style.width = '100%';
+
+    // Render results
+    renderKBUploadResults(data, mode);
+
+    const successCount = data.uploaded;
+    const errorCount = data.results.filter(r => r.error).length;
+    if (errorCount > 0) {
+      showToast(`Nahráno: ${successCount}, chyby: ${errorCount}`, 'warning');
+    } else {
+      showToast(`Úspěšně nahráno ${successCount} souborů`, 'success');
+    }
+
+    // Refresh overview
+    setTimeout(() => loadKBOverview(), 1000);
+
+  } catch (err) {
+    console.error('KB upload failed:', err);
+    showToast(`Upload selhal: ${err.message}`, 'error');
+    resultsEl.innerHTML = `<div class="kb-result-error">${escHtml(err.message)}</div>`;
+    show(resultsEl);
+  } finally {
+    setTimeout(() => hide(progressEl), 2000);
+    fileInput.value = '';
+  }
+}
+
+
+function renderKBUploadResults(data, mode) {
+  const resultsEl = document.getElementById('kb-upload-results');
+  if (!resultsEl) return;
+
+  let html = `<div class="kb-results-header">Výsledky: ${data.uploaded} nahráno</div>`;
+  html += '<div class="kb-results-list">';
+
+  for (const r of data.results) {
+    if (r.error) {
+      html += `
+        <div class="kb-result-item kb-result-item--error">
+          <span class="kb-result-icon">&#10060;</span>
+          <span class="kb-result-name">${escHtml(r.file)}</span>
+          <span class="kb-result-detail">${escHtml(r.error)}</span>
+        </div>`;
+    } else if (r.job_id) {
+      html += `
+        <div class="kb-result-item kb-result-item--success">
+          <span class="kb-result-icon">&#9989;</span>
+          <span class="kb-result-name">${escHtml(r.file)}</span>
+          <span class="kb-result-detail">Indexace zahájena</span>
+        </div>`;
+    } else if (r.preview) {
+      html += `
+        <div class="kb-result-item kb-result-item--preview">
+          <span class="kb-result-icon">&#128269;</span>
+          <span class="kb-result-name">${escHtml(r.file)}</span>
+          <span class="kb-result-detail">${r.chars} znaků, ${r.pages} stran</span>
+          <div class="kb-result-preview">${escHtml(r.preview)}</div>
+        </div>`;
+    }
+  }
+
+  html += '</div>';
+  resultsEl.innerHTML = html;
+  show(resultsEl);
+}
+
+
+async function loadKBOverview() {
+  const docsEl = document.getElementById('kb-total-docs');
+  const chunksEl = document.getElementById('kb-total-chunks');
+  const collectionsEl = document.getElementById('kb-total-collections');
+  const listEl = document.getElementById('kb-collections-list');
+  const emptyEl = document.getElementById('kb-empty-state');
+
+  try {
+    const resp = await fetch('/api/knowledge/overview');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+
+    docsEl.textContent = data.total_documents || 0;
+    chunksEl.textContent = data.total_chunks || 0;
+    collectionsEl.textContent = data.total_collections || 0;
+
+    if (data.total_documents === 0) {
+      listEl.innerHTML = '';
+      listEl.appendChild(emptyEl || createEmptyState());
+      return;
+    }
+
+    let html = '';
+    for (const col of data.collections) {
+      // File types badges
+      const typeBadges = col.file_types
+        ? Object.entries(col.file_types)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 6)
+            .map(([ext, cnt]) => `<span class="kb-type-badge">${escHtml(ext)} (${cnt})</span>`)
+            .join('')
+        : '';
+
+      const lastUpdate = col.last_updated
+        ? new Date(col.last_updated).toLocaleString('cs-CZ')
+        : 'Neznámý';
+
+      html += `
+        <div class="kb-collection-card">
+          <div class="kb-collection-header">
+            <h3 class="kb-collection-name">${escHtml(col.name)}</h3>
+            <div class="kb-collection-meta">
+              <span>${col.document_count} dokumentů</span>
+              <span>${col.total_chunks} chunků</span>
+            </div>
+          </div>
+          <div class="kb-collection-types">${typeBadges}</div>
+          <div class="kb-collection-updated">Poslední aktualizace: ${lastUpdate}</div>
+          ${col.documents && col.documents.length > 0 ? renderKBDocumentList(col.documents) : ''}
+        </div>
+      `;
+    }
+
+    listEl.innerHTML = html;
+
+    // Bind expand/collapse for doc lists
+    listEl.querySelectorAll('.kb-doc-toggle').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const list = btn.nextElementSibling;
+        if (list) list.classList.toggle('hidden');
+        btn.textContent = list && list.classList.contains('hidden') ? '▶ Zobrazit dokumenty' : '▼ Skrýt dokumenty';
+      });
+    });
+
+  } catch (err) {
+    console.error('KB overview failed:', err);
+  }
+}
+
+
+function renderKBDocumentList(documents) {
+  let html = `<button class="btn-link kb-doc-toggle">▶ Zobrazit dokumenty</button>`;
+  html += '<div class="kb-doc-list hidden">';
+
+  for (const doc of documents) {
+    const typeIcon = getFileTypeIcon(doc.type);
+    html += `
+      <div class="kb-doc-item">
+        <span class="kb-doc-icon">${typeIcon}</span>
+        <span class="kb-doc-name" title="${escHtml(doc.file_path)}">${escHtml(doc.filename)}</span>
+        <span class="kb-doc-type">${escHtml(doc.type)}</span>
+        <span class="kb-doc-chunks">${doc.chunks} ch.</span>
+      </div>`;
+  }
+
+  html += '</div>';
+  return html;
+}
+
+
+function getFileTypeIcon(type) {
+  const icons = {
+    pdf: '&#128196;', docx: '&#128196;', xlsx: '&#128202;',
+    txt: '&#128221;', md: '&#128221;', py: '&#128187;',
+    js: '&#128187;', ts: '&#128187;', json: '&#128187;',
+    html: '&#127760;', css: '&#127912;',
+    png: '&#128247;', jpg: '&#128247;', jpeg: '&#128247;',
+  };
+  return icons[type] || '&#128196;';
 }

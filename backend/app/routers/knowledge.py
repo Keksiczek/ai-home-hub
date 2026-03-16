@@ -4,10 +4,11 @@ import csv
 import io
 import logging
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, File, Form, HTTPException, UploadFile
 
 from app.utils.auth import verify_api_key
 
@@ -501,3 +502,141 @@ async def get_ingest_job(job_id: str) -> Dict[str, Any]:
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
     return job
+
+
+# ── Batch Upload ──────────────────────────────────────────────────
+
+DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+UPLOAD_DIR = DATA_DIR / "uploads"
+
+PREVIEW_CHARS = 500
+
+
+@router.post("/knowledge/upload/batch", tags=["knowledge"])
+async def batch_upload(
+    background_tasks: BackgroundTasks,
+    files: List[UploadFile] = File(...),
+    mode: str = Form("index"),
+    collection: str = Form("default"),
+) -> Dict[str, Any]:
+    """Upload multiple files for KB indexing or quick analysis.
+
+    Args:
+        files: One or more files to upload.
+        mode: ``"index"`` = persist into KB via job worker,
+              ``"analyze"`` = extract text preview, no permanent indexing.
+        collection: Target collection name (reserved for future multi-collection).
+
+    Returns:
+        ``{uploaded: int, results: [{file, job_id?, preview?, error?}, ...]}``
+    """
+    from app.services.file_handler_service import ALL_SUPPORTED, is_supported, parse_uploaded_file
+    from app.services.metrics_service import upload_bytes_total, upload_files_total
+
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+    results: List[Dict[str, Any]] = []
+
+    for upload_file in files:
+        original_name = upload_file.filename or "unnamed"
+
+        if not is_supported(original_name):
+            results.append({"file": original_name, "error": f"Nepodporovaný typ souboru: {Path(original_name).suffix}"})
+            continue
+
+        # Save file to uploads/
+        file_id = str(uuid.uuid4())
+        dest = UPLOAD_DIR / f"{file_id}__{original_name}"
+        contents = await upload_file.read()
+        dest.write_bytes(contents)
+
+        upload_files_total.labels(type="document").inc()
+        upload_bytes_total.labels(type="document").inc(len(contents))
+
+        if mode == "analyze":
+            # Quick analysis: parse and return preview
+            parsed = parse_uploaded_file(dest)
+            if "error" in parsed and not parsed.get("text"):
+                results.append({"file": original_name, "error": parsed["error"]})
+            else:
+                text = parsed.get("text", "")
+                preview = text[:PREVIEW_CHARS]
+                if len(text) > PREVIEW_CHARS:
+                    preview += "..."
+                results.append({
+                    "file": original_name,
+                    "preview": preview,
+                    "chars": len(text),
+                    "pages": parsed.get("page_count", 1),
+                })
+        else:
+            # Index mode: enqueue ingest job
+            job_id = str(uuid.uuid4())
+            _jobs[job_id] = _make_job(job_id)
+            background_tasks.add_task(_job_ingest, job_id, [str(dest)])
+            results.append({"file": original_name, "job_id": job_id})
+
+    return {"uploaded": len([r for r in results if "error" not in r]), "results": results}
+
+
+# ── KB Overview ───────────────────────────────────────────────────
+
+
+@router.get("/knowledge/overview", tags=["knowledge"])
+async def knowledge_overview() -> Dict[str, Any]:
+    """Return KB overview: collections with document counts, file types, last update.
+
+    Uses the existing vector store service to gather stats.
+    """
+    vector_store = get_vector_store_service()
+    stats = vector_store.get_stats(detailed=True)
+
+    # Build per-collection info (currently single collection)
+    collection_name = stats.get("collection_name", "default")
+    total_chunks = stats.get("total_chunks", 0)
+    total_documents = stats.get("total_documents", 0)
+    file_types = stats.get("file_types", {})
+    top_sources = stats.get("top_sources", [])
+
+    # Determine last_updated from top_sources metadata
+    last_updated = None
+    try:
+        if top_sources:
+            # Check mtime of first source file as proxy
+            first_path = top_sources[0].get("path", "")
+            if first_path:
+                p = Path(first_path)
+                if p.exists():
+                    mtime = p.stat().st_mtime
+                    last_updated = datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
+    except Exception:
+        pass
+
+    # Build documents list from top_sources
+    documents = []
+    for src in top_sources:
+        path = src.get("path", "")
+        name = Path(path).name if path else "unknown"
+        ext = Path(path).suffix.lower() if path else ""
+        documents.append({
+            "file_path": path,
+            "filename": name,
+            "type": ext.lstrip("."),
+            "chunks": src.get("chunks", 0),
+        })
+
+    collections = [{
+        "name": collection_name,
+        "document_count": total_documents,
+        "total_chunks": total_chunks,
+        "file_types": file_types,
+        "last_updated": last_updated,
+        "documents": documents,
+    }]
+
+    return {
+        "total_documents": total_documents,
+        "total_chunks": total_chunks,
+        "total_collections": len(collections),
+        "collections": collections,
+    }
