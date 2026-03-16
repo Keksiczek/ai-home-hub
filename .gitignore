@@ -23,6 +23,12 @@ backend/data/uploads/
 backend/data/jobs/
 backend/data/settings.json
 backend/data/chroma/
+data/uploads/
+data/artifacts/
+data/jobs/
+data/sessions/
+data/chroma/
+data/settings.json
 
 # IDE
 .idea/
