@@ -5158,6 +5158,11 @@ function renderResidentDashboard(data) {
 
   // Recent tasks table
   renderResidentRecentTasks(data.recent_tasks || []);
+
+  // Brain orchestrator sections
+  renderResidentSuggestions(data);
+  renderResidentMissions(data.missions || []);
+  renderResidentReflections();
 }
 
 function renderResidentRecentTasks(tasks) {
@@ -5293,4 +5298,172 @@ function handleResidentAction(msg) {
   if (panel && !panel.classList.contains('hidden')) {
     loadResidentDashboard();
   }
+}
+
+/* ============================================================
+   RESIDENT BRAIN ORCHESTRATOR – suggestions, missions, reflections
+   ============================================================ */
+
+async function residentSetMode(mode) {
+  try {
+    const res = await fetch('/api/resident/mode', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    showToast(data.message || 'Režim změněn', 'success');
+    await loadResidentDashboard();
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
+}
+
+function renderResidentSuggestions(data) {
+  const card = document.getElementById('resident-suggestions-card');
+  const list = document.getElementById('resident-suggestions-list');
+  const mode = data.resident_mode || 'advisor';
+  const modeSelect = document.getElementById('resident-mode-select');
+  if (modeSelect) modeSelect.value = mode;
+
+  if (mode === 'observer' || !data.suggestions_count) {
+    if (card) hide(card);
+    return;
+  }
+
+  // Fetch full suggestions
+  fetch('/api/resident/suggestions?limit=3')
+    .then(r => r.json())
+    .then(result => {
+      const suggestions = result.suggestions || [];
+      if (!suggestions.length) { if (card) hide(card); return; }
+      if (card) show(card);
+      if (!list) return;
+
+      let html = '';
+      suggestions.forEach(s => {
+        html += `<div class="resident-suggestion-group" style="margin-bottom:12px;border-bottom:1px solid var(--border);padding-bottom:8px">
+          <div class="text-muted" style="font-size:0.8em">${s.created_at ? new Date(s.created_at).toLocaleString('cs') : ''}</div>
+          <div style="font-size:0.85em;color:var(--text-secondary);margin-bottom:4px">${escHtml(s.context_summary || '')}</div>`;
+
+        (s.actions || []).forEach(a => {
+          const executed = (s.executed_action_ids || []).includes(a.id);
+          const priorityColors = { high: '#e74c3c', medium: '#f39c12', low: '#95a5a6' };
+          const color = priorityColors[a.priority] || '#95a5a6';
+          html += `<div class="resident-suggestion-item" style="display:flex;align-items:center;gap:8px;padding:6px 0">
+            <span style="background:${color};color:#fff;padding:2px 8px;border-radius:4px;font-size:0.75em">${escHtml(a.priority)}</span>
+            <span style="background:var(--bg-secondary);padding:2px 8px;border-radius:4px;font-size:0.75em">${escHtml(a.action_type)}</span>
+            <strong style="flex:1">${escHtml(a.title)}</strong>`;
+
+          if (executed) {
+            html += `<span style="color:var(--success);font-size:0.85em">Provedeno</span>`;
+          } else if (mode === 'advisor') {
+            html += `<button class="btn btn--primary btn--small" onclick="residentAcceptSuggestion('${s.id}','${a.id}')">Spustit</button>`;
+          }
+          html += `</div>
+            <div style="font-size:0.85em;color:var(--text-secondary);padding-left:24px">${escHtml(a.description)}</div>`;
+        });
+        html += '</div>';
+      });
+      list.innerHTML = html;
+    })
+    .catch(() => { if (card) hide(card); });
+}
+
+async function residentAcceptSuggestion(suggestionId, actionId) {
+  try {
+    const res = await fetch(`/api/resident/suggestions/${suggestionId}/accept?action_id=${actionId}`, {
+      method: 'POST',
+    });
+    if (!res.ok) throw new Error(await res.text());
+    showToast('Akce přijata', 'success');
+    await loadResidentDashboard();
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
+}
+
+function renderResidentMissions(missions) {
+  const list = document.getElementById('resident-missions-list');
+  const empty = document.getElementById('resident-missions-empty');
+  if (!list) return;
+
+  if (!missions || !missions.length) {
+    if (empty) show(empty);
+    return;
+  }
+  if (empty) hide(empty);
+
+  const statusLabels = { planned: 'Naplánováno', in_progress: 'Probíhá', done: 'Hotovo', error: 'Chyba' };
+  const statusColors = { planned: 'var(--text-secondary)', in_progress: 'var(--primary)', done: 'var(--success)', error: 'var(--error)' };
+
+  let html = missions.map(m => `
+    <div class="resident-mission-item" style="padding:8px 0;border-bottom:1px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="color:${statusColors[m.status] || 'inherit'};font-weight:600;font-size:0.85em">${statusLabels[m.status] || m.status}</span>
+        <strong style="flex:1">${escHtml(m.goal)}</strong>
+        <span class="text-muted" style="font-size:0.8em">${m.current_step}/${m.total_steps} kroků</span>
+      </div>
+      <div style="margin-top:4px;background:var(--bg-secondary);border-radius:4px;height:6px;overflow:hidden">
+        <div style="background:var(--primary);height:100%;width:${m.progress || 0}%;transition:width 0.3s"></div>
+      </div>
+    </div>
+  `).join('');
+
+  // Keep the empty state element but hidden, prepend missions
+  list.innerHTML = html + (empty ? `<p class="empty-state hidden" id="resident-missions-empty">Žádné mise</p>` : '');
+}
+
+async function residentCreateMission() {
+  const input = document.getElementById('resident-mission-goal');
+  const goal = (input && input.value || '').trim();
+  if (!goal) return;
+
+  try {
+    const res = await fetch('/api/resident/missions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ goal }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    showToast(`Mise vytvořena (${data.steps_count} kroků)`, 'success');
+    if (input) input.value = '';
+    await loadResidentDashboard();
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
+}
+
+function renderResidentReflections() {
+  const list = document.getElementById('resident-reflections-list');
+  const empty = document.getElementById('resident-reflections-empty');
+  if (!list) return;
+
+  fetch('/api/resident/reflections?limit=5')
+    .then(r => r.json())
+    .then(result => {
+      const reflections = result.reflections || [];
+      if (!reflections.length) {
+        if (empty) show(empty);
+        return;
+      }
+      if (empty) hide(empty);
+
+      list.innerHTML = reflections.map(r => `
+        <div style="padding:6px 0;border-bottom:1px solid var(--border)">
+          <div style="display:flex;gap:8px;align-items:center">
+            <span style="font-size:0.8em;color:var(--text-secondary)">${r.created_at ? new Date(r.created_at).toLocaleString('cs') : ''}</span>
+            <span style="font-size:0.8em;background:var(--bg-secondary);padding:2px 6px;border-radius:4px">${escHtml(r.job_type)}</span>
+            ${r.useful === true ? '<span style="color:var(--success)">Užitečné</span>' : r.useful === false ? '<span style="color:var(--error)">Neužitečné</span>' : ''}
+          </div>
+          <ul style="margin:4px 0 0 16px;font-size:0.9em">
+            ${r.points.map(p => `<li>${escHtml(p)}</li>`).join('')}
+          </ul>
+          ${r.recommendation ? `<div style="font-size:0.85em;color:var(--text-secondary);margin-top:2px">Doporučení: ${escHtml(r.recommendation)}</div>` : ''}
+        </div>
+      `).join('');
+    })
+    .catch(() => { if (empty) show(empty); });
 }

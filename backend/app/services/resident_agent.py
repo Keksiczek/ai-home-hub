@@ -66,6 +66,14 @@ class ResidentAgentState:
         return asdict(self)
 
 
+THOUGHT_TICK_INTERVAL = 20  # run reasoner every 20th tick (~10 min at 30s interval)
+MISSION_TICK_INTERVAL = 4   # check missions every 4th tick (~2 min)
+MAX_SUGGESTIONS_HISTORY = 20
+MAX_REFLECTIONS_HISTORY = 50
+
+WS_EVENT_RESIDENT_SUGGESTION = "resident_suggestion"
+
+
 class ResidentAgent(BackgroundService):
     def __init__(self) -> None:
         super().__init__("resident_agent")
@@ -73,6 +81,9 @@ class ResidentAgent(BackgroundService):
         self._broadcast_fn: Optional[Callable] = None
         self._start_time: Optional[float] = None
         self._restart_requested: bool = False
+        # Brain orchestrator state
+        self._suggestions: List[Any] = []  # List[ResidentSuggestion]
+        self._reflections: List[Any] = []  # List[ResidentReflection]
 
     def set_broadcast(self, fn: Callable) -> None:
         """Register a coroutine for broadcasting WebSocket messages."""
@@ -164,6 +175,8 @@ class ResidentAgent(BackgroundService):
 
         try:
             await self._process_task_queue()
+            await self._process_missions()
+            await self._thought_tick()
             await self._periodic_check()
             await self._proactive_alerts()
             # Successful tick resets consecutive error counter
@@ -230,6 +243,212 @@ class ResidentAgent(BackgroundService):
             logger.info("Resident agent self-healing restart completed")
         except Exception as exc:
             logger.error("Self-healing restart failed: %s", exc)
+
+    # ── Brain orchestrator methods ──────────────────────────────
+
+    def _get_resident_mode(self) -> str:
+        """Read current resident_mode from settings."""
+        try:
+            from app.services.settings_service import get_settings_service
+            return get_settings_service().load().get("resident_mode", "advisor")
+        except Exception:
+            return "advisor"
+
+    async def _thought_tick(self) -> None:
+        """Periodically call the reasoner to generate suggestions."""
+        if self._state.tick_count % THOUGHT_TICK_INTERVAL != 0:
+            return
+
+        mode = self._get_resident_mode()
+        if mode == "observer":
+            return
+
+        try:
+            from app.services.resident_reasoner import get_resident_reasoner
+            reasoner = get_resident_reasoner()
+            suggestion = await reasoner.generate_suggestions(mode)
+            if suggestion is None:
+                return
+
+            self._suggestions.append(suggestion)
+            if len(self._suggestions) > MAX_SUGGESTIONS_HISTORY:
+                self._suggestions = self._suggestions[-MAX_SUGGESTIONS_HISTORY:]
+
+            # In autonomous mode, auto-execute safe actions
+            if mode == "autonomous":
+                await self._auto_execute_safe_actions(suggestion)
+
+            await self._broadcast({
+                "type": WS_EVENT_RESIDENT_SUGGESTION,
+                "suggestion_id": suggestion.id,
+                "action_count": len(suggestion.actions),
+                "mode": mode,
+            })
+
+            logger.info(
+                "Resident reasoner generated %d suggestions (mode=%s)",
+                len(suggestion.actions), mode,
+            )
+        except Exception as exc:
+            logger.error("Thought tick failed: %s", exc)
+
+    async def _auto_execute_safe_actions(self, suggestion) -> None:
+        """In autonomous mode, execute actions that don't require confirmation."""
+        from app.services.job_service import get_job_service
+        job_svc = get_job_service()
+
+        for action in suggestion.actions:
+            if action.requires_confirmation:
+                continue
+
+            job = job_svc.create_job(
+                type="resident_task",
+                title=f"[Auto] {action.title}",
+                input_summary=action.description,
+                payload={"action_type": action.action_type, "auto_executed": True},
+                priority="normal",
+            )
+            suggestion.executed_action_ids.append(action.id)
+            logger.info("Auto-executed suggestion action: %s (job=%s)", action.title, job.id)
+
+    async def _process_missions(self) -> None:
+        """Process active resident_mission jobs – advance current step."""
+        if self._state.tick_count % MISSION_TICK_INTERVAL != 0:
+            return
+
+        try:
+            from app.services.job_service import get_job_service
+            job_svc = get_job_service()
+
+            # Find planned or in_progress missions
+            for status_filter in ("queued", "running"):
+                missions = job_svc.list_jobs(status=status_filter, type="resident_mission", limit=5)
+                for mission_job in missions:
+                    await self._advance_mission(mission_job, job_svc)
+        except Exception as exc:
+            logger.error("Mission processing error: %s", exc)
+
+    async def _advance_mission(self, mission_job, job_svc) -> None:
+        """Advance a mission by one step."""
+        plan = mission_job.payload.get("plan", {})
+        steps = plan.get("steps", [])
+        current_step = plan.get("current_step", 0)
+
+        if current_step >= len(steps):
+            # Mission complete
+            mission_job.status = "succeeded"
+            mission_job.progress = 100.0
+            mission_job.finished_at = _now()
+            plan["status"] = "done"
+            mission_job.payload["plan"] = plan
+            job_svc.update_job(mission_job)
+            await self._generate_reflection_for_job(mission_job)
+            return
+
+        # Mark as running if not already
+        if mission_job.status == "queued":
+            mission_job.status = "running"
+            mission_job.started_at = _now()
+            plan["status"] = "in_progress"
+
+        step = steps[current_step]
+        step["status"] = "running"
+
+        try:
+            # Create a sub-job for this step
+            sub_job = job_svc.create_job(
+                type="resident_task",
+                title=f"[Mise krok {current_step + 1}] {step.get('title', '')}",
+                input_summary=step.get("description", ""),
+                payload={"mission_id": mission_job.id, "step_index": current_step},
+                priority="normal",
+            )
+            step["job_id"] = sub_job.id
+            step["status"] = "succeeded"  # Queued = success for step tracking
+            step["result_summary"] = f"Job {sub_job.id} vytvořen"
+
+            plan["current_step"] = current_step + 1
+            mission_job.progress = round((current_step + 1) / len(steps) * 100, 1)
+        except Exception as exc:
+            step["status"] = "failed"
+            step["result_summary"] = str(exc)[:200]
+            plan["status"] = "error"
+            mission_job.status = "failed"
+            mission_job.last_error = str(exc)
+            mission_job.finished_at = _now()
+
+        mission_job.payload["plan"] = plan
+        job_svc.update_job(mission_job)
+
+    async def _generate_reflection_for_job(self, job) -> None:
+        """Generate a reflection after a resident job completes."""
+        try:
+            from app.services.resident_reasoner import get_resident_reasoner
+            reasoner = get_resident_reasoner()
+            reflection = await reasoner.generate_reflection(
+                job_id=job.id,
+                job_type=job.type,
+                goal=job.title,
+                status=job.status,
+                error=job.last_error or "",
+            )
+            if reflection:
+                self._reflections.append(reflection)
+                if len(self._reflections) > MAX_REFLECTIONS_HISTORY:
+                    self._reflections = self._reflections[-MAX_REFLECTIONS_HISTORY:]
+
+                # Store in job meta
+                job.meta["reflection"] = reflection.model_dump()
+                from app.services.job_service import get_job_service
+                get_job_service().update_job(job)
+        except Exception as exc:
+            logger.debug("Reflection generation failed: %s", exc)
+
+    def get_suggestions(self, limit: int = 10) -> List[dict]:
+        """Return recent suggestions as dicts."""
+        return [s.model_dump() for s in self._suggestions[-limit:]]
+
+    def get_suggestion_by_id(self, suggestion_id: str):
+        """Find a specific suggestion by ID."""
+        for s in self._suggestions:
+            if s.id == suggestion_id:
+                return s
+        return None
+
+    def get_reflections(self, limit: int = 20) -> List[dict]:
+        """Return recent reflections as dicts."""
+        return [r.model_dump() for r in self._reflections[-limit:]]
+
+    async def accept_suggestion_action(self, suggestion_id: str, action_id: str) -> Optional[str]:
+        """Accept a suggested action → create a job. Returns job_id or None."""
+        suggestion = self.get_suggestion_by_id(suggestion_id)
+        if not suggestion:
+            return None
+
+        target_action = None
+        for a in suggestion.actions:
+            if a.id == action_id:
+                target_action = a
+                break
+
+        if not target_action:
+            return None
+
+        from app.services.job_service import get_job_service
+        job_svc = get_job_service()
+        job = job_svc.create_job(
+            type="resident_task",
+            title=target_action.title,
+            input_summary=target_action.description,
+            payload={
+                "action_type": target_action.action_type,
+                "steps": target_action.steps,
+                "from_suggestion": suggestion_id,
+            },
+            priority="normal",
+        )
+        suggestion.executed_action_ids.append(action_id)
+        return job.id
 
     async def _proactive_alerts(self) -> None:
         """Generate simple rule-based alerts (every 5th tick = ~2.5 min)."""
@@ -318,6 +537,27 @@ class ResidentAgent(BackgroundService):
         since_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
         stats_24h = job_svc.get_stats_since(since_24h, type="resident_task")
 
+        # Current mode
+        mode = self._get_resident_mode()
+
+        # Latest suggestion count
+        latest_suggestion = self._suggestions[-1] if self._suggestions else None
+
+        # Active missions
+        mission_jobs = job_svc.list_jobs(type="resident_mission", limit=5)
+        missions = []
+        for mj in mission_jobs:
+            plan = mj.payload.get("plan", {})
+            missions.append({
+                "id": mj.id,
+                "goal": plan.get("goal", mj.title),
+                "status": plan.get("status", mj.status),
+                "current_step": plan.get("current_step", 0),
+                "total_steps": len(plan.get("steps", [])),
+                "progress": mj.progress,
+                "created_at": mj.created_at,
+            })
+
         return {
             "status": status,
             "uptime_seconds": round(self.get_uptime_seconds(), 1),
@@ -327,6 +567,10 @@ class ResidentAgent(BackgroundService):
             "recent_tasks": recent_tasks,
             "alerts": self._state.alerts,
             "stats_24h": stats_24h,
+            "resident_mode": mode,
+            "suggestions_count": len(latest_suggestion.actions) if latest_suggestion else 0,
+            "missions": missions,
+            "reflections_count": len(self._reflections),
         }
 
     async def _process_task_queue(self) -> None:
@@ -366,6 +610,8 @@ class ResidentAgent(BackgroundService):
                     logger.error("Resident task %s failed: %s", job.id, exc)
                 finally:
                     job_svc.update_job(job)
+                    # Generate reflection for completed task
+                    await self._generate_reflection_for_job(job)
 
                 self._state.current_task = None
                 self._state.status = "idle"
