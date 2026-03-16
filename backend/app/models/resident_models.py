@@ -1,9 +1,10 @@
 """Pydantic models for the Resident Agent brain orchestrator.
 
-Covers autonomy modes, suggested actions, missions, and reflections.
+Covers autonomy modes, suggested actions, missions, reflections,
+and tool-calling reasoning cycles.
 """
 from datetime import datetime, timezone
-from typing import List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 import uuid
 
 from pydantic import BaseModel, Field
@@ -75,3 +76,28 @@ class ResidentReflection(BaseModel):
     points: List[str] = []
     useful: Optional[bool] = None
     recommendation: str = ""
+
+
+# ── Tool-calling reasoning cycles ───────────────────────────
+
+class ToolCallRecord(BaseModel):
+    """One tool invocation inside a reasoning cycle."""
+    tool_name: str
+    arguments: Dict[str, Any] = {}
+    result: Dict[str, Any] = {}
+    ok: bool = True
+    duration_ms: int = 0
+
+
+class ResidentReasoningCycle(BaseModel):
+    """Complete record of one tool-augmented reasoning pass."""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
+    created_at: str = Field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
+    context_summary: str = ""
+    tools_used: List[str] = []
+    tool_calls: List[ToolCallRecord] = []
+    final_suggestions: List[SuggestedAction] = []
+    model: str = ""
+    total_duration_ms: int = 0
