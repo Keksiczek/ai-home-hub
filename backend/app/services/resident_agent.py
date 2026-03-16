@@ -9,6 +9,7 @@ LLM vrací POUZE JSON payload – exekuci dělá vždy deterministický Python k
 import asyncio
 import json
 import logging
+import time
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
@@ -35,6 +36,15 @@ ALLOWED_ACTIONS = [
     "no_op",
 ]
 
+# Heartbeat / self-healing constants
+HEARTBEAT_INTERVAL_S = 30
+HEARTBEAT_MISS_THRESHOLD_S = 90  # 3 missed heartbeats → degraded
+CONSECUTIVE_ERROR_THRESHOLD = 5  # trigger self-healing restart
+
+# Proactive alert thresholds
+QUEUE_DEPTH_ALERT_THRESHOLD = 10
+KB_DOCS_ALERT_THRESHOLD = 5000
+
 
 @dataclass
 class ResidentAgentState:
@@ -44,8 +54,13 @@ class ResidentAgentState:
     last_action: Optional[str] = None
     tick_count: int = 0
     errors_since_start: int = 0
+    consecutive_errors: int = 0
     recent_steps: list[dict] = field(default_factory=list)  # max 5 položek
     status: str = "idle"  # idle | thinking | executing | error
+    started_at: Optional[str] = None
+    last_heartbeat: Optional[str] = None
+    heartbeat_status: str = "healthy"  # healthy | degraded | error
+    alerts: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -56,6 +71,8 @@ class ResidentAgent(BackgroundService):
         super().__init__("resident_agent")
         self._state = ResidentAgentState()
         self._broadcast_fn: Optional[Callable] = None
+        self._start_time: Optional[float] = None
+        self._restart_requested: bool = False
 
     def set_broadcast(self, fn: Callable) -> None:
         """Register a coroutine for broadcasting WebSocket messages."""
@@ -70,6 +87,11 @@ class ResidentAgent(BackgroundService):
 
     def get_state(self) -> dict:
         return self._state.to_dict()
+
+    def get_uptime_seconds(self) -> float:
+        if self._start_time is None:
+            return 0.0
+        return time.monotonic() - self._start_time
 
     async def _on_start(self) -> None:
         try:
@@ -101,49 +123,211 @@ class ResidentAgent(BackgroundService):
     async def start(self) -> dict:
         """Spustí async loop jako asyncio.Task, uloží do memory_service záznam o startu."""
         if self._state.is_running:
-            return {"status": "already_running"}
+            return {"status": "already_running", "message": "Resident agent is already running."}
 
         self._state.is_running = True
         self._state.status = "idle"
         self._state.tick_count = 0
         self._state.errors_since_start = 0
+        self._state.consecutive_errors = 0
         self._state.recent_steps = []
+        self._state.started_at = _now()
+        self._state.last_heartbeat = None
+        self._state.heartbeat_status = "healthy"
+        self._state.alerts = []
+        self._start_time = time.monotonic()
+        self._restart_requested = False
         super().start()  # creates the asyncio.Task (sync, non-awaited)
-        return {"status": "started"}
+        return {"status": "started", "message": "Resident agent started successfully."}
 
     async def stop(self) -> dict:
         """Graceful shutdown, uloží stav do memory."""
         if not self._state.is_running:
-            return {"status": "not_running"}
+            return {"status": "not_running", "message": "Resident agent is not running."}
 
         self._state.is_running = False
         self._state.status = "idle"
         tick_count = self._state.tick_count
+        self._start_time = None
         await super().stop()  # sets stop_event, cancels task, awaits _on_stop
         logger.info("Resident agent stopped after %d ticks", tick_count)
-        return {"status": "stopped", "ticks": tick_count}
+        return {"status": "stopped", "message": f"Stopped after {tick_count} ticks."}
 
     async def _tick(self) -> None:
         """Single iteration of the resident agent loop."""
         self._state.tick_count += 1
         self._state.last_tick = _now()
 
+        # Heartbeat update
+        self._state.last_heartbeat = _now()
+        self._update_heartbeat_status()
+
         try:
             await self._process_task_queue()
             await self._periodic_check()
+            await self._proactive_alerts()
+            # Successful tick resets consecutive error counter
+            self._state.consecutive_errors = 0
         except Exception as exc:
             self._state.errors_since_start += 1
+            self._state.consecutive_errors += 1
             self._state.status = "error"
             logger.error("Resident agent tick error: %s", exc)
+
+            # Self-healing: too many consecutive errors → request restart
+            if self._state.consecutive_errors >= CONSECUTIVE_ERROR_THRESHOLD:
+                await self._request_self_healing_restart()
 
         await self._broadcast({
             "type": WS_EVENT_RESIDENT_TICK,
             "tick": self._state.tick_count,
             "status": self._state.status,
             "last_tick": self._state.last_tick,
+            "heartbeat_status": self._state.heartbeat_status,
         })
 
-        await asyncio.sleep(30)
+        await asyncio.sleep(HEARTBEAT_INTERVAL_S)
+
+    def _update_heartbeat_status(self) -> None:
+        """Determine heartbeat health based on error rate."""
+        if self._state.consecutive_errors >= CONSECUTIVE_ERROR_THRESHOLD:
+            self._state.heartbeat_status = "error"
+        elif self._state.consecutive_errors >= 2:
+            self._state.heartbeat_status = "degraded"
+        else:
+            self._state.heartbeat_status = "healthy"
+
+    async def _request_self_healing_restart(self) -> None:
+        """Request a graceful restart via TaskSupervisor pattern."""
+        if self._restart_requested:
+            return
+        self._restart_requested = True
+        logger.warning(
+            "Resident agent requesting self-healing restart after %d consecutive errors",
+            self._state.consecutive_errors,
+        )
+        try:
+            from app.services.memory_service import get_memory_service
+            mem = get_memory_service()
+            await mem.add_memory(
+                text=f"Resident agent self-healing restart triggered after "
+                     f"{self._state.consecutive_errors} consecutive errors",
+                tags=["resident", "self_healing"],
+                source="resident_agent",
+                importance=8,
+            )
+        except Exception:
+            pass
+        # Schedule restart: stop then start in a new task
+        asyncio.create_task(self._do_restart())
+
+    async def _do_restart(self) -> None:
+        """Perform a graceful stop + start cycle."""
+        try:
+            await self.stop()
+            await asyncio.sleep(2)
+            await self.start()
+            logger.info("Resident agent self-healing restart completed")
+        except Exception as exc:
+            logger.error("Self-healing restart failed: %s", exc)
+
+    async def _proactive_alerts(self) -> None:
+        """Generate simple rule-based alerts (every 5th tick = ~2.5 min)."""
+        if self._state.tick_count % 5 != 0:
+            return
+
+        alerts: list[str] = []
+
+        try:
+            # Check job queue depth
+            from app.services.job_service import get_job_service
+            job_svc = get_job_service()
+            queued = job_svc.list_jobs(status="queued", limit=100)
+            if len(queued) >= QUEUE_DEPTH_ALERT_THRESHOLD:
+                alerts.append(f"Queue depth high ({len(queued)} queued jobs)")
+        except Exception as exc:
+            logger.debug("Alert check (queue) failed: %s", exc)
+
+        try:
+            # Check KB size
+            from app.services.vector_store_service import get_vector_store_service
+            vs = get_vector_store_service()
+            stats = vs.get_stats()
+            total_chunks = stats.get("total_chunks", 0)
+            if total_chunks >= KB_DOCS_ALERT_THRESHOLD:
+                alerts.append(f"KB size large ({total_chunks} chunks)")
+        except Exception as exc:
+            logger.debug("Alert check (KB) failed: %s", exc)
+
+        try:
+            # Check resource pressure
+            from app.services.resource_monitor import get_resource_monitor
+            monitor = get_resource_monitor()
+            if monitor.is_blocked():
+                alerts.append("System resources critical (RAM blocked)")
+            elif monitor.is_throttled():
+                alerts.append("System under load (throttled)")
+        except Exception as exc:
+            logger.debug("Alert check (resources) failed: %s", exc)
+
+        self._state.alerts = alerts
+
+    def get_dashboard_data(self) -> dict:
+        """Compile dashboard payload for GET /api/resident/dashboard."""
+        from app.services.job_service import get_job_service
+        job_svc = get_job_service()
+
+        # Determine overall status
+        if self._state.is_running:
+            status = "error" if self._state.heartbeat_status == "error" else "running"
+        else:
+            status = "stopped"
+
+        # Current task info
+        current_task = None
+        if self._state.current_task:
+            current_task = {
+                "title": self._state.current_task,
+                "status": self._state.status,
+                "started_at": self._state.last_tick,
+            }
+
+        # Recent tasks (last 10 resident_task + resident_daily jobs)
+        recent_jobs = job_svc.list_jobs(type="resident_task", limit=10)
+        recent_tasks = []
+        for j in recent_jobs:
+            duration_s = None
+            if j.started_at and j.finished_at:
+                try:
+                    s = datetime.fromisoformat(j.started_at)
+                    f = datetime.fromisoformat(j.finished_at)
+                    duration_s = round((f - s).total_seconds(), 1)
+                except (ValueError, TypeError):
+                    pass
+            recent_tasks.append({
+                "id": j.id,
+                "type": j.type,
+                "title": j.title,
+                "status": j.status,
+                "created_at": j.created_at,
+                "duration_s": duration_s,
+            })
+
+        # Stats for last 24h
+        from datetime import timedelta
+        since_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        stats_24h = job_svc.get_stats_since(since_24h, type="resident_task")
+
+        return {
+            "status": status,
+            "uptime_seconds": round(self.get_uptime_seconds(), 1),
+            "heartbeat_status": self._state.heartbeat_status,
+            "last_heartbeat": self._state.last_heartbeat,
+            "current_task": current_task,
+            "recent_tasks": recent_tasks,
+            "alerts": self._state.alerts,
+            "stats_24h": stats_24h,
+        }
 
     async def _process_task_queue(self) -> None:
         """Načte pending tasky z job_service kde job_type == 'resident_task'."""

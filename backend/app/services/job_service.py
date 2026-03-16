@@ -129,6 +129,51 @@ class JobService:
         jobs = jobs[offset : offset + limit]
         return [Job(**j) for j in jobs]
 
+    def count_jobs(
+        self,
+        status: Optional[str] = None,
+        type: Optional[str] = None,
+        since: Optional[str] = None,
+    ) -> int:
+        """Count jobs matching the given filters."""
+        with self._lock:
+            jobs = self._read_raw()
+        if status:
+            jobs = [j for j in jobs if j.get("status") == status]
+        if type:
+            jobs = [j for j in jobs if j.get("type") == type]
+        if since:
+            jobs = [j for j in jobs if j.get("created_at", "") >= since]
+        return len(jobs)
+
+    def get_stats_since(self, since: str, type: Optional[str] = None) -> dict:
+        """Compute task stats for jobs created after `since` ISO timestamp."""
+        with self._lock:
+            jobs = self._read_raw()
+        filtered = [j for j in jobs if j.get("created_at", "") >= since]
+        if type:
+            filtered = [j for j in filtered if j.get("type") == type]
+
+        total = len(filtered)
+        succeeded = sum(1 for j in filtered if j.get("status") == "succeeded")
+        durations = []
+        for j in filtered:
+            started = j.get("started_at")
+            finished = j.get("finished_at")
+            if started and finished:
+                try:
+                    s = datetime.fromisoformat(started)
+                    f = datetime.fromisoformat(finished)
+                    durations.append((f - s).total_seconds())
+                except (ValueError, TypeError):
+                    pass
+
+        return {
+            "tasks_total": total,
+            "success_rate": round(succeeded / total, 2) if total > 0 else 0.0,
+            "avg_task_duration_s": round(sum(durations) / len(durations), 1) if durations else 0.0,
+        }
+
     def reset_stale_running_jobs(self) -> int:
         """On startup, reset any 'running' jobs back to 'queued'
         (they were interrupted by a server restart)."""

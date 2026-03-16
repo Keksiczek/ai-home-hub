@@ -27,18 +27,35 @@ async def resident_status() -> dict:
     return agent.get_state()
 
 
+@router.get("/dashboard")
+async def resident_dashboard() -> dict:
+    """Get resident agent dashboard data: status, uptime, heartbeat, tasks, alerts, stats."""
+    agent = get_resident_agent()
+    return agent.get_dashboard_data()
+
+
 @router.post("/start")
 async def resident_start() -> dict:
     """Start the resident agent daemon."""
     agent = get_resident_agent()
-    return await agent.start()
+    try:
+        result = await agent.start()
+        return {"status": result["status"], "message": result["message"]}
+    except Exception as exc:
+        logger.error("Failed to start resident agent: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.post("/stop")
 async def resident_stop() -> dict:
     """Stop the resident agent daemon."""
     agent = get_resident_agent()
-    return await agent.stop()
+    try:
+        result = await agent.stop()
+        return {"status": result["status"], "message": result["message"]}
+    except Exception as exc:
+        logger.error("Failed to stop resident agent: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.post("/task")

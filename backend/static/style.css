@@ -2604,3 +2604,134 @@ body {
   .kb-overview-stats { flex-direction: column; gap: 0.5rem; }
   .kb-stat-card { min-width: unset; }
 }
+
+/* ============================================================
+   RESIDENT AGENT DASHBOARD
+   ============================================================ */
+.resident-statusbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: #1a1d27;
+  border-radius: 0.5rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.resident-statusbar__left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.resident-statusbar__right {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.resident-status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.resident-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.resident-status--running .resident-status-dot { background: #4ade80; box-shadow: 0 0 6px #4ade80; }
+.resident-status--running { color: #4ade80; }
+.resident-status--stopped .resident-status-dot { background: #64748b; }
+.resident-status--stopped { color: #94a3b8; }
+.resident-status--error .resident-status-dot { background: #f87171; box-shadow: 0 0 6px #f87171; }
+.resident-status--error { color: #f87171; }
+
+.resident-uptime {
+  color: #94a3b8;
+  font-size: 0.85rem;
+}
+
+.resident-heartbeat {
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 0.25rem;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+.resident-hb--healthy { background: rgba(34, 197, 94, 0.15); color: #4ade80; }
+.resident-hb--degraded { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
+.resident-hb--error { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+
+/* Loading skeleton */
+.resident-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.skeleton {
+  background: linear-gradient(90deg, #1a1d27 25%, #252836 50%, #1a1d27 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+  border-radius: 0.5rem;
+}
+.skeleton--card {
+  height: 100px;
+  width: 100%;
+}
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Stat cards grid */
+.resident-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+.stat-card {
+  background: #1a1d27;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  text-align: center;
+}
+.stat-card__value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #e2e8f0;
+}
+.stat-card__label {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  margin-top: 0.25rem;
+}
+
+/* Current task detail */
+.resident-current-task-detail {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.text-muted { color: #64748b; font-size: 0.85rem; }
+
+/* Alerts */
+.resident-alert-item {
+  padding: 0.5rem 0.75rem;
+  background: rgba(251, 191, 36, 0.1);
+  border-left: 3px solid #fbbf24;
+  border-radius: 0 0.25rem 0.25rem 0;
+  color: #fbbf24;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+}
+
+@media (max-width: 768px) {
+  .resident-stats-grid { grid-template-columns: 1fr; }
+  .resident-statusbar { flex-direction: column; align-items: flex-start; }
+}
