@@ -345,6 +345,11 @@
           <span class="resident-heartbeat hidden" id="resident-heartbeat"></span>
         </div>
         <div class="resident-statusbar__right">
+          <select class="input input--small" id="resident-mode-select" onchange="residentSetMode(this.value)" title="Re&zcaron;im autonomie">
+            <option value="observer">Observer</option>
+            <option value="advisor" selected>Advisor</option>
+            <option value="autonomous">Autonomous</option>
+          </select>
           <button class="btn btn--primary btn--small" id="resident-start-btn">Spustit</button>
           <button class="btn btn--ghost btn--small" id="resident-stop-btn" disabled>Zastavit</button>
         </div>
@@ -392,6 +397,33 @@
         <section class="card hidden" id="resident-alerts-card">
           <h2 class="card-title">Upozorn&#283;n&iacute;</h2>
           <div id="resident-alerts-list"></div>
+        </section>
+
+        <!-- Suggestions from Resident Reasoner -->
+        <section class="card hidden" id="resident-suggestions-card">
+          <h2 class="card-title">N&aacute;vrhy Residenta</h2>
+          <div id="resident-suggestions-list"></div>
+        </section>
+
+        <!-- Missions -->
+        <section class="card" id="resident-missions-card">
+          <h2 class="card-title">Mise</h2>
+          <div class="form-group" style="display:flex;gap:8px;align-items:end">
+            <input type="text" class="input" id="resident-mission-goal" maxlength="500"
+                   placeholder="C&iacute;l mise (nap&#345;. Analyzuj KB k t&eacute;matu X)" style="flex:1" />
+            <button class="btn btn--primary btn--small" onclick="residentCreateMission()">Vytvo&#345;it</button>
+          </div>
+          <div id="resident-missions-list">
+            <p class="empty-state" id="resident-missions-empty">&Zcaron;&aacute;dn&eacute; mise</p>
+          </div>
+        </section>
+
+        <!-- Reflections logbook -->
+        <section class="card" id="resident-reflections-card">
+          <h2 class="card-title">Logbook (Reflexe)</h2>
+          <div id="resident-reflections-list">
+            <p class="empty-state" id="resident-reflections-empty">&Zcaron;&aacute;dn&eacute; reflexe</p>
+          </div>
         </section>
 
         <!-- Recent tasks table -->
