@@ -223,3 +223,37 @@ async def get_reflections(limit: int = Query(default=20, ge=1, le=100)) -> dict:
     agent = get_resident_agent()
     reflections = agent.get_reflections(limit=limit)
     return {"reflections": reflections, "count": len(reflections)}
+
+
+# ── Tool-augmented reasoning ────────────────────────────────
+
+# In-memory store for reasoning cycles (matching pattern of _suggestions)
+_reasoning_cycles: list = []
+_MAX_REASONING_HISTORY = 20
+
+
+@router.get("/reasoning")
+async def get_reasoning_cycles(limit: int = Query(default=10, ge=1, le=50)) -> dict:
+    """Get recent tool-augmented reasoning cycles."""
+    cycles = _reasoning_cycles[-limit:]
+    return {"cycles": [c.model_dump() for c in cycles], "count": len(cycles)}
+
+
+@router.post("/reasoning")
+async def trigger_reasoning_cycle() -> dict:
+    """Trigger a new tool-augmented reasoning cycle."""
+    from app.services.resident_reasoner import get_resident_reasoner
+
+    reasoner = get_resident_reasoner()
+
+    try:
+        cycle = await reasoner.reason_with_tools()
+    except Exception as exc:
+        logger.error("Reasoning cycle failed: %s", exc)
+        raise HTTPException(500, f"Reasoning cycle selhal: {exc}")
+
+    _reasoning_cycles.append(cycle)
+    if len(_reasoning_cycles) > _MAX_REASONING_HISTORY:
+        del _reasoning_cycles[: len(_reasoning_cycles) - _MAX_REASONING_HISTORY]
+
+    return cycle.model_dump()

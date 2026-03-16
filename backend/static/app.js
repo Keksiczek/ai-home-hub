@@ -3973,14 +3973,33 @@ async function loadJobs() {
   const container = document.getElementById('jobs-list');
   if (!container) return;
 
+  // Read filter values
+  const statusFilter = (document.getElementById('jobs-filter-status') || {}).value || '';
+  const typeFilter = (document.getElementById('jobs-filter-type') || {}).value || '';
+  let url = '/api/jobs?limit=50';
+  if (statusFilter) url += '&status=' + encodeURIComponent(statusFilter);
+  if (typeFilter) url += '&type=' + encodeURIComponent(typeFilter);
+
   try {
-    const res = await fetch('/api/jobs?limit=50');
+    const res = await fetch(url);
     if (!res.ok) throw new Error(await res.text());
     const data = await res.json();
     _jobsCache = data.jobs || [];
     renderJobsList(_jobsCache);
+
+    // Populate type dropdown from unique types (only once if empty)
+    const typeSelect = document.getElementById('jobs-filter-type');
+    if (typeSelect && typeSelect.options.length <= 1 && !statusFilter && !typeFilter) {
+      const types = [...new Set(_jobsCache.map(j => j.type))].sort();
+      types.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t;
+        opt.textContent = t;
+        typeSelect.appendChild(opt);
+      });
+    }
   } catch (err) {
-    container.innerHTML = `<span style="color:#f87171">Chyba: ${escHtml(err.message)}</span>`;
+    container.innerHTML = `<div class="resident-error-box"><span>Chyba: ${escHtml(err.message)}</span><button class="btn btn--ghost btn--small" onclick="loadJobs()">Zkusit znovu</button></div>`;
   }
 
   // Set up polling while on jobs tab
@@ -4005,14 +4024,16 @@ function renderJobsList(jobs) {
   }
 
   container.innerHTML = `
+    <div class="jobs-table-wrap">
     <table class="jobs-table">
       <thead>
         <tr>
-          <th>Nazev</th>
+          <th>Název</th>
           <th>Typ</th>
           <th>Status</th>
           <th>Progress</th>
-          <th>Vytvoreno</th>
+          <th>Trvání</th>
+          <th>Vytvořeno</th>
           <th></th>
         </tr>
       </thead>
@@ -4028,16 +4049,18 @@ function renderJobsList(jobs) {
               </div>
               <span class="job-progress-text">${Math.round(j.progress)}%</span>
             </td>
+            <td class="jobs-cell-duration">${formatJobDuration(j.started_at, j.finished_at)}</td>
             <td class="jobs-cell-date">${formatJobDate(j.created_at)}</td>
             <td>
               ${(j.status === 'queued' || j.status === 'running')
-                ? `<button class="btn btn--ghost btn--small" onclick="cancelJob('${escHtml(j.id)}')">Zrusit</button>`
+                ? `<button class="btn btn--ghost btn--small" onclick="cancelJob('${escHtml(j.id)}')">Zrušit</button>`
                 : ''}
             </td>
           </tr>
         `).join('')}
       </tbody>
     </table>
+    </div>
   `;
 }
 
@@ -4878,36 +4901,51 @@ function renderKBUploadResults(data, mode) {
   const resultsEl = document.getElementById('kb-upload-results');
   if (!resultsEl) return;
 
-  let html = `<div class="kb-results-header">Výsledky: ${data.uploaded} nahráno</div>`;
+  const modeLabel = mode === 'index' ? 'Indexace' : 'Analýza';
+  let html = `<div class="kb-results-header">${modeLabel}: ${data.uploaded} souborů nahráno</div>`;
   html += '<div class="kb-results-list">';
 
   for (const r of data.results) {
     if (r.error) {
       html += `
         <div class="kb-result-item kb-result-item--error">
-          <span class="kb-result-icon">&#10060;</span>
-          <span class="kb-result-name">${escHtml(r.file)}</span>
-          <span class="kb-result-detail">${escHtml(r.error)}</span>
+          <span class="kb-result-icon">✗</span>
+          <div class="kb-result-body">
+            <span class="kb-result-name">${escHtml(r.file)}</span>
+            <div class="kb-result-error-detail">${escHtml(r.error)}</div>
+          </div>
         </div>`;
     } else if (r.job_id) {
       html += `
         <div class="kb-result-item kb-result-item--success">
-          <span class="kb-result-icon">&#9989;</span>
-          <span class="kb-result-name">${escHtml(r.file)}</span>
-          <span class="kb-result-detail">Indexace zahájena</span>
+          <span class="kb-result-icon">✓</span>
+          <div class="kb-result-body">
+            <span class="kb-result-name">${escHtml(r.file)}</span>
+            <span class="kb-result-detail">Indexace spuštěna</span>
+          </div>
+          <button class="btn btn--ghost btn--small" onclick="showJobDetail('${escHtml(r.job_id)}');switchTab('jobs')">Otevřít job</button>
         </div>`;
     } else if (r.preview) {
       html += `
         <div class="kb-result-item kb-result-item--preview">
-          <span class="kb-result-icon">&#128269;</span>
-          <span class="kb-result-name">${escHtml(r.file)}</span>
-          <span class="kb-result-detail">${r.chars} znaků, ${r.pages} stran</span>
-          <div class="kb-result-preview">${escHtml(r.preview)}</div>
+          <span class="kb-result-icon">🔍</span>
+          <div class="kb-result-body">
+            <span class="kb-result-name">${escHtml(r.file)}</span>
+            <span class="kb-result-detail">${r.chars} znaků, ${r.pages || '?'} stran</span>
+            <div class="kb-result-preview">${escHtml(r.preview)}</div>
+          </div>
+          <button class="btn btn--ghost btn--small" onclick="navigator.clipboard.writeText(${JSON.stringify(r.preview || '')}).then(()=>showToast('Zkopírováno','success'))">Kopírovat</button>
         </div>`;
     }
   }
 
   html += '</div>';
+
+  // Global action link
+  if (mode === 'index') {
+    html += `<div style="margin-top:0.5rem"><button class="btn btn--ghost btn--small" onclick="switchTab('jobs')">Otevřít Joby →</button></div>`;
+  }
+
   resultsEl.innerHTML = html;
   show(resultsEl);
 }
@@ -5026,10 +5064,12 @@ function bindResidentEvents() {
   const stopBtn = document.getElementById('resident-stop-btn');
   const taskSubmitBtn = document.getElementById('resident-task-submit-btn');
   const taskNameInput = document.getElementById('resident-task-name');
+  const reasoningBtn = document.getElementById('resident-trigger-reasoning-btn');
 
   if (startBtn) startBtn.addEventListener('click', residentStart);
   if (stopBtn) stopBtn.addEventListener('click', residentStop);
   if (taskSubmitBtn) taskSubmitBtn.addEventListener('click', residentSubmitTask);
+  if (reasoningBtn) reasoningBtn.addEventListener('click', residentTriggerReasoning);
 
   // Enable submit only when name is filled
   if (taskNameInput) {
@@ -5159,10 +5199,15 @@ function renderResidentDashboard(data) {
   // Recent tasks table
   renderResidentRecentTasks(data.recent_tasks || []);
 
+  // Mode hint + autonomous logbook
+  updateResidentModeHint(data.resident_mode || 'advisor');
+  renderResidentAutoLogbook(data);
+
   // Brain orchestrator sections
   renderResidentSuggestions(data);
   renderResidentMissions(data.missions || []);
   renderResidentReflections();
+  loadResidentReasoningHistory();
 }
 
 function renderResidentRecentTasks(tasks) {
@@ -5357,8 +5402,11 @@ function renderResidentSuggestions(data) {
             <strong style="flex:1">${escHtml(a.title)}</strong>`;
 
           if (executed) {
-            html += `<span style="color:var(--success);font-size:0.85em">Provedeno</span>`;
-          } else if (mode === 'advisor') {
+            const autoExec = (s.auto_executed_ids || []).includes(a.id);
+            html += autoExec
+              ? `<span class="suggestion-exec-badge suggestion-exec--auto">Auto</span>`
+              : `<span class="suggestion-exec-badge suggestion-exec--manual">Ručně</span>`;
+          } else if (mode === 'advisor' || mode === 'autonomous') {
             html += `<button class="btn btn--primary btn--small" onclick="residentAcceptSuggestion('${s.id}','${a.id}')">Spustit</button>`;
           }
           html += `</div>
@@ -5466,4 +5514,137 @@ function renderResidentReflections() {
       `).join('');
     })
     .catch(() => { if (empty) show(empty); });
+}
+
+/* ============================================================
+   RESIDENT – Reasoning history (tool calling)
+   ============================================================ */
+
+async function residentTriggerReasoning() {
+  const btn = document.getElementById('resident-trigger-reasoning-btn');
+  const spinner = document.getElementById('resident-reasoning-spinner');
+  setLoading(btn, spinner, true);
+  try {
+    const res = await fetch('/api/resident/reasoning', { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    showToast('Reasoning cycle dokončen', 'success');
+    await loadResidentReasoningHistory();
+    await loadResidentDashboard();
+  } catch (err) {
+    showToast('Reasoning selhal: ' + err.message, 'error');
+  } finally {
+    setLoading(btn, spinner, false);
+  }
+}
+
+async function loadResidentReasoningHistory() {
+  const list = document.getElementById('resident-reasoning-list');
+  const empty = document.getElementById('resident-reasoning-empty');
+  if (!list) return;
+
+  try {
+    const res = await fetch('/api/resident/reasoning?limit=5');
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    const cycles = data.cycles || [];
+
+    if (!cycles.length) {
+      if (empty) show(empty);
+      list.innerHTML = '';
+      list.appendChild(empty);
+      return;
+    }
+    if (empty) hide(empty);
+
+    const toolIcons = {
+      search_web: '🔍', browse_page: '🌐', kb_search: '📚',
+      get_system_stats: '📊', list_jobs: '📋', get_weather: '🌤️',
+    };
+
+    list.innerHTML = cycles.reverse().map(c => {
+      const time = c.created_at ? new Date(c.created_at).toLocaleString('cs') : '';
+      const toolsHtml = (c.tool_calls || []).map(tc => {
+        const icon = toolIcons[tc.tool_name] || '🔧';
+        const status = tc.ok ? '✓' : '✗';
+        const statusClass = tc.ok ? 'reasoning-tool--ok' : 'reasoning-tool--fail';
+        const argsStr = Object.entries(tc.arguments || {}).map(([k, v]) => `${k}="${v}"`).join(', ');
+        return `<span class="reasoning-tool-badge ${statusClass}" title="${escHtml(JSON.stringify(tc.result || {}).substring(0, 200))}">${icon} ${escHtml(tc.tool_name)}(${escHtml(argsStr)}) ${status} ${tc.duration_ms}ms</span>`;
+      }).join('');
+
+      const suggestionsCount = (c.final_suggestions || []).length;
+
+      return `
+        <details class="reasoning-cycle-item">
+          <summary class="reasoning-cycle-summary">
+            <span class="reasoning-cycle-time">${time}</span>
+            <span class="reasoning-cycle-model">${escHtml(c.model || '')}</span>
+            <span class="reasoning-cycle-stats">${(c.tools_used || []).length} nástrojů · ${suggestionsCount} návrhů · ${c.total_duration_ms || 0}ms</span>
+          </summary>
+          <div class="reasoning-cycle-detail">
+            ${toolsHtml ? `<div class="reasoning-tools-row">${toolsHtml}</div>` : '<div class="text-muted">Žádné nástroje použity</div>'}
+            ${(c.final_suggestions || []).length ? `
+              <div class="reasoning-suggestions-mini">
+                ${c.final_suggestions.map(s => `
+                  <div class="reasoning-suggestion-mini-item">
+                    <span class="priority-dot priority-dot--${s.priority}"></span>
+                    <strong>${escHtml(s.title)}</strong>
+                    <span class="text-muted">${escHtml(s.action_type)}</span>
+                  </div>
+                `).join('')}
+              </div>
+            ` : ''}
+          </div>
+        </details>`;
+    }).join('');
+  } catch (err) {
+    console.error('Reasoning history load failed:', err);
+  }
+}
+
+/* ============================================================
+   RESIDENT – Mode hints + autonomous logbook
+   ============================================================ */
+
+const _modeHints = {
+  observer: 'Jen sleduje, nic nespouští',
+  advisor: 'Navrhuje akce, ty klikneš Spustit',
+  autonomous: 'Spouští bezpečné akce sám',
+};
+
+function updateResidentModeHint(mode) {
+  const hint = document.getElementById('resident-mode-hint');
+  if (hint) hint.textContent = _modeHints[mode] || '';
+}
+
+function renderResidentAutoLogbook(data) {
+  const card = document.getElementById('resident-auto-logbook-card');
+  const list = document.getElementById('resident-auto-logbook-list');
+  if (!card || !list) return;
+
+  const mode = data.resident_mode || 'advisor';
+  if (mode !== 'autonomous') { hide(card); return; }
+
+  // Show recent tasks that were auto-executed (resident_task jobs created by autonomous mode)
+  const autoTasks = (data.recent_tasks || []).filter(t =>
+    t.meta && t.meta.auto_executed
+  );
+
+  if (!autoTasks.length) {
+    // Still show card in autonomous mode but with hint
+    show(card);
+    list.innerHTML = '<p class="empty-state">Zatím žádné automatické akce</p>';
+    return;
+  }
+
+  show(card);
+  list.innerHTML = autoTasks.slice(0, 10).map(t => {
+    const ok = t.status === 'succeeded';
+    return `
+      <div class="auto-logbook-item">
+        <span class="auto-logbook-status ${ok ? 'auto-logbook--ok' : 'auto-logbook--fail'}">${ok ? '✓' : '✗'}</span>
+        <span class="auto-logbook-time">${formatJobDate(t.created_at)}</span>
+        <span class="auto-logbook-type">${escHtml(t.type)}</span>
+        <span class="auto-logbook-title">${escHtml(t.title)}</span>
+      </div>`;
+  }).join('');
 }

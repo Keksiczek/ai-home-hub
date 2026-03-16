@@ -345,11 +345,14 @@
           <span class="resident-heartbeat hidden" id="resident-heartbeat"></span>
         </div>
         <div class="resident-statusbar__right">
-          <select class="input input--small" id="resident-mode-select" onchange="residentSetMode(this.value)" title="Re&zcaron;im autonomie">
-            <option value="observer">Observer</option>
-            <option value="advisor" selected>Advisor</option>
-            <option value="autonomous">Autonomous</option>
-          </select>
+          <div class="resident-mode-switcher">
+            <select class="input input--small" id="resident-mode-select" onchange="residentSetMode(this.value)" title="Re&zcaron;im autonomie">
+              <option value="observer">Observer</option>
+              <option value="advisor" selected>Advisor</option>
+              <option value="autonomous">Autonomous</option>
+            </select>
+            <span class="resident-mode-hint" id="resident-mode-hint">Navrhuje akce, ty klikne&#353; Spustit</span>
+          </div>
           <button class="btn btn--primary btn--small" id="resident-start-btn">Spustit</button>
           <button class="btn btn--ghost btn--small" id="resident-stop-btn" disabled>Zastavit</button>
         </div>
@@ -399,10 +402,30 @@
           <div id="resident-alerts-list"></div>
         </section>
 
+        <!-- Reasoning History (tool calling) -->
+        <section class="card" id="resident-reasoning-card">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <h2 class="card-title">Reasoning (tool calling)</h2>
+            <button class="btn btn--secondary btn--small" id="resident-trigger-reasoning-btn" title="Spustit nov&yacute; reasoning cycle">
+              Spustit reasoning
+              <span class="spinner spinner--small hidden" id="resident-reasoning-spinner"></span>
+            </button>
+          </div>
+          <div id="resident-reasoning-list">
+            <p class="empty-state" id="resident-reasoning-empty">&Zcaron;&aacute;dn&eacute; reasoning cycles</p>
+          </div>
+        </section>
+
         <!-- Suggestions from Resident Reasoner -->
         <section class="card hidden" id="resident-suggestions-card">
           <h2 class="card-title">N&aacute;vrhy Residenta</h2>
           <div id="resident-suggestions-list"></div>
+        </section>
+
+        <!-- Autonomous Actions Logbook -->
+        <section class="card hidden" id="resident-auto-logbook-card">
+          <h2 class="card-title">Posledn&iacute; autonomn&iacute; akce</h2>
+          <div id="resident-auto-logbook-list"></div>
         </section>
 
         <!-- Missions -->
@@ -433,6 +456,18 @@
             <p class="empty-state" id="resident-tasks-empty">&#381;&aacute;dn&eacute; &uacute;koly za 24 h</p>
           </div>
         </section>
+
+        <!-- Help tooltip -->
+        <details class="card resident-help-details">
+          <summary class="card-title resident-help-summary">Jak pou&#382;&iacute;vat Resident Agent?</summary>
+          <ul class="resident-help-list">
+            <li><strong>Observer</strong> &ndash; jen sleduje syst&eacute;m, nic nespou&#353;t&iacute;.</li>
+            <li><strong>Advisor</strong> &ndash; navrhuje akce, ty je ru&#269;n&#283; potvrd&iacute;&#353;.</li>
+            <li><strong>Autonomous</strong> &ndash; spou&#353;t&iacute; bezpe&#269;n&eacute; akce s&aacute;m; maz&aacute;n&iacute; v&#382;dy po&#382;aduje potvrzen&iacute;.</li>
+            <li><strong>Reasoning</strong> &ndash; agent pou&#382;&iacute;v&aacute; n&aacute;stroje (web, KB, metriky) pro lep&#353;&iacute; n&aacute;vrhy.</li>
+            <li><strong>Mise</strong> &ndash; v&iacute;cekrokov&eacute; &uacute;koly s automatick&yacute;m pl&aacute;nov&aacute;n&iacute;m.</li>
+          </ul>
+        </details>
 
         <!-- Task submit -->
         <section class="card">
@@ -630,7 +665,22 @@
 
       <!-- Jobs list -->
       <section class="card">
-        <h2 class="card-title">Seznam job&#367;</h2>
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.75rem">
+          <h2 class="card-title" style="margin:0">Seznam job&#367;</h2>
+          <div class="jobs-filter-bar" id="jobs-filter-bar">
+            <select class="input input--small" id="jobs-filter-status" onchange="loadJobs()">
+              <option value="">V&#353;echny stavy</option>
+              <option value="queued">Queued</option>
+              <option value="running">Running</option>
+              <option value="succeeded">Succeeded</option>
+              <option value="failed">Failed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+            <select class="input input--small" id="jobs-filter-type" onchange="loadJobs()">
+              <option value="">V&#353;echny typy</option>
+            </select>
+          </div>
+        </div>
         <div id="jobs-list" class="jobs-list">
           <p class="empty-state">&#381;&aacute;dn&eacute; joby.</p>
         </div>
@@ -832,8 +882,11 @@
       <section class="card" id="kb-collections-section">
         <h2 class="card-title">Kolekce a dokumenty</h2>
         <div id="kb-collections-list">
-          <div class="empty-state" id="kb-empty-state">
-            &#128218; Zat&iacute;m &zcaron;&aacute;dn&eacute; dokumenty. P&#345;et&aacute;hni soubory v&yacute;&#353;e pro indexaci.
+          <div class="kb-empty-state-big" id="kb-empty-state">
+            <span class="kb-empty-icon">&#128218;</span>
+            <strong>Zat&iacute;m &zcaron;&aacute;dn&eacute; dokumenty</strong>
+            <p class="text-muted">P&#345;et&aacute;hni soubory v&yacute;&#353;e pro indexaci nebo klikni na tla&#269;&iacute;tko n&iacute;&#382;e.</p>
+            <button class="btn btn--primary btn--small" onclick="document.getElementById('kb-file-input').click()">Nahr&aacute;t prvn&iacute; dokument</button>
           </div>
         </div>
       </section>

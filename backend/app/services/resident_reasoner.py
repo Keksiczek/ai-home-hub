@@ -2,17 +2,22 @@
 
 Collects system context (KB stats, job stats, Prometheus metrics),
 builds a system prompt, calls LLM, and returns structured SuggestedActions.
+
+Phase 2 addition: tool-augmented reasoning via ``reason_with_tools()``.
 """
 import json
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from app.models.resident_models import (
     MissionStep,
+    ResidentReasoningCycle,
     ResidentReflection,
     ResidentSuggestion,
     SuggestedAction,
+    ToolCallRecord,
 )
 from app.services.llm_service import get_llm_service
 
@@ -212,7 +217,7 @@ class ResidentReasoner:
 
             try:
                 actions.append(SuggestedAction(
-                    id=str(item.get("id", ""))[:8] or None,
+                    **({"id": str(item["id"])[:8]} if item.get("id") else {}),
                     title=str(item.get("title", "Bez názvu"))[:100],
                     description=str(item.get("description", ""))[:300],
                     action_type=action_type,
@@ -291,6 +296,186 @@ class ResidentReasoner:
                 return json.loads(reply[s:e + 1])
 
         raise ValueError("No valid JSON found in response")
+
+
+    # ── Tool-augmented reasoning ──────────────────────────────
+
+    async def reason_with_tools(self, context_override: Optional[Dict[str, Any]] = None) -> ResidentReasoningCycle:
+        """Run a single tool-augmented reasoning cycle.
+
+        1. Collect system context.
+        2. Ask LLM which tools to call (max 3).
+        3. Execute the tool calls.
+        4. Feed tool results back to LLM for final suggestions.
+        """
+        from app.services.resident_tools import (
+            execute_tool_call,
+            render_tools_for_prompt,
+        )
+
+        t0 = time.monotonic()
+
+        # Collect context
+        if context_override is not None:
+            context = context_override
+            context_summary = json.dumps(context, ensure_ascii=False)[:500]
+        else:
+            context = await self._collect_context()
+            context_summary = self._build_context_summary(context)
+
+        tools_list = render_tools_for_prompt()
+
+        # Phase 1: Ask LLM which tools to call
+        tools_prompt = TOOLS_SYSTEM_PROMPT.replace("{tools_list}", tools_list)
+        user_message = f"AKTUÁLNÍ KONTEXT SYSTÉMU:\n{context_summary}"
+
+        llm = get_llm_service()
+        try:
+            reply, meta = await llm.generate(
+                message=user_message,
+                mode="resident_tool_calling",
+                profile="general",
+                history=[{"role": "system", "content": tools_prompt}],
+            )
+        except Exception as exc:
+            logger.error("Tool reasoning phase 1 failed: %s", exc)
+            return ResidentReasoningCycle(
+                context_summary=context_summary,
+                total_duration_ms=int((time.monotonic() - t0) * 1000),
+            )
+
+        if meta.get("status") == "llm_unavailable":
+            logger.warning("Tool reasoning: LLM unavailable")
+            return ResidentReasoningCycle(
+                context_summary=context_summary,
+                total_duration_ms=int((time.monotonic() - t0) * 1000),
+            )
+
+        # Phase 2: Parse and execute tool calls (max 3)
+        tool_calls = self._parse_tool_calls(reply)
+        tool_records: List[ToolCallRecord] = []
+
+        for tc in tool_calls[:3]:
+            result = await execute_tool_call(tc, context)
+            fn = tc.get("function", {})
+            raw_args = fn.get("arguments", {})
+            if isinstance(raw_args, str):
+                try:
+                    raw_args = json.loads(raw_args)
+                except json.JSONDecodeError:
+                    raw_args = {}
+            tool_records.append(
+                ToolCallRecord(
+                    tool_name=fn.get("name", "unknown"),
+                    arguments=raw_args,
+                    result=result.get("data") or {"error": result.get("error")},
+                    ok=result.get("ok", False),
+                    duration_ms=result.get("duration_ms", 0),
+                )
+            )
+
+        tools_used = [tr.tool_name for tr in tool_records]
+
+        # Phase 3: Final reasoning with tool results
+        tool_results_json = json.dumps(
+            [{"tool": tr.tool_name, "ok": tr.ok, "data": tr.result} for tr in tool_records],
+            ensure_ascii=False,
+            default=str,
+        )[:4000]
+
+        schema_hint = (
+            '{"title": str, "description": str, "action_type": "kb_maintenance"|"job_cleanup"|"health_check"|"analysis"|"other", '
+            '"priority": "low"|"medium"|"high", "requires_confirmation": bool, "steps": [str]}'
+        )
+        final_prompt = FINAL_REASONING_PROMPT.replace("{schema}", schema_hint)
+        final_message = (
+            f"VÝSLEDKY NÁSTROJŮ:\n{tool_results_json}\n\n"
+            f"KONTEXT SYSTÉMU:\n{context_summary}"
+        )
+
+        try:
+            final_reply, final_meta = await llm.generate(
+                message=final_message,
+                mode="resident_final_reasoning",
+                profile="general",
+                history=[{"role": "system", "content": final_prompt}],
+            )
+        except Exception as exc:
+            logger.error("Tool reasoning phase 3 failed: %s", exc)
+            final_reply = "[]"
+
+        suggestions = self._parse_suggestions(final_reply) if final_reply else []
+
+        total_ms = int((time.monotonic() - t0) * 1000)
+
+        return ResidentReasoningCycle(
+            context_summary=context_summary,
+            tools_used=tools_used,
+            tool_calls=tool_records,
+            final_suggestions=suggestions,
+            model=meta.get("model", ""),
+            total_duration_ms=total_ms,
+        )
+
+    def _parse_tool_calls(self, reply: str) -> List[Dict[str, Any]]:
+        """Parse tool-call JSON from the LLM response.
+
+        Expected format (from TOOLS_SYSTEM_PROMPT):
+        [{"type": "function", "function": {"name": "...", "arguments": {...}}}]
+
+        Falls back gracefully: returns [] if nothing parseable.
+        """
+        try:
+            data = self._extract_json(reply)
+        except (ValueError, json.JSONDecodeError):
+            logger.debug("No tool calls found in LLM reply")
+            return []
+
+        # Accept both list and single-dict forms
+        if isinstance(data, dict):
+            data = [data]
+        if not isinstance(data, list):
+            return []
+
+        calls: List[Dict[str, Any]] = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            fn = item.get("function", {})
+            if not fn.get("name"):
+                # Flat format: {"name": ..., "arguments": ...}
+                if item.get("name"):
+                    fn = {"name": item["name"], "arguments": item.get("arguments", {})}
+                else:
+                    continue
+            calls.append({"type": "function", "function": fn})
+
+        return calls
+
+
+# ── LLM prompts for tool calling ────────────────────────────
+
+TOOLS_SYSTEM_PROMPT = """Jsi Resident Agent s přístupem k nástrojům.
+
+1. Nejdřív zvaž, jestli potřebuješ nějaký tool.
+2. Vol max 3 tools, každý tool max 1×.
+3. Vrať POUZE tool calls v tomto formátu:
+[
+  {"type": "function", "function": {"name": "tool_name", "arguments": {"param": "value"}}}
+]
+
+Dostupné tools:
+{tools_list}
+"""
+
+FINAL_REASONING_PROMPT = """Máš tool results a systémový kontext. Navrhni max 3 akce:
+
+1. Každá akce musí být bezpečná a užitečná.
+2. Vrať POUZE JSON: List[SuggestedAction]
+3. Žádné shell příkazy, jen definované action_types.
+
+{schema}
+"""
 
 
 # Singleton
