@@ -61,6 +61,11 @@
         <span class="nav-label">No&#269;n&iacute; &uacute;lohy</span>
       </button>
       <button class="nav-item" role="tab" aria-selected="false"
+              data-tab="knowledge" title="Knowledge Base">
+        <span class="nav-icon">&#128218;</span>
+        <span class="nav-label">Knowledge</span>
+      </button>
+      <button class="nav-item" role="tab" aria-selected="false"
               data-tab="settings" title="Settings">
         <span class="nav-icon">&#128736;</span>
         <span class="nav-label">Nastaven&iacute;</span>
@@ -1130,6 +1135,87 @@
       </section>
 
     </div><!-- /tab-settings -->
+
+    <!-- ======================== KNOWLEDGE TAB ======================== -->
+    <div class="tab-panel hidden" id="tab-knowledge" role="tabpanel">
+
+      <div class="panel-header">
+        <h1 class="panel-title">&#128218; Knowledge Base</h1>
+        <span class="badge" id="kb-doc-count-badge" title="Celkem dokumentů v KB">0 dok.</span>
+      </div>
+
+      <!-- Upload section -->
+      <section class="card">
+        <h2 class="card-title">Nahr&aacute;t soubory</h2>
+
+        <!-- Mode toggle -->
+        <div class="kb-mode-toggle" style="margin-bottom:1rem">
+          <span class="form-label" style="margin-right:0.5rem">Re&#382;im:</span>
+          <div class="btn-group" id="kb-mode-group">
+            <button class="btn btn--secondary btn--small kb-mode-btn kb-mode-btn--active"
+                    data-mode="index">&#128260; Indexovat</button>
+            <button class="btn btn--ghost btn--small kb-mode-btn"
+                    data-mode="analyze">&#128270; Anal&yacute;za</button>
+          </div>
+          <span id="kb-mode-hint" class="hint-text" style="margin-left:0.75rem">
+            Soubory se ulo&#382;&iacute; do KB pro sémantické vyhledáv&aacute;n&iacute;.
+          </span>
+        </div>
+
+        <!-- Collection input (index mode only) -->
+        <div id="kb-collection-row" class="form-group" style="margin-bottom:0.75rem">
+          <label class="form-label" for="kb-collection-input">Kolekce:</label>
+          <input type="text" class="input" id="kb-collection-input"
+                 value="default" placeholder="default" style="max-width:200px" />
+        </div>
+
+        <!-- Drop zone -->
+        <div id="kb-dropzone" class="kb-dropzone" tabindex="0"
+             aria-label="Přetáhni soubory nebo klikni pro výběr">
+          <div class="kb-dropzone__icon">&#128229;</div>
+          <div class="kb-dropzone__text">P&#345;et&aacute;hni soubory nebo <u>klikni pro v&yacute;b&#283;r</u></div>
+          <div class="kb-dropzone__hint">
+            Podporované: PDF, DOCX, XLSX, TXT, MD, PNG, JPG · a kódové soubory (PY, JS, TS…)
+          </div>
+          <input type="file" id="kb-file-input" multiple style="display:none"
+                 accept=".pdf,.docx,.xlsx,.txt,.md,.png,.jpg,.jpeg,.gif,.bmp,.py,.js,.ts,.jsx,.tsx,.json,.yaml,.yml,.toml,.sh,.html,.css,.sql" />
+        </div>
+
+        <!-- Selected files list -->
+        <div id="kb-selected-files" class="kb-selected-files hidden"></div>
+
+        <!-- Upload progress -->
+        <div id="kb-upload-progress" class="hidden" style="margin-top:0.75rem">
+          <div class="ingest-progress-bar">
+            <div class="ingest-progress-fill" id="kb-progress-fill" style="width:0%"></div>
+          </div>
+          <div id="kb-progress-label" class="hint-text" style="margin-top:0.25rem"></div>
+        </div>
+
+        <!-- Upload result / analyze output -->
+        <div id="kb-upload-result" class="hidden" style="margin-top:0.75rem"></div>
+
+        <!-- Upload button -->
+        <div style="margin-top:1rem;display:flex;gap:0.5rem;align-items:center">
+          <button class="btn btn--primary" id="kb-upload-btn" disabled>
+            &#128229; Nahr&aacute;t soubory
+          </button>
+          <button class="btn btn--ghost btn--small" id="kb-clear-btn">Vymazat v&yacute;b&#283;r</button>
+        </div>
+      </section>
+
+      <!-- Overview / Collections -->
+      <section class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem">
+          <h2 class="card-title">P&#345;ehled kolekcí</h2>
+          <button class="btn btn--ghost btn--small" id="kb-refresh-overview-btn">&#8635; Obnovit</button>
+        </div>
+        <div id="kb-overview-content">
+          <p class="empty-state hint-text">Na&#269;&iacute;t&aacute;m...</p>
+        </div>
+      </section>
+
+    </div><!-- /tab-knowledge -->
 
   </main>
 
