@@ -41,6 +41,11 @@
         <span class="nav-label">Joby</span>
       </button>
       <button class="nav-item" role="tab" aria-selected="false"
+              data-tab="knowledge" title="Knowledge Base">
+        <span class="nav-icon">&#128218;</span>
+        <span class="nav-label">Knowledge</span>
+      </button>
+      <button class="nav-item" role="tab" aria-selected="false"
               data-tab="actions" title="Actions">
         <span class="nav-icon">&#9881;</span>
         <span class="nav-label">Akce</span>
@@ -670,6 +675,92 @@
       </section>
 
     </div><!-- /tab-actions -->
+
+    <!-- ======================== SETTINGS TAB ======================== -->
+    <!-- ======================== KNOWLEDGE BASE TAB ======================== -->
+    <div class="tab-panel hidden" id="tab-knowledge" role="tabpanel">
+
+      <div class="panel-header">
+        <h1 class="panel-title">Knowledge Base</h1>
+        <button class="btn btn--ghost btn--small" id="kb-refresh-overview" title="Obnovit">&#8635; Obnovit</button>
+      </div>
+
+      <!-- KB Overview Stats -->
+      <section class="card kb-overview-card" id="kb-overview-section">
+        <div class="kb-overview-stats" id="kb-overview-stats">
+          <div class="kb-stat-card">
+            <span class="kb-stat-value" id="kb-total-docs">-</span>
+            <span class="kb-stat-label">Dokumenty</span>
+          </div>
+          <div class="kb-stat-card">
+            <span class="kb-stat-value" id="kb-total-chunks">-</span>
+            <span class="kb-stat-label">Chunky</span>
+          </div>
+          <div class="kb-stat-card">
+            <span class="kb-stat-value" id="kb-total-collections">-</span>
+            <span class="kb-stat-label">Kolekce</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Upload Zone -->
+      <section class="card kb-upload-card">
+        <h2 class="card-title">Nahr&aacute;t dokumenty</h2>
+
+        <!-- Mode selector -->
+        <div class="kb-mode-selector">
+          <label class="kb-mode-option kb-mode-option--active" title="Soubory se trvale ulo&zcaron;&iacute; do Knowledge Base pro s&eacute;mantick&eacute; vyhled&aacute;v&aacute;n&iacute;">
+            <input type="radio" name="kb-upload-mode" value="index" checked />
+            <span class="kb-mode-icon">&#128218;</span>
+            <span class="kb-mode-text">
+              <strong>P&#345;idat do KB</strong>
+              <small>Trval&aacute; indexace pro vyhled&aacute;v&aacute;n&iacute;</small>
+            </span>
+          </label>
+          <label class="kb-mode-option" title="Soubory se pouze analyzuj&iacute;, neukl&aacute;daj&iacute; se trvale">
+            <input type="radio" name="kb-upload-mode" value="analyze" />
+            <span class="kb-mode-icon">&#128269;</span>
+            <span class="kb-mode-text">
+              <strong>Rychl&aacute; anal&yacute;za</strong>
+              <small>Do&#269;asn&eacute;, bez indexace</small>
+            </span>
+          </label>
+        </div>
+
+        <!-- Dropzone -->
+        <div class="kb-dropzone" id="kb-dropzone">
+          <div class="kb-dropzone-content" id="kb-dropzone-content">
+            <span class="kb-dropzone-icon">&#128228;</span>
+            <p>P&#345;et&aacute;hni soubory sem nebo <button class="btn-link" id="kb-browse-btn">vyber ru&#269;n&#283;</button></p>
+            <small class="kb-dropzone-hint">.txt, .md, .pdf, .docx, .xlsx, .py, .js, .ts, .json, .html, .css, .xml, .yml, .png, .jpg</small>
+          </div>
+          <input type="file" id="kb-file-input" multiple hidden
+                 accept=".txt,.md,.json,.py,.js,.ts,.html,.css,.xml,.yml,.yaml,.pdf,.docx,.xlsx,.png,.jpg,.jpeg,.gif,.bmp,.csv,.log,.sh,.bash,.toml,.ini,.cfg,.sql" />
+        </div>
+
+        <!-- Upload progress -->
+        <div class="kb-upload-progress hidden" id="kb-upload-progress">
+          <div class="kb-upload-status" id="kb-upload-status">Nahr&aacute;v&aacute;m...</div>
+          <div class="kb-progress-bar">
+            <div class="kb-progress-fill" id="kb-progress-fill" style="width:0%"></div>
+          </div>
+        </div>
+
+        <!-- Upload results -->
+        <div class="kb-upload-results hidden" id="kb-upload-results"></div>
+      </section>
+
+      <!-- Collections / Documents list -->
+      <section class="card" id="kb-collections-section">
+        <h2 class="card-title">Kolekce a dokumenty</h2>
+        <div id="kb-collections-list">
+          <div class="empty-state" id="kb-empty-state">
+            &#128218; Zat&iacute;m &zcaron;&aacute;dn&eacute; dokumenty. P&#345;et&aacute;hni soubory v&yacute;&#353;e pro indexaci.
+          </div>
+        </div>
+      </section>
+
+    </div><!-- /tab-knowledge -->
 
     <!-- ======================== SETTINGS TAB ======================== -->
     <div class="tab-panel hidden" id="tab-settings" role="tabpanel">

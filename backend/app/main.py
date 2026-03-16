@@ -7,8 +7,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 from app.routers import actions, agent_skills, chat, chat_multimodal, files, knowledge, memory, status
 from app.routers import agents, filesystem, integrations, jobs, settings, skills, tasks
@@ -46,6 +47,10 @@ async def lifespan(app: FastAPI):
 
     # Log actionable first-time-setup warnings
     get_settings_service().warn_if_unconfigured()
+
+    # Initialize Prometheus app info metric
+    from app.services.metrics_service import init_app_info
+    init_app_info(version="0.5.0")
 
     # ── Startup validation ──────────────────────────────────────
     from app.services.startup_checks import run_startup_checks
@@ -297,6 +302,12 @@ async def health_ready():
         return {"status": "ok"}
     except (asyncio.TimeoutError, Exception):
         return JSONResponse(status_code=503, content={"status": "unavailable"})
+
+
+@app.get("/metrics", tags=["monitoring"])
+async def prometheus_metrics():
+    """Expose Prometheus metrics."""
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.delete("/api/embeddings/cache", tags=["health"])

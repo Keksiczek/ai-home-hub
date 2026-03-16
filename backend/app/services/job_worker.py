@@ -1,11 +1,17 @@
 """Job worker – background async loop that picks queued jobs and runs them."""
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Any, Callable, Coroutine, Dict, List, Optional, Set
 
 from app.services.background_service import BackgroundService
 from app.services.job_service import Job, JobService
+from app.services.metrics_service import (
+    job_duration_seconds,
+    job_queue_depth,
+    update_job_queue_metrics_from_list,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -252,6 +258,7 @@ class JobWorker(BackgroundService):
         progress_callback = await self._make_progress_callback(job)
 
         night_job_types = {"kb_reindex", "git_sweep", "nightly_summary"}
+        job_start_mono = time.monotonic()
 
         try:
             result = await execute_job(job, progress_callback)
@@ -266,6 +273,7 @@ class JobWorker(BackgroundService):
             job.last_error = str(exc)
             logger.error("Job %s failed: %s", job.id, exc, exc_info=True)
         finally:
+            job_duration_seconds.labels(type=job.type).observe(time.monotonic() - job_start_mono)
             job.finished_at = datetime.now(timezone.utc).isoformat()
             self._job_service.update_job(job)
             self._running_job_ids.discard(job.id)
@@ -323,6 +331,11 @@ class JobWorker(BackgroundService):
 
         # Get queued jobs
         queued = self._job_service.list_jobs(status="queued", limit=50)
+
+        # Update job queue depth metrics
+        all_jobs = self._job_service.list_jobs(limit=200)
+        update_job_queue_metrics_from_list([{"status": j.status} for j in all_jobs])
+
         if not queued:
             return
 

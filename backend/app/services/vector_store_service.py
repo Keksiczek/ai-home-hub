@@ -12,6 +12,8 @@ from typing import Any, Callable, Dict, List, Optional
 import chromadb
 from chromadb.config import Settings
 
+from app.services.metrics_service import chromadb_documents_total, chromadb_query_duration
+
 logger = logging.getLogger(__name__)
 
 CHROMA_DIR = Path(__file__).parent.parent.parent / "data" / "chroma"
@@ -73,6 +75,7 @@ class VectorStoreService:
         try:
             # ChromaDB metadata values must be str, int, float, or bool
             safe_metadatas = [_sanitize_metadata(m) for m in metadatas]
+            t0 = time.monotonic()
             await self._safe_write(
                 self.collection.add,
                 ids=ids,
@@ -80,6 +83,8 @@ class VectorStoreService:
                 documents=documents,
                 metadatas=safe_metadatas,
             )
+            chromadb_query_duration.labels(operation="add").observe(time.monotonic() - t0)
+            chromadb_documents_total.labels(collection=self.COLLECTION_NAME).set(self.collection.count())
             logger.info("Added %d documents to vector store", len(ids))
         except Exception as exc:
             logger.error("Failed to add documents: %s", exc)
@@ -104,7 +109,9 @@ class VectorStoreService:
             if filter_metadata:
                 kwargs["where"] = filter_metadata
 
+            t0 = time.monotonic()
             results = self.collection.query(**kwargs)
+            chromadb_query_duration.labels(operation="query").observe(time.monotonic() - t0)
 
             return {
                 "ids": results["ids"][0] if results["ids"] else [],
@@ -123,7 +130,10 @@ class VectorStoreService:
                 self.collection.get, where={"file_path": file_path}
             )
             if results and results["ids"]:
+                t0 = time.monotonic()
                 await self._safe_write(self.collection.delete, ids=results["ids"])
+                chromadb_query_duration.labels(operation="delete").observe(time.monotonic() - t0)
+                chromadb_documents_total.labels(collection=self.COLLECTION_NAME).set(self.collection.count())
                 logger.info("Deleted %d chunks for %s", len(results["ids"]), file_path)
                 return len(results["ids"])
             return 0

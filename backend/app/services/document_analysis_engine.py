@@ -8,6 +8,7 @@ Pipeline:
 """
 import json
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,6 +20,10 @@ from app.models.document_analysis_models import (
     PerDocumentSummary,
 )
 from app.services.job_service import Job
+from app.services.metrics_service import (
+    document_analysis_duration_seconds,
+    documents_parsed_total,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,13 +54,16 @@ async def run_document_analysis_pipeline(
     """Execute the full document analysis pipeline."""
 
     total_files = len(input_data.file_paths)
+    pipeline_start = time.monotonic()
     logger.info(
         "DocumentAnalysis started: %d file(s), task=%s",
         total_files, input_data.task_description[:80],
     )
 
     # ── Phase 1: Parse documents (0–20%) ─────────────────────
+    phase_start = time.monotonic()
     parsed_docs = await _parse_documents(input_data.file_paths, progress_callback, total_files)
+    document_analysis_duration_seconds.labels(phase="parsing").observe(time.monotonic() - phase_start)
 
     if not parsed_docs:
         raise ValueError("No documents could be parsed successfully")
@@ -64,6 +72,7 @@ async def run_document_analysis_pipeline(
     from app.services.document_summarizer_service import summarize_document
 
     per_doc_summaries: List[PerDocumentSummary] = []
+    phase_start = time.monotonic()
 
     for idx, doc in enumerate(parsed_docs):
         await progress_callback(
@@ -80,10 +89,12 @@ async def run_document_analysis_pipeline(
         per_doc_summaries.append(summary)
         logger.info("Summarized %d/%d: %s", idx + 1, len(parsed_docs), doc.title)
 
+    document_analysis_duration_seconds.labels(phase="summarizing").observe(time.monotonic() - phase_start)
     await progress_callback(70, {"phase": "summarizing", "status": "done"})
 
     # ── Phase 3: Cross-document synthesis (70–85%) ───────────
     await progress_callback(70, {"phase": "synthesis", "status": "started"})
+    phase_start = time.monotonic()
 
     overall_summary, recommendations = await _cross_document_synthesis(
         per_doc_summaries,
@@ -92,10 +103,12 @@ async def run_document_analysis_pipeline(
         input_data.language or "cs",
     )
 
+    document_analysis_duration_seconds.labels(phase="synthesis").observe(time.monotonic() - phase_start)
     await progress_callback(85, {"phase": "synthesis", "status": "done"})
 
     # ── Phase 4: Generate report (85–100%) ───────────────────
     await progress_callback(85, {"phase": "report", "status": "started"})
+    phase_start = time.monotonic()
 
     result = DocumentAnalysisResult(
         task_description=input_data.task_description,
@@ -110,6 +123,8 @@ async def run_document_analysis_pipeline(
     # Persist result JSON
     _persist_result_json(job.id, result)
 
+    document_analysis_duration_seconds.labels(phase="report").observe(time.monotonic() - phase_start)
+    document_analysis_duration_seconds.labels(phase="total").observe(time.monotonic() - pipeline_start)
     await progress_callback(100, {"phase": "report", "status": "done", "report_path": report_path})
 
     logger.info("DocumentAnalysis completed: %d docs, report=%s", len(per_doc_summaries), report_path)
@@ -145,11 +160,13 @@ async def _parse_documents(
         result = parser.parse_file(file_path)
 
         if "error" in result:
+            documents_parsed_total.labels(status="error").inc()
             logger.warning("Failed to parse %s: %s", rel_path, result["error"])
             continue
 
         text = result.get("text", "")
         if not text.strip():
+            documents_parsed_total.labels(status="error").inc()
             logger.warning("No text extracted from %s, skipping", rel_path)
             continue
 
@@ -165,6 +182,7 @@ async def _parse_documents(
             metadata=result.get("metadata", {}),
             page_count=result.get("page_count", 1),
         ))
+        documents_parsed_total.labels(status="success").inc()
 
         logger.info("Parsed %d/%d: %s (%d chars)", idx + 1, total_files, file_path.name, len(text))
 
