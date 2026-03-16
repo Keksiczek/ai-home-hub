@@ -1093,16 +1093,20 @@ function appendBubble(role, text, meta, images) {
     if (meta.error) {
       inner += `<div class="bubble-error-actions" style="margin-top:0.5rem;display:flex;gap:0.5rem">
         <button class="btn btn--ghost btn--small bubble-retry-btn" title="Zkusit znovu">Zkusit znovu</button>
-        <button class="btn btn--ghost btn--small bubble-copy-btn" title="Zkopirovat zpravu">Zkopirovat</button>
+        <button class="btn btn--ghost btn--small bubble-copy-err-btn" title="Zkopírovat zprávu">Zkopírovat</button>
       </div>`;
     }
   }
+
+  // Copy button for every AI answer – rendered after bubble.innerHTML is set
+  const isCopyable = (role === 'ai') && text;
+
   bubble.innerHTML = inner;
 
   // Bind error action buttons
   if (meta && meta.error) {
     const retryBtn = bubble.querySelector('.bubble-retry-btn');
-    const copyBtn = bubble.querySelector('.bubble-copy-btn');
+    const copyErrBtn = bubble.querySelector('.bubble-copy-err-btn');
     if (retryBtn) {
       retryBtn.addEventListener('click', () => {
         // Find the previous user bubble text and resend
@@ -1114,15 +1118,32 @@ function appendBubble(role, text, meta, images) {
         }
       });
     }
-    if (copyBtn) {
-      copyBtn.addEventListener('click', () => {
+    if (copyErrBtn) {
+      copyErrBtn.addEventListener('click', () => {
         const userBubbles = document.querySelectorAll('#chat-history .bubble--user .bubble__text');
         if (userBubbles.length) {
           const lastMsg = userBubbles[userBubbles.length - 1].textContent;
-          navigator.clipboard.writeText(lastMsg).then(() => showToast('Zkopirováno', 'success'));
+          navigator.clipboard.writeText(lastMsg).then(() => showToast('Zkopírováno', 'success'));
         }
       });
     }
+  }
+
+  // Copy button for all AI responses
+  if (isCopyable) {
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'btn btn--ghost btn--small bubble-copy-ai-btn';
+    copyBtn.title = 'Zkopírovat odpověď';
+    copyBtn.textContent = 'Kopírovat';
+    copyBtn.style.cssText = 'position:absolute;top:0.4rem;right:0.4rem;opacity:0.6;font-size:0.7rem';
+    copyBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(text).then(() => {
+        showToast('Odpověď zkopírována', 'success');
+        copyBtn.textContent = 'Zkopírováno';
+        setTimeout(() => { copyBtn.textContent = 'Kopírovat'; }, 2000);
+      });
+    });
+    bubble.appendChild(copyBtn);
   }
 
   if (role === 'ai' && meta && meta.kb_context_used) {
@@ -3040,6 +3061,15 @@ async function kbUploadFiles() {
       if (progressLabel) progressLabel.textContent = 'Indexuji v pozadí...';
       await _kbPollUploadJob(data.job_id, progressFill, progressLabel);
       showToast(t('kb_upload_done'), 'success');
+      // Show "indexing started" notice with link to Jobs tab
+      if (resultEl) {
+        resultEl.innerHTML = `
+          <div class="kb-analyze-card" style="display:flex;align-items:center;justify-content:space-between;gap:1rem">
+            <span>Indexace dokončena.</span>
+            <button class="btn btn--ghost btn--small" onclick="switchTab('jobs')">Zobrazit v Jobech</button>
+          </div>`;
+        show(resultEl);
+      }
       loadKbOverview();
     } else {
       // analyze mode – show results immediately
@@ -3095,11 +3125,16 @@ function _kbRenderAnalyzeResults(el, results) {
       <div class="kb-analyze-card kb-analyze-card--error">
         <strong>${escHtml(r.file)}</strong>: ${escHtml(r.error)}
       </div>`;
+    // Build copyable text: filename + summary + preview
+    const copyText = [r.file, r.summary || '', r.preview || ''].filter(Boolean).join('\n\n');
     return `
       <div class="kb-analyze-card">
         <div class="kb-analyze-card__header">
           <strong>${escHtml(r.file)}</strong>
           <span class="hint-text">${r.page_count || 1} str. · ${r.char_count || 0} znaků</span>
+          <button class="btn btn--ghost btn--small" style="margin-left:auto"
+            onclick="navigator.clipboard.writeText(${JSON.stringify(copyText)}).then(()=>showToast('Výsledek zkopírován','success'))"
+            title="Zkopírovat výsledek">Zkopírovat</button>
         </div>
         <div class="kb-analyze-card__summary">${escHtml(r.summary || '')}</div>
         ${r.preview ? `<details><summary style="color:#94a3b8;font-size:0.8rem;cursor:pointer">Náhled textu</summary><pre class="kb-preview-text">${escHtml(r.preview)}</pre></details>` : ''}
@@ -3122,7 +3157,11 @@ async function loadKbOverview() {
     if (badge) badge.textContent = `${data.total_documents || 0} ${t('kb_doc_count')}`;
 
     if (!data.total_chunks) {
-      el.innerHTML = `<p class="empty-state hint-text">${t('kb_overview_empty')}</p>`;
+      el.innerHTML = `
+        <div class="kb-empty-state">
+          <p class="empty-state hint-text">${t('kb_overview_empty')}</p>
+          <p class="hint-text" style="margin-top:0.25rem">Nahrej první dokument – přetáhni soubor do oblasti výše nebo klikni na „Nahrát soubory".</p>
+        </div>`;
       return;
     }
 
@@ -4010,6 +4049,20 @@ function formatJobDate(iso) {
   } catch { return iso; }
 }
 
+/** Format duration in seconds to human-readable "1m 23s" / "45s" / "2h 3m" */
+function formatJobDuration(startIso, finishIso) {
+  if (!startIso) return '-';
+  const start = new Date(startIso).getTime();
+  const end = finishIso ? new Date(finishIso).getTime() : Date.now();
+  const totalSec = Math.max(0, Math.round((end - start) / 1000));
+  if (totalSec < 60) return totalSec + 's';
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  if (m < 60) return m + 'm ' + s + 's';
+  const h = Math.floor(m / 60);
+  return h + 'h ' + (m % 60) + 'm';
+}
+
 async function showJobDetail(jobId) {
   _selectedJobId = jobId;
   const section = document.getElementById('job-detail-section');
@@ -4050,6 +4103,29 @@ function renderJobDetail(job) {
     extraHtml = renderReportDetail(job);
   }
 
+  // Show filename + collection from metadata if present
+  const fileInfoHtml = (meta.file || meta.filename)
+    ? `<div class="job-detail-row">
+         <span class="job-detail-label">Soubor:</span>
+         <span>${escHtml(meta.file || meta.filename || '')}${meta.collection ? ` <span class="hint-text">(${escHtml(meta.collection)})</span>` : ''}</span>
+       </div>`
+    : '';
+
+  // Copy-error box – error text in a box with a copy button
+  const errorHtml = job.last_error
+    ? `<div class="job-detail-row" style="flex-direction:column;align-items:flex-start;gap:0.25rem">
+         <span class="job-detail-label">Chyba:</span>
+         <div class="job-error-box">
+           <pre style="margin:0;white-space:pre-wrap;font-size:0.8rem;color:#f87171;flex:1">${escHtml(job.last_error)}</pre>
+           <button class="btn btn--ghost btn--small" onclick="navigator.clipboard.writeText(${JSON.stringify(job.last_error)}).then(()=>showToast('Zkopírováno','success'))" title="Zkopírovat chybu">Kopírovat</button>
+         </div>
+       </div>`
+    : '';
+
+  const durationHtml = job.started_at
+    ? `<div class="job-detail-row"><span class="job-detail-label">Trvání:</span> ${formatJobDuration(job.started_at, job.finished_at)}</div>`
+    : '';
+
   content.innerHTML = `
     <div class="job-detail-grid">
       <div class="job-detail-row"><span class="job-detail-label">ID:</span> <code>${escHtml(job.id)}</code></div>
@@ -4057,6 +4133,7 @@ function renderJobDetail(job) {
       <div class="job-detail-row"><span class="job-detail-label">Status:</span> <span class="job-status-badge job-status--${job.status}">${escHtml(job.status)}</span></div>
       <div class="job-detail-row"><span class="job-detail-label">Priorita:</span> ${escHtml(job.priority)}</div>
       <div class="job-detail-row"><span class="job-detail-label">Popis:</span> ${escHtml(job.input_summary || '-')}</div>
+      ${fileInfoHtml}
       <div class="job-detail-row">
         <span class="job-detail-label">Progress:</span>
         <div style="display:flex;align-items:center;gap:0.5rem;flex:1">
@@ -4066,16 +4143,22 @@ function renderJobDetail(job) {
           <span>${Math.round(job.progress)}%</span>
         </div>
       </div>
-      <div class="job-detail-row"><span class="job-detail-label">Vytvoreno:</span> ${job.created_at || '-'}</div>
-      <div class="job-detail-row"><span class="job-detail-label">Spusteno:</span> ${job.started_at || '-'}</div>
-      <div class="job-detail-row"><span class="job-detail-label">Dokonceno:</span> ${job.finished_at || '-'}</div>
-      ${job.last_error ? `<div class="job-detail-row"><span class="job-detail-label">Chyba:</span> <span style="color:#f87171">${escHtml(job.last_error)}</span></div>` : ''}
+      <div class="job-detail-row"><span class="job-detail-label">Vytvořeno:</span> ${formatJobDate(job.created_at)}</div>
+      <div class="job-detail-row"><span class="job-detail-label">Spuštěno:</span> ${formatJobDate(job.started_at)}</div>
+      <div class="job-detail-row"><span class="job-detail-label">Dokončeno:</span> ${formatJobDate(job.finished_at)}</div>
+      ${durationHtml}
+      ${errorHtml}
       ${extraHtml}
       ${metaHtml}
     </div>
-    ${(job.status === 'queued' || job.status === 'running')
-      ? `<button class="btn btn--ghost btn--small" onclick="cancelJob('${escHtml(job.id)}')" style="margin-top:0.75rem">Zrusit job</button>`
-      : ''}
+    <div style="margin-top:0.75rem;display:flex;gap:0.5rem;flex-wrap:wrap">
+      ${(job.status === 'queued' || job.status === 'running')
+        ? `<button class="btn btn--ghost btn--small" onclick="cancelJob('${escHtml(job.id)}')">Zrušit job</button>`
+        : ''}
+      ${(job.status === 'failed' || job.status === 'cancelled')
+        ? `<button class="btn btn--secondary btn--small" onclick="retryJob('${escHtml(job.id)}')">Zkusit znovu</button>`
+        : ''}
+    </div>
     ${(job.type === 'document_analysis' && job.status === 'succeeded')
       ? `<div style="margin-top:0.75rem;display:flex;gap:0.5rem;flex-wrap:wrap">
            <button class="btn btn--primary btn--small" onclick="createReportFromJob('${escHtml(job.id)}', 'html')">Generovat HTML report</button>
@@ -4096,9 +4179,23 @@ async function cancelJob(jobId) {
   try {
     const res = await fetch('/api/jobs/' + encodeURIComponent(jobId) + '/cancel', { method: 'POST' });
     if (!res.ok) throw new Error(await res.text());
-    showToast('Job zrusen', 'success');
+    showToast('Job zrušen', 'success');
     loadJobs();
     if (_selectedJobId === jobId) showJobDetail(jobId);
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
+}
+
+async function retryJob(jobId) {
+  try {
+    const res = await fetch('/api/jobs/' + encodeURIComponent(jobId) + '/retry', { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    showToast('Nový pokus zařazen do fronty', 'success');
+    loadJobs();
+    // Open the new job detail
+    if (data.id) showJobDetail(data.id);
   } catch (err) {
     showToast('Chyba: ' + err.message, 'error');
   }
@@ -4945,7 +5042,9 @@ function bindResidentEvents() {
 async function loadResidentDashboard() {
   const loading = document.getElementById('resident-loading');
   const content = document.getElementById('resident-dashboard-content');
+  const errorEl = document.getElementById('resident-error');
   if (loading) show(loading);
+  if (errorEl) hide(errorEl);
 
   try {
     const res = await fetch('/api/resident/dashboard');
@@ -4953,20 +5052,31 @@ async function loadResidentDashboard() {
     const data = await res.json();
     _residentDashboardData = data;
     renderResidentDashboard(data);
+    if (content) show(content);
   } catch (err) {
-    showToast('Chyba: ' + err.message, 'error');
+    showToast('Chyba dashboardu: ' + err.message, 'error');
+    // Show inline error with retry – uživatel vidí příčinu místo prázdné stránky
+    if (errorEl) {
+      errorEl.innerHTML = `
+        <div class="resident-error-box">
+          <span>Nepodařilo se načíst dashboard: ${escHtml(err.message)}</span>
+          <button class="btn btn--ghost btn--small" onclick="loadResidentDashboard()">Zkusit znovu</button>
+        </div>`;
+      show(errorEl);
+    }
+    if (content) hide(content);
   } finally {
     if (loading) hide(loading);
-    if (content) show(content);
   }
 
-  // Poll while tab is visible
+  // Poll only when tab is visible AND page isn't hidden – šetří CPU/battery
   clearInterval(_residentPollTimer);
   _residentPollTimer = setInterval(() => {
     const panel = document.getElementById('tab-resident');
-    if (panel && !panel.classList.contains('hidden')) {
+    const tabVisible = panel && !panel.classList.contains('hidden');
+    if (tabVisible && document.visibilityState !== 'hidden') {
       loadResidentDashboard();
-    } else {
+    } else if (!tabVisible) {
       clearInterval(_residentPollTimer);
     }
   }, 15000);
@@ -5077,7 +5187,7 @@ function renderResidentRecentTasks(tasks) {
           <tr class="jobs-row" onclick="showJobDetail('${escHtml(t.id)}')" style="cursor:pointer">
             <td>${escHtml(t.title)}</td>
             <td><span class="job-status-badge job-status--${t.status}">${escHtml(t.status)}</span></td>
-            <td>${t.duration_s != null ? t.duration_s + ' s' : '-'}</td>
+            <td>${t.duration_s != null ? formatJobDuration(t.started_at, t.finished_at) : '-'}</td>
             <td class="jobs-cell-date">${formatJobDate(t.created_at)}</td>
           </tr>
         `).join('')}

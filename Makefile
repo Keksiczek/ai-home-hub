@@ -1,10 +1,11 @@
 # Makefile – AI Home Hub
 # Usage: make <target>
 
-.PHONY: run-dev run-prod stop logs clean help
+.PHONY: run-dev run-prod stop logs clean help dev-start dev-stop dev-update dev-status
 
 SHELL := /bin/bash
 SCRIPT := ./run-app.sh
+DEV_SCRIPT := ./scripts/dev.sh
 BACKEND_DIR := backend
 VENV := $(BACKEND_DIR)/.venv
 LOG_PATTERN := ai-home-hub-*.log
@@ -12,6 +13,22 @@ LOG_PATTERN := ai-home-hub-*.log
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
+
+dev-start: ## [Quick] Start backend + Tailscale funnel via scripts/dev.sh
+	@chmod +x $(DEV_SCRIPT)
+	$(DEV_SCRIPT) start
+
+dev-stop: ## [Quick] Stop backend + Tailscale funnel via scripts/dev.sh
+	@chmod +x $(DEV_SCRIPT)
+	$(DEV_SCRIPT) stop
+
+dev-update: ## [Quick] git pull + restart via scripts/dev.sh
+	@chmod +x $(DEV_SCRIPT)
+	$(DEV_SCRIPT) update
+
+dev-status: ## [Quick] Show running processes status via scripts/dev.sh
+	@chmod +x $(DEV_SCRIPT)
+	$(DEV_SCRIPT) status
 
 run-dev: ## Start in dev mode (hot-reload, port 8000)
 	@chmod +x $(SCRIPT)

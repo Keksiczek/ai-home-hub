@@ -2731,7 +2731,42 @@ body {
   font-size: 0.9rem;
 }
 
+/* Resident inline error box with retry button */
+.resident-error-box {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 0.5rem;
+  color: #f87171;
+  font-size: 0.9rem;
+}
+
+/* Job error box with copy button */
+.job-error-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 0.375rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* KB empty state with CTA */
+.kb-empty-state {
+  text-align: center;
+  padding: 2rem 1rem;
+}
+
+/* Mobile: Resident stats stacked, recent tasks horizontally scrollable */
 @media (max-width: 768px) {
   .resident-stats-grid { grid-template-columns: 1fr; }
   .resident-statusbar { flex-direction: column; align-items: flex-start; }
+  #resident-recent-tasks { overflow-x: auto; }
+  #resident-recent-tasks .jobs-table { min-width: 480px; }
 }

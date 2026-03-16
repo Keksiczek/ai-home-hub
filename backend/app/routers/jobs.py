@@ -73,6 +73,34 @@ async def cancel_job(job_id: str) -> Dict[str, Any]:
     return {"id": job.id, "status": job.status}
 
 
+@router.post("/jobs/{job_id}/retry", tags=["jobs"])
+async def retry_job(job_id: str) -> Dict[str, Any]:
+    """Re-queue a failed or cancelled job by creating a fresh copy with status 'queued'.
+
+    Only jobs in 'failed' or 'cancelled' state can be retried. A new job is
+    created (preserving type, title, payload and priority) so the original error
+    record is kept for audit purposes.
+    """
+    svc = get_job_service()
+    original = svc.get_job(job_id)
+    if not original:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    if original.status not in ("failed", "cancelled"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Job {job_id} has status '{original.status}'; only failed/cancelled jobs can be retried",
+        )
+    new_job = svc.create_job(
+        type=original.type,
+        title=original.title,
+        input_summary=original.input_summary,
+        payload=original.payload,
+        priority=original.priority,
+        meta={**original.meta, "retry_of": original.id},
+    )
+    return {"id": new_job.id, "status": new_job.status, "retry_of": original.id}
+
+
 @router.get("/overnight/status", tags=["jobs"])
 async def overnight_status() -> Dict[str, Any]:
     """Return overnight scheduler status: night window, last runs, next scheduled."""

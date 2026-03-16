@@ -149,7 +149,7 @@
             </button>
             <input type="file" id="file-input" multiple hidden />
             <textarea class="chat-textarea" id="chat-input" rows="2"
-                      placeholder="Napi&#353; zpr&aacute;vu... (Ctrl+Enter pro odesl&aacute;n&iacute;)"></textarea>
+                      placeholder="Napi&#353; dotaz&#8230; (Shift+Enter = nov&yacute; &#345;&aacute;dek, Enter / Ctrl+Enter = odeslat)"></textarea>
             <button class="btn btn--primary btn--send" id="send-btn">
               &#10148;
               <span class="spinner spinner--small hidden" id="chat-spinner" aria-label="Odes&iacute;l&aacute;m..."></span>
@@ -359,6 +359,9 @@
         <div class="skeleton skeleton--card"></div>
         <div class="skeleton skeleton--card"></div>
       </div>
+
+      <!-- Error state with retry -->
+      <div id="resident-error" class="hidden"></div>
 
       <!-- Dashboard content -->
       <div id="resident-dashboard-content">
