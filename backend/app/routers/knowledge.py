@@ -3,11 +3,13 @@ import asyncio
 import csv
 import io
 import logging
+import shutil
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, File, Form, HTTPException, UploadFile
 
 from app.utils.auth import verify_api_key
 
@@ -501,3 +503,305 @@ async def get_ingest_job(job_id: str) -> Dict[str, Any]:
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
     return job
+
+
+# ── Batch upload ──────────────────────────────────────────────────
+
+_UPLOADS_DIR = Path(__file__).parent.parent.parent / "data" / "uploads" / "kb"
+
+
+async def _job_upload_index(
+    job_id: str,
+    saved_paths: List[str],
+    collection: str,
+) -> None:
+    """Background task: index uploaded files into KB, storing collection metadata."""
+    from app.services.embeddings_service import get_embeddings_service
+
+    job = _jobs.get(job_id)
+    if job is None:
+        return
+
+    embeddings_svc = get_embeddings_service()
+    vector_store = get_vector_store_service()
+    ws_manager = get_ws_manager()
+
+    total = len(saved_paths)
+    job["status"] = "running"
+    job["progress"] = {"current": 0, "total": total}
+
+    ingested = 0
+    failed = 0
+    total_chunks = 0
+    errors: List[str] = []
+
+    for idx, fpath in enumerate(saved_paths):
+        file_path = Path(fpath)
+        try:
+            parsed = get_file_parser_service().parse_file(file_path)
+            # Fallback for code extensions not handled by file_parser_service
+            if parsed.get("error") and not parsed.get("text"):
+                ext = file_path.suffix.lower()
+                code_exts = {
+                    ".py", ".js", ".ts", ".jsx", ".tsx", ".json",
+                    ".yaml", ".yml", ".toml", ".sh", ".bash", ".zsh",
+                    ".html", ".css", ".sql", ".rs", ".go", ".java",
+                    ".c", ".cpp", ".h", ".rb", ".php",
+                }
+                if ext in code_exts:
+                    text = file_path.read_text(encoding="utf-8", errors="ignore")
+                    parsed = {
+                        "text": text,
+                        "metadata": {"language": ext.lstrip(".")},
+                        "page_count": 1,
+                    }
+                else:
+                    errors.append(f"{file_path.name}: {parsed.get('error', 'parse error')}")
+                    failed += 1
+                    continue
+
+            text = parsed.get("text", "").strip()
+            if not text:
+                errors.append(f"{file_path.name}: No text extracted")
+                failed += 1
+                continue
+
+            chunks = chunk_text(text, chunk_size=DEFAULT_CHUNK_SIZE, overlap=DEFAULT_CHUNK_OVERLAP)
+            embeddings = await embeddings_svc.generate_embeddings_batch(chunks)
+
+            valid_items = [
+                (chunk, emb, i)
+                for i, (chunk, emb) in enumerate(zip(chunks, embeddings))
+                if emb is not None
+            ]
+            if not valid_items:
+                errors.append(f"{file_path.name}: All embeddings failed")
+                failed += 1
+                continue
+
+            ids = [f"file:{file_path}:chunk_{i}" for _, _, i in valid_items]
+            docs = [c for c, _, _ in valid_items]
+            embs = [e for _, e, _ in valid_items]
+            metadatas = [
+                {
+                    "file_path": str(file_path),
+                    "file_name": file_path.name,
+                    "chunk_index": i,
+                    "page_count": parsed.get("page_count", 1),
+                    "mtime": file_path.stat().st_mtime,
+                    "collection": collection,
+                    **{k: v for k, v in parsed.get("metadata", {}).items()},
+                }
+                for _, _, i in valid_items
+            ]
+
+            await vector_store.delete_by_file_path(str(file_path))
+            await vector_store.add_documents(
+                ids=ids,
+                embeddings=embs,
+                documents=docs,
+                metadatas=metadatas,
+            )
+
+            ingested += 1
+            total_chunks += len(valid_items)
+        except Exception as exc:
+            logger.error("Failed to index uploaded file %s: %s", file_path, exc)
+            errors.append(f"{file_path.name}: {exc}")
+            failed += 1
+        finally:
+            job["progress"] = {"current": idx + 1, "total": total}
+            await ws_manager.broadcast({
+                "type": "kb_upload_progress",
+                "current": idx + 1,
+                "total": total,
+                "file": file_path.name,
+                "ingested": ingested,
+            })
+
+    result = {
+        "ingested_count": ingested,
+        "failed_count": failed,
+        "total_chunks": total_chunks,
+        "errors": errors,
+        "collection": collection,
+    }
+    job["status"] = "completed" if failed == 0 or ingested > 0 else "failed"
+    job["result"] = result
+
+
+@router.post("/knowledge/upload/batch", tags=["knowledge"])
+async def batch_upload(
+    background_tasks: BackgroundTasks,
+    files: List[UploadFile] = File(...),
+    mode: str = Form("index"),
+    collection: str = Form("default"),
+) -> Dict[str, Any]:
+    """Upload files directly to the Knowledge Base.
+
+    * ``mode="index"``   → save files to disk, start background indexing job,
+                           returns ``{results: [{file, job_id}]}``
+    * ``mode="analyze"`` → extract text + LLM summary synchronously,
+                           returns ``{results: [{file, preview, summary}]}``
+
+    Supported file types: PDF, DOCX, XLSX, TXT, MD, images (OCR), and
+    common code files (PY, JS, TS, …).
+    """
+    from app.services.file_handler_service import get_file_handler_service, SUPPORTED_EXTENSIONS
+
+    _UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    handler = get_file_handler_service()
+    results: List[Dict[str, Any]] = []
+
+    if mode == "index":
+        saved_paths: List[str] = []
+        for upload in files:
+            suffix = Path(upload.filename or "file").suffix.lower()
+            if suffix not in SUPPORTED_EXTENSIONS:
+                results.append({
+                    "file": upload.filename,
+                    "error": f"Unsupported file type: {suffix}",
+                })
+                continue
+            dest = _UPLOADS_DIR / f"{uuid.uuid4()}{suffix}"
+            try:
+                with dest.open("wb") as f:
+                    shutil.copyfileobj(upload.file, f)
+                saved_paths.append(str(dest))
+                results.append({"file": upload.filename, "saved_as": dest.name})
+            except Exception as exc:
+                results.append({"file": upload.filename, "error": str(exc)})
+
+        if not saved_paths:
+            return {"results": results, "job_id": None, "mode": mode}
+
+        job_id = str(uuid.uuid4())
+        _jobs[job_id] = _make_job(job_id)
+        background_tasks.add_task(_job_upload_index, job_id, saved_paths, collection)
+
+        # Attach job_id to each successfully saved result
+        for r in results:
+            if "saved_as" in r:
+                r["job_id"] = job_id
+
+        return {"results": results, "job_id": job_id, "mode": mode, "collection": collection}
+
+    # mode == "analyze"
+    for upload in files:
+        suffix = Path(upload.filename or "file").suffix.lower()
+        if suffix not in SUPPORTED_EXTENSIONS:
+            results.append({
+                "file": upload.filename,
+                "error": f"Unsupported file type: {suffix}",
+            })
+            continue
+
+        tmp_path = _UPLOADS_DIR / f"analyze_{uuid.uuid4()}{suffix}"
+        try:
+            with tmp_path.open("wb") as f:
+                shutil.copyfileobj(upload.file, f)
+
+            result = await handler.process_file(str(tmp_path), "analyze")
+            results.append({
+                "file": upload.filename,
+                "preview": result.get("text_preview", ""),
+                "summary": result.get("summary", ""),
+                "char_count": result.get("char_count", 0),
+                "page_count": result.get("page_count", 1),
+            })
+        except Exception as exc:
+            results.append({"file": upload.filename, "error": str(exc)})
+        finally:
+            # Clean up temp analyze files – not stored permanently
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+    return {"results": results, "mode": mode}
+
+
+# ── Overview ──────────────────────────────────────────────────────
+
+
+@router.get("/knowledge/overview", tags=["knowledge"])
+async def kb_overview() -> Dict[str, Any]:
+    """Return a structured overview of the Knowledge Base.
+
+    Groups documents by ``collection`` metadata field (set during upload/index).
+    Documents indexed without an explicit collection are grouped under
+    ``"default"``.
+
+    Response::
+
+        {
+          "total_documents": int,
+          "total_chunks": int,
+          "storage_size_mb": float,
+          "last_indexed": str | null,
+          "collections": [
+            {
+              "name": str,
+              "document_count": int,
+              "chunk_count": int,
+              "file_types": {".pdf": 3, ...}
+            }
+          ]
+        }
+    """
+    from app.services.kb_stats_cache import get_cached_stats
+
+    stats = get_cached_stats()
+
+    # Build per-collection breakdown from top_sources metadata
+    # (collection stored in chunk metadata, or fall back via vector store scan)
+    vector_store = get_vector_store_service()
+    collections: Dict[str, Dict[str, Any]] = {}
+
+    try:
+        raw = await asyncio.to_thread(
+            vector_store.collection.get,
+            limit=50_000,
+            include=["metadatas"],
+        )
+        metadatas: List[Dict[str, Any]] = raw.get("metadatas") or []
+
+        for meta in metadatas:
+            coll_name = str(meta.get("collection") or "default")
+            file_path = meta.get("file_path", "")
+            ext = Path(file_path).suffix.lower() if file_path else "unknown"
+
+            if coll_name not in collections:
+                collections[coll_name] = {
+                    "name": coll_name,
+                    "files": set(),
+                    "chunk_count": 0,
+                    "file_types": {},
+                }
+            c = collections[coll_name]
+            c["chunk_count"] += 1
+            c["files"].add(file_path)
+            c["file_types"][ext] = c["file_types"].get(ext, 0) + 1
+
+    except Exception as exc:
+        logger.warning("Overview metadata scan failed: %s", exc)
+
+    # Serialise (sets → counts)
+    coll_list = [
+        {
+            "name": c["name"],
+            "document_count": len(c["files"]),
+            "chunk_count": c["chunk_count"],
+            "file_types": c["file_types"],
+        }
+        for c in sorted(collections.values(), key=lambda x: x["name"])
+    ]
+
+    return {
+        "total_documents": stats.get("total_documents", 0),
+        "total_chunks": stats.get("total_chunks", 0),
+        "storage_size_mb": stats.get("storage_size_mb", 0.0),
+        "last_indexed": stats.get("last_indexed"),
+        "cache_age_seconds": stats.get("cache_age_seconds"),
+        "collections": coll_list,
+    }
