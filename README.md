@@ -125,6 +125,38 @@ docs/                    # API kontrakt, architektura
 
 ---
 
+## Development quick start
+
+Nejrychlejší způsob jak spustit nebo zastavit celé vývojové prostředí (backend + Tailscale tunel):
+
+```bash
+# Spustit vše (backend + Tailscale funnel)
+./scripts/dev.sh start
+
+# Zastavit vše
+./scripts/dev.sh stop
+
+# Aktualizovat kód (git pull) a restartovat
+./scripts/dev.sh update
+
+# Zobrazit stav procesů
+./scripts/dev.sh status
+```
+
+Nebo přes Make:
+
+```bash
+make dev-start   # = ./scripts/dev.sh start
+make dev-stop    # = ./scripts/dev.sh stop
+make dev-update  # = ./scripts/dev.sh update
+make dev-status  # = ./scripts/dev.sh status
+```
+
+> **Tailscale:** Pokud `tailscale` není nainstalovaný, skript zobrazí varování a pokračuje bez tunelu.
+> **git pull:** `start` záměrně nepulluje – pulluje pouze `update`. Rychlý start, bez nečekaných změn.
+
+---
+
 ## Instalace a spuštění
 
 ### 1. Klonování repozitáře
@@ -185,6 +217,24 @@ uvicorn app.main:app --reload
 | `/api/files`, `/api/filesystem` | Filesystem operace |
 | `/api/settings` | Konfigurace |
 | `/api/media`, `/api/document-analysis` | Media a dokumenty |
+
+---
+
+## Testy
+
+Backend testy jsou v `backend/tests/`. Spuštění:
+
+```bash
+cd backend
+
+# Všechny testy
+pytest tests/ -v
+
+# Pouze konkrétní skupiny
+pytest tests/test_resident_flow.py -v      # Resident Agent flow
+pytest tests/test_kb_upload_flow.py -v     # Knowledge Base upload
+pytest tests/test_jobs_api.py -v           # Jobs API (CRUD, cancel, retry)
+```
 
 ---
 
