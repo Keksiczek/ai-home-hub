@@ -142,7 +142,8 @@
             <button class="btn-icon attach-btn" id="attach-btn" title="Pridat soubor">
               &#128206;
             </button>
-            <input type="file" id="file-input" multiple hidden />
+            <input type="file" id="file-input" multiple hidden
+                   accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.mp3,.wav,.m4a,.ogg,.mp4,.epub,.html,.zip,.py,.js,.ts,.json,.yaml,.csv" />
             <textarea class="chat-textarea" id="chat-input" rows="2"
                       placeholder="Napi&#353; dotaz&#8230; Enter = odeslat, Shift+Enter = nov&yacute; &#345;&aacute;dek"></textarea>
             <button class="btn btn--primary btn--send" id="send-btn">
@@ -1244,10 +1245,10 @@
           <div class="kb-dropzone__icon">&#128229;</div>
           <div class="kb-dropzone__text">P&#345;et&aacute;hni soubory nebo <u>klikni pro v&yacute;b&#283;r</u></div>
           <div class="kb-dropzone__hint">
-            Podporované: PDF, DOCX, XLSX, TXT, MD, PNG, JPG · a kódové soubory (PY, JS, TS…)
+            Podporované: PDF, DOCX, XLSX, PPTX, TXT, MD, PNG, JPG, MP3, WAV, MP4, ePub, HTML, ZIP · a kódové soubory
           </div>
           <input type="file" id="kb-file-input" multiple style="display:none"
-                 accept=".pdf,.docx,.xlsx,.txt,.md,.png,.jpg,.jpeg,.gif,.bmp,.py,.js,.ts,.jsx,.tsx,.json,.yaml,.yml,.toml,.sh,.html,.css,.sql" />
+                 accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.png,.jpg,.jpeg,.gif,.bmp,.mp3,.wav,.m4a,.ogg,.mp4,.webm,.mov,.epub,.html,.htm,.zip,.py,.js,.ts,.jsx,.tsx,.json,.yaml,.yml,.toml,.sh,.css,.sql" />
         </div>
 
         <!-- Selected files list -->
@@ -1273,6 +1274,22 @@
         </div>
       </section>
 
+      <!-- Indexed files list -->
+      <section class="card" id="kb-files-section">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem">
+          <h2 class="card-title">Soubory v KB <span id="kb-files-count" class="badge">0</span></h2>
+          <button class="btn btn--ghost btn--small" id="kb-files-refresh-btn" onclick="loadKBFiles()">&#8635; Obnovit</button>
+        </div>
+        <div id="kb-files-list">
+          <p class="empty-state hint-text">Na&#269;&iacute;t&aacute;m...</p>
+        </div>
+        <div id="kb-files-pagination" class="kb-files-pagination hidden" style="margin-top:0.75rem;display:flex;gap:0.5rem;align-items:center">
+          <button class="btn btn--ghost btn--small" id="kb-files-prev" onclick="loadKBFiles(kbFilesOffset - 50)">&#8592; P&#345;edchozí</button>
+          <span class="hint-text" id="kb-files-page-info"></span>
+          <button class="btn btn--ghost btn--small" id="kb-files-next" onclick="loadKBFiles(kbFilesOffset + 50)">Dal&#353;&iacute; &#8594;</button>
+        </div>
+      </section>
+
       <!-- Overview / Collections -->
       <section class="card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem">
@@ -1282,6 +1299,19 @@
         <div id="kb-overview-content">
           <p class="empty-state hint-text">Na&#269;&iacute;t&aacute;m...</p>
         </div>
+      </section>
+
+      <!-- Retention policy -->
+      <section class="card" id="kb-retention-section">
+        <h2 class="card-title">&#129529; Retention politika</h2>
+        <div class="retention-info" id="kb-retention-info">
+          <span class="hint-text">Na&#269;&iacute;t&aacute;m konfiguraci...</span>
+        </div>
+        <div style="margin-top:0.75rem;display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap">
+          <button class="btn btn--ghost btn--small" onclick="loadRetentionConfig()">&#8635; Obnovit konfiguraci</button>
+          <button class="btn btn--secondary btn--small" id="retention-run-btn" onclick="runRetention()">&#129529; Spustit &uacute;klid nyn&iacute;</button>
+        </div>
+        <div id="kb-retention-result" class="hidden" style="margin-top:0.75rem"></div>
       </section>
 
     </div><!-- /tab-knowledge -->
