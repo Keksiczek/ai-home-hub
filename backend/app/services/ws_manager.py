@@ -6,6 +6,8 @@ from typing import Any, Dict, List
 
 from fastapi import WebSocket
 
+from app.services.metrics_service import ws_connected_clients, ws_messages_total
+
 logger = logging.getLogger(__name__)
 
 # WebSocket event type constants
@@ -27,11 +29,13 @@ class ConnectionManager:
         await websocket.accept()
         async with self._lock:
             self._connections.append(websocket)
+        ws_connected_clients.set(len(self._connections))
         logger.info("WS client connected. Total: %d", len(self._connections))
 
     def disconnect(self, websocket: WebSocket) -> None:
         if websocket in self._connections:
             self._connections.remove(websocket)
+        ws_connected_clients.set(len(self._connections))
         logger.info("WS client disconnected. Total: %d", len(self._connections))
 
     async def broadcast(self, message: Dict[str, Any]) -> None:
@@ -42,6 +46,8 @@ class ConnectionManager:
         automatically after each broadcast.
         """
         data = json.dumps(message)
+        msg_type = message.get("type", "unknown")
+        ws_messages_total.labels(type=msg_type).inc()
         async with self._lock:
             conns = list(self._connections)  # snapshot under lock
         if not conns:
