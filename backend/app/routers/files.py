@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from app.models.schemas import UploadResponse
+from app.services.metrics_service import upload_bytes_total, upload_files_total
 
 router = APIRouter()
 
@@ -23,6 +24,9 @@ async def upload_file(file: UploadFile) -> UploadResponse:
 
     contents = await file.read()
     dest.write_bytes(contents)
+
+    upload_files_total.labels(type="document").inc()
+    upload_bytes_total.labels(type="document").inc(len(contents))
 
     return UploadResponse(id=file_id, filename=original_name)
 

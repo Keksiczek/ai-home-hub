@@ -13,6 +13,7 @@ from tenacity import (
     wait_exponential,
 )
 
+from app.services.metrics_service import ollama_latency_seconds, ollama_requests_total
 from app.services.settings_service import get_settings_service
 from app.utils.circuit_breaker import (
     CircuitBreakerOpen,
@@ -139,6 +140,11 @@ class LLMService:
         elapsed_ms = int((time.monotonic() - start) * 1000)
         meta["latency_ms"] = elapsed_ms
         meta["mode"] = mode
+
+        status = "error" if meta.get("status") == "llm_unavailable" or meta.get("provider") == "error" else "success"
+        ollama_requests_total.labels(model=cfg["model"], status=status).inc()
+        ollama_latency_seconds.labels(model=cfg["model"]).observe(elapsed_ms / 1000)
+
         return reply, meta
 
     async def _generate_ollama(

@@ -8,6 +8,7 @@ from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException, UploadFile
 
+from app.services.metrics_service import upload_bytes_total, upload_files_total
 from app.services.settings_service import get_settings_service
 
 logger = logging.getLogger(__name__)
@@ -66,6 +67,9 @@ async def upload_media(file: UploadFile) -> Dict[str, Any]:
         )
 
     dest.write_bytes(contents)
+
+    upload_files_total.labels(type="media").inc()
+    upload_bytes_total.labels(type="media").inc(len(contents))
 
     rel_path = str(dest.relative_to(DATA_DIR))
     logger.info("Media uploaded: %s (%.1f MB)", rel_path, size_mb)
