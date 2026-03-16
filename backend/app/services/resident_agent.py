@@ -529,7 +529,13 @@ class ResidentAgent(BackgroundService):
                 "title": j.title,
                 "status": j.status,
                 "created_at": j.created_at,
+                "started_at": j.started_at,
+                "finished_at": j.finished_at,
                 "duration_s": duration_s,
+                "meta": {
+                    "auto_executed": j.payload.get("auto_executed", False),
+                    "action_type": j.payload.get("action_type", ""),
+                },
             })
 
         # Stats for last 24h
