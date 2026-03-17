@@ -61,9 +61,15 @@ class ResidentAgentState:
     last_heartbeat: Optional[str] = None
     heartbeat_status: str = "healthy"  # healthy | degraded | error
     alerts: list[str] = field(default_factory=list)
+    # Live activity fields
+    current_thought: str = ""
+    next_run_in: int = 0  # seconds until next tick
+    cycle_count: int = 0  # alias for tick_count for UI
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        d["cycle_count"] = d["tick_count"]
+        return d
 
 
 THOUGHT_TICK_INTERVAL = 20  # run reasoner every 20th tick (~10 min at 30s interval)
@@ -207,6 +213,20 @@ class ResidentAgent(BackgroundService):
             "heartbeat_status": self._state.heartbeat_status,
         })
 
+        # Push detailed agent status for the live widget
+        await self._broadcast({
+            "type": "agent_status",
+            "status": self._state.status,
+            "current_thought": self._state.current_thought,
+            "last_action": self._state.last_action,
+            "cycle_count": self._state.tick_count,
+            "next_run_in": HEARTBEAT_INTERVAL_S,
+            "last_heartbeat": self._state.last_heartbeat,
+            "is_running": self._state.is_running,
+        })
+
+        # Count down next_run_in for the UI
+        self._state.next_run_in = HEARTBEAT_INTERVAL_S
         await asyncio.sleep(HEARTBEAT_INTERVAL_S)
 
     def _update_heartbeat_status(self) -> None:
@@ -597,6 +617,7 @@ class ResidentAgent(BackgroundService):
             for job in pending_jobs:
                 self._state.current_task = job.title
                 self._state.status = "thinking"
+                self._state.current_thought = f"Analyzuji úkol: {job.title}"
 
                 task = {
                     "job_id": job.id,
@@ -629,6 +650,7 @@ class ResidentAgent(BackgroundService):
 
                 self._state.current_task = None
                 self._state.status = "idle"
+                self._state.current_thought = ""
 
         except Exception as exc:
             logger.error("Resident task queue processing error: %s", exc)
@@ -707,6 +729,7 @@ class ResidentAgent(BackgroundService):
         Jádro resident agenta – sestaví kontext, zavolá LLM, parsuje JSON, exekuuje akci.
         """
         self._state.status = "thinking"
+        self._state.current_thought = f"Přemýšlím nad úkolem: {task.get('goal', 'unknown')}"
 
         # 1. Sestav system_summary (max 300 tokenů)
         from app.services.resource_monitor import get_resource_monitor
@@ -798,6 +821,7 @@ class ResidentAgent(BackgroundService):
 
         # 6. Exekuuj akci deterministicky
         self._state.status = "executing"
+        self._state.current_thought = f"Provádím: {payload.get('action', 'unknown')}"
         result = await self._dispatch_action(payload)
 
         # 7. Výsledek přidej do recent_steps (max 5)

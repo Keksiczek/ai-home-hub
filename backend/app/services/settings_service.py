@@ -302,6 +302,11 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         "skills_directories": [],
         "use_default_skill_paths": True,
     },
+    "enabled_skills": [
+        "web_search", "code_exec", "calendar", "weather",
+        "clipboard", "notify", "http_fetch", "shell",
+        "vision", "timer", "calculator",
+    ],
     "resident_mode": "advisor",  # observer | advisor | autonomous
     "quick_actions": [],
     "job_settings": {

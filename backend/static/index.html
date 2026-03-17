@@ -86,6 +86,20 @@
   <!-- ===== MAIN CONTENT ===== -->
   <main class="main-content" id="main-content">
 
+    <!-- ===== LIVE ACTIVITY BAR ===== -->
+    <div class="activity-bar" id="activity-bar">
+      <span class="activity-pulse" id="activity-pulse"></span>
+      <span class="activity-item" id="activity-resident" title="Resident Agent">&#129302; <span id="act-resident-status">idle</span></span>
+      <span class="activity-divider">|</span>
+      <span class="activity-item" id="activity-jobs" title="Active Jobs">&#128188; Jobs: <span id="act-jobs-count">0</span></span>
+      <span class="activity-divider">|</span>
+      <span class="activity-item" id="activity-kb" title="Knowledge Base">&#129504; KB: <span id="act-kb-chunks">0</span> chunks</span>
+      <span class="activity-divider">|</span>
+      <span class="activity-item" id="activity-ollama" title="Ollama">&#9898; <span id="act-ollama-status">?</span></span>
+      <span class="activity-divider">|</span>
+      <span class="activity-item" id="activity-ram" title="RAM">&#128190; RAM: <span id="act-ram-usage">?</span></span>
+    </div>
+
     <!-- ======================== CHAT TAB ======================== -->
     <div class="tab-panel tab-panel--chat" id="tab-chat" role="tabpanel">
 
@@ -422,6 +436,36 @@
         </div>
       </div>
 
+      <!-- Live Agent Widget -->
+      <section class="card agent-widget" id="agent-live-widget">
+        <div class="agent-widget-header">
+          <span>&#129302; Resident Agent</span>
+          <button class="btn btn--ghost btn--small" id="agent-widget-pause-btn" title="Pozastavit">&#9208;&#65039; Pause</button>
+        </div>
+        <div class="agent-widget-body">
+          <div class="agent-widget-row">
+            <span class="agent-widget-label">Status:</span>
+            <span class="agent-widget-value" id="aw-status">&#128993; idle</span>
+          </div>
+          <div class="agent-widget-row">
+            <span class="agent-widget-label">My&#353;lenka:</span>
+            <span class="agent-widget-value agent-widget-thought" id="aw-thought">&mdash;</span>
+          </div>
+          <div class="agent-widget-row">
+            <span class="agent-widget-label">Posledn&iacute;:</span>
+            <span class="agent-widget-value" id="aw-last-action">&mdash;</span>
+          </div>
+          <div class="agent-widget-row">
+            <span class="agent-widget-label">Cyklus:</span>
+            <span class="agent-widget-value" id="aw-cycle">#0 | Dal&#353;&iacute; za: &mdash;</span>
+          </div>
+          <div class="agent-widget-actions">
+            <button class="btn btn--ghost btn--small" id="aw-log-btn" onclick="switchTab('resident')">&#128203; Log</button>
+            <button class="btn btn--ghost btn--small" id="aw-settings-btn" onclick="switchTab('settings')">&#9881; Nastaven&iacute;</button>
+          </div>
+        </div>
+      </section>
+
       <div class="panel-header">
         <h1 class="panel-title">Resident Agent Dashboard</h1>
       </div>
@@ -621,11 +665,41 @@
       <!-- Quick create buttons -->
       <section class="card" id="jobs-create-section">
         <h2 class="card-title">Vytvo&#345;it job</h2>
-        <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.75rem">
           <button class="btn btn--secondary btn--small" id="create-dummy-job-btn">Dummy long task</button>
           <button class="btn btn--secondary btn--small" id="create-llm-job-btn">Long LLM task</button>
           <button class="btn btn--primary btn--small" id="open-doc-analysis-btn">Nov&aacute; anal&yacute;za dokument&#367;</button>
         </div>
+        <!-- Run Now vs Schedule -->
+        <div style="border-top:1px solid #2d3348;padding-top:0.75rem">
+          <h3 style="margin-bottom:0.5rem;color:#e2e8f0">Spustit / Napl&aacute;novat</h3>
+          <div class="form-group">
+            <label class="form-label" for="job-run-type">Typ jobu:</label>
+            <select class="input input--small" id="job-run-type" style="max-width:250px">
+              <option value="kb_reindex">KB Reindex</option>
+              <option value="git_sweep">Git Sweep</option>
+              <option value="nightly_summary">Nightly Summary</option>
+              <option value="long_llm_task">Long LLM Task</option>
+              <option value="resident_task">Resident Task</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="job-run-title">N&aacute;zev:</label>
+            <input type="text" class="input" id="job-run-title" placeholder="M&#367;j job" style="max-width:350px" />
+          </div>
+          <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center">
+            <button class="btn btn--primary btn--small" id="job-run-now-btn">&#9654;&#65039; Spustit te&#271;</button>
+            <button class="btn btn--secondary btn--small" id="job-schedule-btn">&#128197; Napl&aacute;novat</button>
+            <input type="datetime-local" class="input input--small" id="job-schedule-datetime" style="max-width:250px" />
+            <button class="btn btn--ghost btn--small" id="job-queue-btn" onclick="loadJobQueue()">&#128202; Fronta</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Job Queue (real-time) -->
+      <section class="card hidden" id="job-queue-section">
+        <h2 class="card-title">Fronta job&#367;</h2>
+        <div id="job-queue-list"></div>
       </section>
 
       <!-- Media Upload panel -->
@@ -1057,6 +1131,7 @@
         <div id="allowed-dirs-list" style="margin-top:0.5rem"></div>
         <div style="display:flex;gap:0.5rem;margin-top:0.75rem">
           <input type="text" class="input" id="new-allowed-dir" placeholder="/Users/you/projects" style="flex:1" />
+          <button class="btn btn--ghost btn--small browse-picker-btn" data-target="new-allowed-dir" data-type="directory" title="Vybrat slo&#382;ku">&#128193; Browse</button>
           <button class="btn btn--secondary btn--small" id="add-dir-btn">+ P&#345;idat</button>
         </div>
       </section>
@@ -1072,6 +1147,7 @@
           <div style="display:flex;gap:0.5rem;margin-top:0.5rem">
             <input type="text" class="input" id="new-external-path"
                    placeholder="/Volumes/KnowledgeBase/Documents" style="flex:1" />
+            <button class="btn btn--ghost btn--small browse-picker-btn" data-target="new-external-path" data-type="directory" title="Vybrat slo&#382;ku">&#128193; Browse</button>
             <button class="btn btn--secondary btn--small" id="add-external-path-btn">+ P&#345;idat</button>
           </div>
         </div>
@@ -1378,6 +1454,13 @@
             <div id="update-status" class="hint-text"></div>
           </div>
         </div>
+      </section>
+
+      <!-- Agent Runtime Skills section -->
+      <section class="card settings-section">
+        <h2 class="card-title"><span class="section-icon">&#9881;</span> Agent Skills <span class="badge badge--info" id="skills-count-badge">11</span></h2>
+        <p class="hint-text">Runtime skills pro Resident agenta. Zapni/vypni podle pot&#345;eby.</p>
+        <div id="runtime-skills-panel" class="runtime-skills-grid" style="margin-top:0.75rem"></div>
       </section>
 
     </div><!-- /tab-settings -->

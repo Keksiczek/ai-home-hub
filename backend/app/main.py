@@ -13,6 +13,7 @@ from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 from app.routers import actions, agent_skills, chat, chat_multimodal, files, knowledge, memory, status
 from app.routers import agents, filesystem, integrations, jobs, settings, skills, tasks
+from app.routers import skills_runtime
 from app.routers import profiles as profiles_router
 from app.routers import resident as resident_router
 from app.routers import admin as admin_router
@@ -100,6 +101,13 @@ async def lifespan(app: FastAPI):
     from app.services.resident_agent import get_resident_agent
     get_resident_agent().set_broadcast(ws_manager.broadcast)
 
+    # Activity service – aggregates live status for the activity bar
+    from app.services.activity_service import get_activity_service
+    activity_svc = get_activity_service()
+    activity_svc.set_broadcast(ws_manager.broadcast)
+    activity_task = activity_svc.start()
+    _supervisor.register("activity_service", activity_task, activity_svc.start)
+
     # Tailscale Funnel service – exposes the app via Tailscale Funnel (opt-in via settings)
     from app.services.tailscale_service import get_tailscale_service
     tailscale_svc = get_tailscale_service()
@@ -179,6 +187,7 @@ app.include_router(filesystem.router, prefix="/api", tags=["filesystem"])
 app.include_router(integrations.router, prefix="/api", tags=["integrations"])
 app.include_router(skills.router, prefix="/api", tags=["skills"])
 app.include_router(agent_skills.router, prefix="/api", tags=["agent-skills"])
+app.include_router(skills_runtime.router, prefix="/api", tags=["skills-runtime"])
 app.include_router(knowledge.router, prefix="/api", tags=["knowledge"])
 app.include_router(memory.router, prefix="/api", tags=["memory"])
 app.include_router(jobs.router, prefix="/api", tags=["jobs"])
