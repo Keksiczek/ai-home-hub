@@ -169,9 +169,17 @@ class ResidentAgent(BackgroundService):
         self._state.tick_count += 1
         self._state.last_tick = _now()
 
-        # Heartbeat update
+        # Heartbeat update with logging
         self._state.last_heartbeat = _now()
         self._update_heartbeat_status()
+        if self._state.tick_count % 10 == 0:
+            logger.info(
+                "Resident heartbeat: tick=%d status=%s heartbeat=%s errors=%d",
+                self._state.tick_count,
+                self._state.status,
+                self._state.heartbeat_status,
+                self._state.consecutive_errors,
+            )
 
         try:
             await self._process_task_queue()

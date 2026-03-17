@@ -22,9 +22,17 @@ from app.main import app  # noqa: E402
 
 @pytest.fixture
 def client() -> TestClient:
-    """Synchronous ASGI test client with full app lifespan."""
-    with TestClient(app) as c:
-        yield c
+    """Synchronous ASGI test client with full app lifespan.
+
+    Mocks startup checks so tests don't require a running Ollama instance.
+    """
+    with patch(
+        "app.services.startup_checks.run_startup_checks",
+        new_callable=AsyncMock,
+        return_value={"ollama": "ok (mocked)"},
+    ):
+        with TestClient(app) as c:
+            yield c
 
 
 def _make_ollama_mock() -> tuple:

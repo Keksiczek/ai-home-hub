@@ -13,6 +13,7 @@ from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 from app.routers import actions, agent_skills, chat, chat_multimodal, files, knowledge, memory, status
 from app.routers import agents, filesystem, integrations, jobs, settings, skills, tasks
+from app.routers import profiles as profiles_router
 from app.routers import resident as resident_router
 from app.routers import admin as admin_router
 from app.routers import media as media_router
@@ -187,6 +188,7 @@ app.include_router(media_router.router, prefix="/api", tags=["media"])
 app.include_router(document_analysis_router.router, prefix="/api/document-analysis", tags=["document-analysis"])
 app.include_router(setup_router.router, prefix="/api", tags=["setup"])
 app.include_router(prompts_router.router, prefix="/api", tags=["prompts"])
+app.include_router(profiles_router.router, prefix="/api", tags=["profiles"])
 
 # Status (has its own /api/status prefix)
 app.include_router(status.router)
@@ -197,6 +199,28 @@ app.include_router(ws_router)
 # Rate limiting (4F) – must be set up after routes are registered
 from app.middleware.rate_limit import setup_rate_limiting
 setup_rate_limiting(app)
+
+
+@app.get("/api/agent/status", tags=["agent"])
+async def agent_status() -> dict:
+    """Top-level agent status endpoint combining resident agent and job worker health."""
+    from app.services.resident_agent import get_resident_agent
+
+    agent = get_resident_agent()
+    state = agent.get_state()
+    bg_tasks = _supervisor.status()
+
+    return {
+        "resident_agent": {
+            "is_running": state.get("is_running", False),
+            "status": state.get("status", "idle"),
+            "heartbeat_status": state.get("heartbeat_status", "unknown"),
+            "last_heartbeat": state.get("last_heartbeat"),
+            "tick_count": state.get("tick_count", 0),
+            "errors": state.get("errors_since_start", 0),
+        },
+        "background_tasks": bg_tasks,
+    }
 
 
 @app.get("/api/health/setup", tags=["health"])

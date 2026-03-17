@@ -21,6 +21,11 @@
         <span class="nav-label">Chat</span>
       </button>
       <button class="nav-item" role="tab" aria-selected="false"
+              data-tab="files-manager" title="Files">
+        <span class="nav-icon">&#128193;</span>
+        <span class="nav-label">Soubory</span>
+      </button>
+      <button class="nav-item" role="tab" aria-selected="false"
               data-tab="agents" title="Agents">
         <span class="nav-icon">&#129302;</span>
         <span class="nav-label">Agenti</span>
@@ -108,10 +113,12 @@
 
         <!-- Profile pills -->
         <div class="profile-pills" id="profile-pills">
-          <button class="pill pill--active" data-profile="chat">CHAT</button>
-          <button class="pill" data-profile="tech">TECH</button>
-          <button class="pill" data-profile="vision">VISION</button>
-          <button class="pill" data-profile="dolphin">DOLPHIN</button>
+          <button class="pill pill--active" data-profile="lean_ci" title="Lean/CI Expert">&#128202; Lean</button>
+          <button class="pill" data-profile="pbi_dax" title="Power BI/DAX Pro">&#128200; PBI</button>
+          <button class="pill" data-profile="mac_admin" title="Mac Admin">&#128187; Mac</button>
+          <button class="pill" data-profile="ai_dev" title="AI Dev">&#129302; AI</button>
+          <button class="pill" data-profile="vision" title="Vision">&#128270; Vision</button>
+          <button class="pill pill--custom-add" id="custom-profile-btn" title="Custom profile">&#10133; Custom</button>
         </div>
         <select class="chat-model-select" id="chat-model-select" title="Vyber model">
           <option value="">Výchozí model</option>
@@ -177,6 +184,36 @@
       </div>
 
     </div><!-- /tab-chat -->
+
+    <!-- ======================== FILES MANAGER TAB ======================== -->
+    <div class="tab-panel hidden" id="tab-files-manager" role="tabpanel">
+      <div class="panel-header">
+        <h1 class="panel-title">&#128193; Spr&aacute;vce soubor&#367;</h1>
+        <div style="display:flex;gap:0.5rem">
+          <button class="btn btn--ghost btn--small" id="refresh-files-btn">Obnovit</button>
+        </div>
+      </div>
+
+      <section class="card">
+        <div class="form-group" style="display:flex;gap:0.5rem;align-items:center">
+          <input class="input" id="files-path-input" placeholder="Cesta k adres&aacute;&#345;i, nap&#345;. /Users/keks/projects" style="flex:1" />
+          <button class="btn btn--primary btn--small" id="files-browse-btn">Proch&aacute;zet</button>
+        </div>
+      </section>
+
+      <section class="card" id="files-tree-container">
+        <div class="empty-state">Zadej cestu a klikni Proch&aacute;zet</div>
+      </section>
+
+      <!-- File preview panel -->
+      <section class="card hidden" id="files-preview-panel">
+        <div class="panel-header" style="padding:0 0 0.75rem">
+          <h2 class="card-title" id="files-preview-title">N&aacute;hled</h2>
+          <button class="btn btn--ghost btn--small" id="files-preview-close">&#10005;</button>
+        </div>
+        <div id="files-preview-content" class="files-preview-content"></div>
+      </section>
+    </div><!-- /tab-files-manager -->
 
     <!-- ======================== AGENTS TAB ======================== -->
     <div class="tab-panel hidden" id="tab-agents" role="tabpanel">
