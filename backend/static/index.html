@@ -1283,6 +1283,46 @@
         </div>
       </section>
 
+      <!-- Network: Tailscale Funnel section -->
+      <section class="card settings-section" id="tailscale-funnel-section">
+        <h2 class="card-title"><span class="section-icon">&#127760;</span> S&iacute;&#357; &ndash; Tailscale Funnel</h2>
+        <p class="hint-text">Vystavte aplikaci do internetu p&#345;es Tailscale Funnel. Vy&#382;aduje p&#345;ihl&aacute;&#353;en&yacute; Tailscale klient.</p>
+
+        <div class="form-group" style="align-items:center">
+          <label class="toggle-label">
+            <input type="checkbox" id="s-tailscale-enabled" />
+            <strong>Povolit Tailscale Funnel</strong>
+          </label>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="s-tailscale-port">Port:</label>
+          <input type="number" class="input" id="s-tailscale-port" min="1" max="65535" value="8000" style="max-width:120px" />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="s-tailscale-timeout">Idle timeout (s):</label>
+          <input type="number" class="input" id="s-tailscale-timeout" min="30" max="3600" value="300" style="max-width:120px" />
+        </div>
+
+        <div class="form-group" style="align-items:center;gap:0.75rem;flex-wrap:wrap">
+          <span class="form-label">Stav:</span>
+          <span id="tailscale-status-badge" class="badge badge--neutral">&#8722; nena&#269;teno</span>
+          <span id="tailscale-url-wrap" style="display:none;align-items:center;gap:0.5rem">
+            <code id="tailscale-url-text" style="font-size:0.85rem;color:#94a3b8"></code>
+            <button class="btn btn--ghost btn--small" id="tailscale-copy-url-btn" title="Kop&iacute;rovat URL" onclick="tailscaleCopyUrl()">
+              &#128203; Kop&iacute;rovat
+            </button>
+          </span>
+        </div>
+
+        <div class="form-group form-group--right">
+          <button class="btn btn--ghost btn--small" id="tailscale-refresh-btn" onclick="tailscaleRefreshStatus()">
+            &#8635; Obnovit stav
+          </button>
+        </div>
+      </section>
+
       <!-- System Controls section -->
       <section class="card settings-section" id="system-controls-section">
         <h2 class="card-title"><span class="section-icon">&#9881;</span> Spr&aacute;va syst&eacute;mu</h2>

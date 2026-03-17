@@ -247,6 +247,11 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "media_settings": {
         "max_upload_mb": 500,
     },
+    "tailscale": {
+        "enable_funnel": False,
+        "port": 8000,
+        "timeout": 300,
+    },
 }
 
 

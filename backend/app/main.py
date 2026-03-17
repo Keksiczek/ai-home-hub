@@ -14,6 +14,7 @@ from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from app.routers import actions, agent_skills, chat, chat_multimodal, files, knowledge, memory, status
 from app.routers import agents, filesystem, integrations, jobs, settings, skills, tasks
 from app.routers import resident as resident_router
+from app.routers import admin as admin_router
 from app.routers import media as media_router
 from app.routers import document_analysis as document_analysis_router
 from app.routers import setup as setup_router
@@ -97,6 +98,12 @@ async def lifespan(app: FastAPI):
     # Resident agent – initialize singleton, does NOT auto-start (waits for API call)
     from app.services.resident_agent import get_resident_agent
     get_resident_agent().set_broadcast(ws_manager.broadcast)
+
+    # Tailscale Funnel service – exposes the app via Tailscale Funnel (opt-in via settings)
+    from app.services.tailscale_service import get_tailscale_service
+    tailscale_svc = get_tailscale_service()
+    tailscale_task = tailscale_svc.start()
+    _supervisor.register("tailscale_funnel", tailscale_task, tailscale_svc.start)
 
     # KB filesystem watchdog – watches external_paths and enqueues incremental reindex
     from app.services.kb_watchdog import KBWatchdog
@@ -271,6 +278,10 @@ async def health() -> dict:
 
     bg_tasks = _supervisor.status()
 
+    # Tailscale Funnel health
+    from app.services.tailscale_service import get_tailscale_service
+    tailscale_health = get_tailscale_service().get_health()
+
     overall = "ok"
     if any(c.get("status") != "ok" for c in components.values()):
         overall = "degraded"
@@ -286,6 +297,7 @@ async def health() -> dict:
         "embeddings_cache": embeddings_svc.get_cache_stats(),
         "components": components,
         "background_tasks": bg_tasks,
+        "tailscale_funnel": tailscale_health,
     }
 
 
