@@ -1,4 +1,6 @@
 """Filesystem router – secure file and directory operations."""
+import os
+from pathlib import Path as SysPath
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException, Path, Query
@@ -7,6 +9,38 @@ from app.models.schemas import SearchRequest, WriteFileRequest
 from app.services.filesystem_service import get_filesystem_service
 
 router = APIRouter()
+
+
+@router.get("/filesystem/browse", tags=["filesystem"])
+async def browse_directory(
+    path: str = Query(default="~", description="Directory path to browse (~ for home)"),
+) -> Dict[str, Any]:
+    """Browse directories for settings file/folder pickers.
+
+    Unlike /filesystem/list this endpoint does NOT enforce allowed_directories,
+    because it is used exclusively in Settings to *choose* new paths.
+    Only directory names are returned (no file contents).
+    """
+    resolved = SysPath(os.path.expanduser(path)).resolve()
+    if not resolved.is_dir():
+        raise HTTPException(404, f"Not a directory: {resolved}")
+    try:
+        entries = []
+        for entry in sorted(resolved.iterdir()):
+            if entry.name.startswith("."):
+                continue  # skip hidden
+            entries.append({
+                "name": entry.name,
+                "path": str(entry),
+                "is_dir": entry.is_dir(),
+            })
+        return {
+            "current": str(resolved),
+            "parent": str(resolved.parent) if resolved.parent != resolved else None,
+            "entries": entries,
+        }
+    except PermissionError:
+        raise HTTPException(403, f"Permission denied: {resolved}")
 
 
 @router.get("/filesystem/config", tags=["filesystem"])

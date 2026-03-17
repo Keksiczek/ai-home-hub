@@ -6808,64 +6808,119 @@ function handleAgentStatusUpdate(msg) {
 }
 
 /* ============================================================
-   FILE PICKER (Native OS / fallback)
+   FILE PICKER – Server-side directory browser
    ============================================================ */
+let _dirBrowserTargetInput = null;
+let _dirBrowserPickerType = 'directory';
+let _dirBrowserCurrentPath = '~';
+
 function bindFilePickers() {
   document.querySelectorAll('.browse-picker-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
+    btn.addEventListener('click', () => {
       const targetId = btn.dataset.target;
-      const pickerType = btn.dataset.type || 'directory';
-      const targetInput = document.getElementById(targetId);
-      if (!targetInput) return;
+      _dirBrowserPickerType = btn.dataset.type || 'directory';
+      _dirBrowserTargetInput = document.getElementById(targetId);
+      if (!_dirBrowserTargetInput) return;
 
-      // Try native File System Access API (modern browsers)
-      if (pickerType === 'directory' && window.showDirectoryPicker) {
-        try {
-          const dirHandle = await window.showDirectoryPicker({ mode: 'read' });
-          targetInput.value = dirHandle.name;
-          showToast('Slo\u017eka vybr\u00e1na: ' + dirHandle.name, 'info');
-          return;
-        } catch (e) {
-          if (e.name === 'AbortError') return;
-        }
-      }
-
-      if (pickerType === 'file' && window.showOpenFilePicker) {
-        try {
-          const [fileHandle] = await window.showOpenFilePicker({
-            types: [{ description: 'All Files', accept: { '*/*': [] } }],
-            multiple: false,
-          });
-          targetInput.value = fileHandle.name;
-          showToast('Soubor vybr\u00e1n: ' + fileHandle.name, 'info');
-          return;
-        } catch (e) {
-          if (e.name === 'AbortError') return;
-        }
-      }
-
-      // Fallback: use an <input type="file"> element
-      const fallbackInput = document.createElement('input');
-      fallbackInput.type = 'file';
-      if (pickerType === 'directory') {
-        fallbackInput.webkitdirectory = true;
-      }
-      fallbackInput.onchange = () => {
-        if (fallbackInput.files.length > 0) {
-          const file = fallbackInput.files[0];
-          if (pickerType === 'directory' && file.webkitRelativePath) {
-            const dir = file.webkitRelativePath.split('/')[0];
-            targetInput.value = dir;
-            showToast('Slo\u017eka vybr\u00e1na: ' + dir, 'info');
-          } else {
-            targetInput.value = file.name;
-            showToast('Soubor vybr\u00e1n: ' + file.name, 'info');
-          }
-        }
-      };
-      fallbackInput.click();
+      // Start browsing from current input value or home
+      const startPath = _dirBrowserTargetInput.value.trim() || '~';
+      openDirBrowser(startPath);
     });
   });
+
+  // Modal buttons
+  const cancelBtn = document.getElementById('dir-browser-cancel');
+  const selectBtn = document.getElementById('dir-browser-select');
+  const upBtn = document.getElementById('dir-browser-up');
+
+  if (cancelBtn) cancelBtn.addEventListener('click', closeDirBrowser);
+  if (selectBtn) selectBtn.addEventListener('click', () => {
+    if (_dirBrowserTargetInput && _dirBrowserCurrentPath) {
+      _dirBrowserTargetInput.value = _dirBrowserCurrentPath;
+      showToast('Cesta vybrána: ' + _dirBrowserCurrentPath, 'success');
+    }
+    closeDirBrowser();
+  });
+  if (upBtn) upBtn.addEventListener('click', () => {
+    const pathEl = document.getElementById('dir-browser-path');
+    const parent = pathEl?.dataset?.parent;
+    if (parent) loadDirBrowserEntries(parent);
+  });
+}
+
+async function openDirBrowser(startPath) {
+  const overlay = document.getElementById('dir-browser-overlay');
+  if (!overlay) return;
+  show(overlay);
+  const titleEl = document.getElementById('dir-browser-title');
+  if (titleEl) titleEl.textContent = _dirBrowserPickerType === 'directory' ? 'Vybrat složku' : 'Vybrat soubor';
+  await loadDirBrowserEntries(startPath);
+}
+
+function closeDirBrowser() {
+  const overlay = document.getElementById('dir-browser-overlay');
+  if (overlay) hide(overlay);
+}
+
+async function loadDirBrowserEntries(path) {
+  const pathEl = document.getElementById('dir-browser-path');
+  const entriesEl = document.getElementById('dir-browser-entries');
+  if (!pathEl || !entriesEl) return;
+
+  pathEl.textContent = 'Načítám...';
+  entriesEl.innerHTML = '';
+
+  try {
+    const resp = await fetch('/api/filesystem/browse?path=' + encodeURIComponent(path));
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      showToast(err.detail || 'Nepřístupná cesta', 'error');
+      return;
+    }
+    const data = await resp.json();
+    _dirBrowserCurrentPath = data.current;
+    pathEl.textContent = data.current;
+    pathEl.dataset.parent = data.parent || '';
+
+    const dirs = (data.entries || []).filter(e => e.is_dir);
+    const files = _dirBrowserPickerType === 'file'
+      ? (data.entries || []).filter(e => !e.is_dir)
+      : [];
+
+    if (dirs.length === 0 && files.length === 0) {
+      entriesEl.innerHTML = '<p class="hint-text" style="padding:1rem">Prázdná složka</p>';
+      return;
+    }
+
+    entriesEl.innerHTML = dirs.map(e =>
+      '<div class="dir-browser-entry dir-browser-entry--dir" data-path="' + escHtml(e.path) + '">' +
+        '<span class="dir-browser-entry__icon">📁</span>' +
+        '<span>' + escHtml(e.name) + '</span>' +
+      '</div>'
+    ).join('') + files.map(e =>
+      '<div class="dir-browser-entry dir-browser-entry--file" data-path="' + escHtml(e.path) + '">' +
+        '<span class="dir-browser-entry__icon">📄</span>' +
+        '<span>' + escHtml(e.name) + '</span>' +
+      '</div>'
+    ).join('');
+
+    entriesEl.querySelectorAll('.dir-browser-entry--dir').forEach(el => {
+      el.addEventListener('click', () => loadDirBrowserEntries(el.dataset.path));
+    });
+    if (_dirBrowserPickerType === 'file') {
+      entriesEl.querySelectorAll('.dir-browser-entry--file').forEach(el => {
+        el.addEventListener('click', () => {
+          if (_dirBrowserTargetInput) {
+            _dirBrowserTargetInput.value = el.dataset.path;
+            showToast('Soubor vybrán: ' + el.dataset.path, 'success');
+          }
+          closeDirBrowser();
+        });
+      });
+    }
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
 }
 
 /* ============================================================
@@ -6916,7 +6971,10 @@ async function loadRuntimeSkills() {
       return '<label class="skill-toggle-item">' +
         '<input type="checkbox" ' + (s.enabled ? 'checked' : '') + ' data-skill="' + escHtml(s.name) + '" onchange="toggleRuntimeSkill(this)" />' +
         '<span class="skill-icon">' + (s.icon || '\u2699') + '</span>' +
-        '<span class="skill-name">' + escHtml(s.name) + '</span>' +
+        '<span class="skill-info">' +
+          '<span class="skill-name">' + escHtml(s.name) + '</span>' +
+          (s.description ? '<span class="skill-desc">' + escHtml(s.description) + '</span>' : '') +
+        '</span>' +
         '</label>';
     }).join('');
   } catch (e) {

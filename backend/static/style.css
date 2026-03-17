@@ -3790,7 +3790,7 @@ details[open].reasoning-cycle-item > .reasoning-cycle-summary::before {
    ============================================================ */
 .runtime-skills-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 0.5rem;
 }
 
@@ -3818,9 +3818,61 @@ details[open].reasoning-cycle-item > .reasoning-cycle-summary::before {
   font-size: 1.2rem;
 }
 
+.skill-toggle-item .skill-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
 .skill-toggle-item .skill-name {
   font-size: 0.875rem;
   color: #e2e8f0;
+}
+
+.skill-toggle-item .skill-desc {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Directory Browser ──────────────────────────────────── */
+.dir-browser-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dir-browser-entry {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: #e2e8f0;
+  transition: background 0.15s;
+}
+
+.dir-browser-entry:hover {
+  background: #1e293b;
+}
+
+.dir-browser-entry--dir {
+  font-weight: 500;
+}
+
+.dir-browser-entry--file {
+  color: #94a3b8;
+  cursor: default;
+}
+
+.dir-browser-entry__icon {
+  font-size: 1rem;
+  flex-shrink: 0;
 }
 
 /* ============================================================
