@@ -912,9 +912,8 @@ async function sendMessage() {
         mode,
         profile: 'vision',
         images: attachedImages.map(img => ({
-          filename: img.filename,
           data: img.data,
-          mime_type: img.mime_type,
+          media_type: img.mime_type,
         })),
       };
       if (currentSessionId) body.session_id = currentSessionId;
@@ -931,11 +930,11 @@ async function sendMessage() {
         currentSessionId = data.session_id;
         document.getElementById('session-label').textContent = `Relace: ${data.session_id}`;
       }
-      appendBubble('ai', data.response, {
-        provider: 'ollama',
-        model: data.model_used,
-        kb_context_used: data.kb_context_used,
-        images_processed: data.images_processed,
+      appendBubble('ai', data.reply, {
+        provider: data.meta?.provider || 'ollama',
+        model: data.meta?.model,
+        kb_context_used: data.meta?.kb_context_used,
+        images_count: data.meta?.images_count,
       });
 
       // Clear images
