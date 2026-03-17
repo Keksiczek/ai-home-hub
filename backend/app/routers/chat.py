@@ -1,10 +1,13 @@
 """Chat router – LLM chat with session persistence, knowledge base context, and shared memory."""
 import json
 import logging
+import shutil
 import time
-from typing import Any, Dict
+import uuid
+from pathlib import Path
+from typing import Any, Dict, List
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, File, Form, UploadFile, WebSocket, WebSocketDisconnect
 
 from app.models.schemas import ChatRequest, ChatResponse
 from app.services.llm_service import get_llm_service
@@ -13,6 +16,8 @@ from app.utils.context_helpers import enrich_message
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+_CHAT_UPLOADS_DIR = Path(__file__).parent.parent.parent / "data" / "uploads" / "chat_tmp"
 
 
 @router.websocket("/chat/stream")
@@ -162,6 +167,99 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
     meta["session_id"] = session_id
     return ChatResponse(reply=reply, meta=meta, session_id=session_id)
+
+
+@router.post("/chat/with-files", tags=["chat"])
+async def chat_with_files(
+    message: str = Form(...),
+    mode: str = Form("general"),
+    profile: str = Form(None),
+    session_id: str = Form(None),
+    files: List[UploadFile] = File(default=[]),
+) -> Dict[str, Any]:
+    """Chat with file attachments. Files are analyzed and injected as context.
+
+    Each uploaded file is processed via FileHandlerService in ``analyze`` mode
+    and its preview + filename are prepended to the message for LLM context.
+    Temp files are cleaned up after the response is generated.
+    """
+    from app.services.file_handler_service import get_file_handler_service, SUPPORTED_EXTENSIONS
+
+    llm_svc = get_llm_service()
+    session_svc = get_session_service()
+    handler = get_file_handler_service()
+
+    _CHAT_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    temp_paths: List[Path] = []
+    file_contexts: List[str] = []
+    attachment_names: List[str] = []
+
+    try:
+        # Process each uploaded file
+        for upload in files:
+            fname = upload.filename or "file"
+            suffix = Path(fname).suffix.lower()
+            if suffix not in SUPPORTED_EXTENSIONS:
+                file_contexts.append(f"[Soubor {fname}: nepodporovaný formát {suffix}]")
+                attachment_names.append(fname)
+                continue
+
+            dest = _CHAT_UPLOADS_DIR / f"{uuid.uuid4()}{suffix}"
+            with dest.open("wb") as f:
+                shutil.copyfileobj(upload.file, f)
+            temp_paths.append(dest)
+
+            result = await handler.process_file(str(dest), "analyze")
+            preview = result.get("text_preview", result.get("summary", ""))
+            if preview:
+                file_contexts.append(f"Soubor {fname}:\n{preview}")
+            else:
+                file_contexts.append(f"[Soubor {fname}: nepodařilo se extrahovat text]")
+            attachment_names.append(fname)
+
+        # Build enriched message with file context
+        file_context_str = ""
+        if file_contexts:
+            file_context_str = "\n\n".join(
+                f"<attachment name=\"{n}\">{ctx}</attachment>"
+                for n, ctx in zip(attachment_names, file_contexts)
+            ) + "\n\n"
+
+        full_message = file_context_str + message
+
+        # Session management
+        if not session_id or not session_svc.session_exists(session_id):
+            session_id = session_svc.create_session()
+
+        history = session_svc.get_history_for_llm(session_id, limit=20)
+        llm_message, context_meta = await enrich_message(full_message)
+
+        reply, meta = await llm_svc.generate(
+            message=llm_message,
+            mode=mode,
+            profile=profile,
+            history=history,
+        )
+        meta.update(context_meta)
+        meta["attachments"] = attachment_names
+
+        # Persist
+        user_display = message
+        if attachment_names:
+            user_display = " ".join(f"[📎 {n}]" for n in attachment_names) + " " + message
+        session_svc.save_message(session_id, "user", user_display)
+        session_svc.save_message(session_id, "assistant", reply, meta)
+
+        meta["session_id"] = session_id
+        return {"reply": reply, "meta": meta, "session_id": session_id}
+
+    finally:
+        # Clean up temp files
+        for p in temp_paths:
+            try:
+                p.unlink(missing_ok=True)
+            except Exception:
+                pass
 
 
 @router.get("/chat/sessions", tags=["chat"])

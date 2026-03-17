@@ -189,10 +189,13 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         "external_paths": [],
         "watch_for_changes": False,
         "allowed_extensions": [
-            ".pdf", ".docx", ".xlsx", ".txt", ".md",
+            ".pdf", ".docx", ".xlsx", ".pptx", ".txt", ".md",
             ".jpg", ".png", ".mp4", ".mov",
+            ".mp3", ".wav", ".epub", ".html", ".zip",
         ],
         "enabled": True,
+        "retention_days": 30,
+        "max_size_gb": 10,
     },
     "profiles": {
         "chat": {

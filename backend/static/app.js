@@ -259,7 +259,7 @@ function switchTab(tabName) {
   if (tabName === 'settings') { loadSettings(); loadOllamaModels(); }
   if (tabName === 'resident') loadResidentDashboard();
   if (tabName === 'overnight') loadOvernightStatus();
-  if (tabName === 'knowledge') loadKbOverview();
+  if (tabName === 'knowledge') { loadKbOverview(); loadKBFiles(); loadRetentionConfig(); }
 }
 
 function bindMobileMenu() {
@@ -575,7 +575,9 @@ function bindChatEvents() {
 
   document.getElementById('send-btn').addEventListener('click', sendMessage);
   document.getElementById('chat-input').addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') sendMessage();
+    // Enter alone = send; Shift+Enter = new line; Ctrl/Meta+Enter also sends
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); sendMessage(); }
     if (e.key === 'Escape' && _isStreaming) stopStreaming();
   });
   document.getElementById('summarize-session-btn').addEventListener('click', summarizeSession);
@@ -652,18 +654,16 @@ function bindChatEvents() {
   loadSessions();
 }
 
+// chatAttachedFiles stores raw File objects for the /chat/with-files endpoint
+let chatAttachedFiles = [];
+
 async function handleFiles(files) {
   if (!files.length) return;
   for (const file of files) {
-    try {
-      const data = await uploadFile(file);
-      uploadedFiles.push({ id: data.id, filename: data.filename });
-      renderAttachedFiles();
-      showToast(`Soubor "${data.filename}" nahran.`, 'success');
-    } catch (err) {
-      showToast(`Chyba nahravani "${file.name}": ${err.message}`, 'error');
-    }
+    chatAttachedFiles.push(file);
   }
+  renderAttachedFiles();
+  showToast(`${files.length} soubor(ů) připojeno k chatu`, 'success');
 }
 
 async function uploadFile(file) {
@@ -677,18 +677,25 @@ async function uploadFile(file) {
 function renderAttachedFiles() {
   const el = document.getElementById('attached-files');
   if (!el) return;
-  if (uploadedFiles.length) {
+  const allFiles = [...uploadedFiles.map(f => ({name: f.filename, id: f.id, type: 'uploaded'})),
+                     ...chatAttachedFiles.map((f, i) => ({name: f.name, id: `local_${i}`, type: 'local'}))];
+  if (allFiles.length) {
     show(el);
-    el.innerHTML = uploadedFiles.map(f => `
+    el.innerHTML = allFiles.map(f => `
       <span class="attached-file">
-        ${escHtml(truncate(f.filename, 25))}
-        <button class="attached-file__remove" data-id="${escHtml(f.id)}">&#10005;</button>
+        📎 ${escHtml(truncate(f.name, 25))}
+        <button class="attached-file__remove" data-id="${escHtml(f.id)}" data-type="${f.type}">&#10005;</button>
       </span>
     `).join('');
     el.querySelectorAll('.attached-file__remove').forEach(btn => {
       btn.addEventListener('click', () => {
-        const idx = uploadedFiles.findIndex(f => f.id === btn.dataset.id);
-        if (idx !== -1) uploadedFiles.splice(idx, 1);
+        if (btn.dataset.type === 'uploaded') {
+          const idx = uploadedFiles.findIndex(f => f.id === btn.dataset.id);
+          if (idx !== -1) uploadedFiles.splice(idx, 1);
+        } else {
+          const idx = parseInt(btn.dataset.id.replace('local_', ''), 10);
+          if (!isNaN(idx)) chatAttachedFiles.splice(idx, 1);
+        }
         renderAttachedFiles();
       });
     });
@@ -870,6 +877,27 @@ async function sendMessage() {
       attachedImages.forEach(img => URL.revokeObjectURL(img.previewUrl));
       attachedImages.length = 0;
       renderImagePreviews();
+    } else if (chatAttachedFiles.length > 0) {
+      // Chat with file attachments – multipart POST
+      const fd = new FormData();
+      fd.append('message', message);
+      fd.append('mode', mode);
+      fd.append('profile', llmProfile);
+      if (currentSessionId) fd.append('session_id', currentSessionId);
+      for (const f of chatAttachedFiles) fd.append('files', f);
+
+      const res = await fetch('/api/chat/with-files', { method: 'POST', body: fd });
+      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      data = await res.json();
+
+      if (data.session_id) {
+        currentSessionId = data.session_id;
+        document.getElementById('session-label').textContent = `Relace: ${data.session_id}`;
+      }
+      appendBubble('ai', data.reply, data.meta);
+      chatAttachedFiles.length = 0;
+      uploadedFiles.length = 0;
+      renderAttachedFiles();
     } else {
       // Text-only chat – use streaming WebSocket
       const body = { message, mode, profile: llmProfile, context_file_ids: contextFileIds };
@@ -920,6 +948,8 @@ async function sendMessageStreaming(body, sendBtn, chatSpinner) {
   const wsLabel = document.getElementById('ws-label');
   const prevLabel = wsLabel ? wsLabel.textContent : '';
   if (wsLabel) wsLabel.textContent = 'AI píše...';
+  const streamingIndicator = document.getElementById('chat-streaming-indicator');
+  if (streamingIndicator) streamingIndicator.classList.remove('hidden');
 
   // Show stop button
   if (sendBtn) {
@@ -971,9 +1001,10 @@ async function sendMessageStreaming(body, sendBtn, chatSpinner) {
             });
             const copyBtn = document.createElement('button');
             copyBtn.className = 'btn btn--ghost btn--small';
-            copyBtn.textContent = 'Zkopirovat';
+            copyBtn.textContent = '📋 Kopírovat';
+            copyBtn.title = 'Zkopírovat do schránky';
             copyBtn.addEventListener('click', () => {
-              navigator.clipboard.writeText(body.message || '').then(() => showToast('Zkopirováno', 'success'));
+              navigator.clipboard.writeText(body.message || '').then(() => showToast('Zkopírováno', 'success'));
             });
             actionsDiv.appendChild(retryBtn);
             actionsDiv.appendChild(copyBtn);
@@ -1009,6 +1040,22 @@ async function sendMessageStreaming(body, sendBtn, chatSpinner) {
               bubble.appendChild(memBadge);
             }
           }
+          // Add copy button to completed streaming response
+          if (fullText) {
+            const cpBtn = document.createElement('button');
+            cpBtn.className = 'btn btn--ghost btn--small bubble-copy-ai-btn';
+            cpBtn.title = 'Zkopírovat do schránky';
+            cpBtn.textContent = '📋';
+            cpBtn.style.cssText = 'position:absolute;top:0.4rem;right:0.4rem;opacity:0.6;font-size:0.85rem;padding:2px 5px;line-height:1';
+            cpBtn.addEventListener('click', () => {
+              navigator.clipboard.writeText(fullText).then(() => {
+                showToast('Odpověď zkopírována', 'success');
+                cpBtn.textContent = '✓';
+                setTimeout(() => { cpBtn.textContent = '📋'; }, 2000);
+              });
+            });
+            bubble.appendChild(cpBtn);
+          }
           loadSessions();
         } else if (msg.type === 'error') {
           cursor.remove();
@@ -1041,6 +1088,8 @@ function _finishStreaming(sendBtn, chatSpinner, wsLabel, prevLabel) {
   _isStreaming = false;
   _streamingWs = null;
   if (wsLabel) wsLabel.textContent = prevLabel;
+  const streamingIndicator = document.getElementById('chat-streaming-indicator');
+  if (streamingIndicator) streamingIndicator.classList.add('hidden');
   setLoading(sendBtn, chatSpinner, false);
   if (sendBtn) {
     sendBtn.textContent = sendBtn.dataset.prevText || 'Odeslat';
@@ -1133,14 +1182,14 @@ function appendBubble(role, text, meta, images) {
   if (isCopyable) {
     const copyBtn = document.createElement('button');
     copyBtn.className = 'btn btn--ghost btn--small bubble-copy-ai-btn';
-    copyBtn.title = 'Zkopírovat odpověď';
-    copyBtn.textContent = 'Kopírovat';
-    copyBtn.style.cssText = 'position:absolute;top:0.4rem;right:0.4rem;opacity:0.6;font-size:0.7rem';
+    copyBtn.title = 'Zkopírovat do schránky';
+    copyBtn.textContent = '📋';
+    copyBtn.style.cssText = 'position:absolute;top:0.4rem;right:0.4rem;opacity:0.6;font-size:0.85rem;padding:2px 5px;line-height:1';
     copyBtn.addEventListener('click', () => {
       navigator.clipboard.writeText(text).then(() => {
         showToast('Odpověď zkopírována', 'success');
-        copyBtn.textContent = 'Zkopírováno';
-        setTimeout(() => { copyBtn.textContent = 'Kopírovat'; }, 2000);
+        copyBtn.textContent = '✓';
+        setTimeout(() => { copyBtn.textContent = '📋'; }, 2000);
       });
     });
     bubble.appendChild(copyBtn);
@@ -3179,7 +3228,7 @@ async function loadKbOverview() {
         </thead>
         <tbody>
           ${data.collections.map(c => `
-            <tr>
+            <tr class="kb-collection-row" title="Klikni pro detail (připravujeme)">
               <td><strong>${escHtml(c.name)}</strong></td>
               <td>${c.document_count}</td>
               <td>${c.chunk_count}</td>
@@ -3198,6 +3247,166 @@ async function loadKbOverview() {
     }
   } catch (err) {
     el.innerHTML = `<div class="scan-errors">${escHtml(err.message)}</div>`;
+  }
+}
+
+/* ============================================================
+   KB FILES LIST
+   ============================================================ */
+let kbFilesOffset = 0;
+const _KB_FILES_LIMIT = 50;
+
+const _mediaIcons = {
+  text: '\u{1F4C4}', image: '\u{1F5BC}', audio: '\u{1F3B5}',
+  video: '\u{1F3AC}', office: '\u{1F4CA}', archive: '\u{1F4E6}',
+};
+
+function _formatBytes(bytes) {
+  if (!bytes || bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+function _timeAgo(mtime) {
+  if (!mtime) return '';
+  const now = Date.now() / 1000;
+  const diff = now - mtime;
+  if (diff < 60) return 'právě teď';
+  if (diff < 3600) return Math.floor(diff / 60) + 'min zpět';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h zpět';
+  return Math.floor(diff / 86400) + 'd zpět';
+}
+
+async function loadKBFiles(offset) {
+  if (offset === undefined || offset < 0) offset = 0;
+  kbFilesOffset = offset;
+
+  const el = document.getElementById('kb-files-list');
+  const countEl = document.getElementById('kb-files-count');
+  const pagEl = document.getElementById('kb-files-pagination');
+  if (!el) return;
+  el.innerHTML = '<p class="hint-text">Načítám soubory...</p>';
+
+  try {
+    const resp = await fetch(`/api/knowledge/files?limit=${_KB_FILES_LIMIT}&offset=${offset}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+
+    if (countEl) countEl.textContent = data.total;
+
+    if (!data.files || data.files.length === 0) {
+      el.innerHTML = '<p class="empty-state hint-text">Žádné indexované soubory. Nahrajte dokumenty výše.</p>';
+      if (pagEl) pagEl.classList.add('hidden');
+      return;
+    }
+
+    const rows = data.files.map(f => {
+      const icon = _mediaIcons[f.media_type] || '\u{1F4C4}';
+      const size = _formatBytes(f.size_bytes);
+      const ago = _timeAgo(f.mtime);
+      const name = escHtml(f.file_name || '');
+      return `
+        <div class="kb-file-row" data-filepath="${escHtml(f.file_path)}">
+          <span class="kb-file-icon">${icon}</span>
+          <div class="kb-file-info">
+            <span class="kb-file-name" title="${escHtml(f.file_path)}">${name}</span>
+            <span class="kb-file-meta">${size} · ${f.chunk_count} chunks · ${ago}</span>
+          </div>
+          <div class="kb-file-actions">
+            <button class="btn btn--ghost btn--small" title="Preview" onclick="previewKBFile('${escHtml(f.file_path)}')">👁️</button>
+            <button class="btn btn--ghost btn--small btn--danger-text" title="Smazat" onclick="deleteKBFileUI('${escHtml(f.file_path)}')">🗑️</button>
+          </div>
+        </div>`;
+    }).join('');
+    el.innerHTML = rows;
+
+    // Pagination
+    if (pagEl) {
+      if (data.total > _KB_FILES_LIMIT) {
+        pagEl.classList.remove('hidden');
+        const pageInfo = document.getElementById('kb-files-page-info');
+        if (pageInfo) pageInfo.textContent = `${offset + 1}–${Math.min(offset + _KB_FILES_LIMIT, data.total)} z ${data.total}`;
+        const prevBtn = document.getElementById('kb-files-prev');
+        const nextBtn = document.getElementById('kb-files-next');
+        if (prevBtn) prevBtn.disabled = offset === 0;
+        if (nextBtn) nextBtn.disabled = offset + _KB_FILES_LIMIT >= data.total;
+      } else {
+        pagEl.classList.add('hidden');
+      }
+    }
+  } catch (err) {
+    el.innerHTML = `<div class="scan-errors">${escHtml(err.message)}</div>`;
+  }
+}
+
+async function deleteKBFileUI(filePath) {
+  if (!confirm(`Opravdu smazat soubor z KB?\n${filePath}`)) return;
+  try {
+    const resp = await fetch(`/api/knowledge/files/${encodeURIComponent(filePath)}`, { method: 'DELETE' });
+    if (!resp.ok) throw new Error(await resp.text());
+    showToast('Soubor smazán z KB', 'success');
+    loadKBFiles(kbFilesOffset);
+    loadKbOverview();
+  } catch (err) {
+    showToast('Chyba mazání: ' + err.message, 'error');
+  }
+}
+
+async function previewKBFile(filePath) {
+  // Search KB for chunks of this specific file
+  const chatInput = document.getElementById('chat-input');
+  if (chatInput) {
+    chatInput.value = `Zobraz obsah souboru: ${filePath.split('/').pop()}`;
+    chatInput.focus();
+    showToast('Dotaz připraven v chatu – stiskni Enter', 'info');
+  }
+}
+
+/* ============================================================
+   KB RETENTION
+   ============================================================ */
+
+async function loadRetentionConfig() {
+  const el = document.getElementById('kb-retention-info');
+  if (!el) return;
+  try {
+    const resp = await fetch('/api/knowledge/retention/config');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const cfg = await resp.json();
+    el.innerHTML = `
+      <span class="badge" style="margin-right:0.5rem">&#128197; Retention: ${cfg.retention_days} dní</span>
+      <span class="badge">&#128190; Max velikost: ${cfg.max_size_gb} GB</span>`;
+  } catch (err) {
+    el.innerHTML = `<span class="hint-text">Nelze načíst konfiguraci: ${escHtml(err.message)}</span>`;
+  }
+}
+
+async function runRetention() {
+  const btn = document.getElementById('retention-run-btn');
+  const resultEl = document.getElementById('kb-retention-result');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Probíhá úklid...'; }
+  if (resultEl) resultEl.classList.add('hidden');
+
+  try {
+    const resp = await fetch('/api/knowledge/retention/run', { method: 'POST' });
+    if (!resp.ok) throw new Error(await resp.text() || `HTTP ${resp.status}`);
+    const data = await resp.json();
+    if (resultEl) {
+      resultEl.classList.remove('hidden');
+      resultEl.innerHTML = `
+        <div class="alert alert--success" style="padding:0.5rem 0.75rem;border-radius:6px;background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.3);color:#4ade80;font-size:0.85rem">
+          ✅ Úklid dokončen – smazáno starých souborů: ${data.deleted_old}, přebytečných: ${data.deleted_size}
+          ${data.errors.length ? `<br>⚠️ Chyby: ${data.errors.slice(0,3).map(e => escHtml(e)).join(', ')}` : ''}
+        </div>`;
+    }
+    loadKbOverview();
+    loadKBFiles();
+  } catch (err) {
+    showToast('Chyba retention: ' + err.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🧹 Spustit úklid nyní'; }
   }
 }
 
@@ -4051,9 +4260,12 @@ function renderJobsList(jobs) {
             </td>
             <td class="jobs-cell-duration">${formatJobDuration(j.started_at, j.finished_at)}</td>
             <td class="jobs-cell-date">${formatJobDate(j.created_at)}</td>
-            <td>
+            <td style="white-space:nowrap">
               ${(j.status === 'queued' || j.status === 'running')
-                ? `<button class="btn btn--ghost btn--small" onclick="cancelJob('${escHtml(j.id)}')">Zrušit</button>`
+                ? `<button class="btn btn--ghost btn--small jobs-action-cancel" onclick="cancelJob('${escHtml(j.id)}',this)">Zrušit</button>`
+                : ''}
+              ${(j.status === 'failed' || j.status === 'cancelled')
+                ? `<button class="btn btn--secondary btn--small jobs-action-retry" onclick="retryJob('${escHtml(j.id)}',this)">Znovu</button>`
                 : ''}
             </td>
           </tr>
@@ -4176,10 +4388,10 @@ function renderJobDetail(job) {
     </div>
     <div style="margin-top:0.75rem;display:flex;gap:0.5rem;flex-wrap:wrap">
       ${(job.status === 'queued' || job.status === 'running')
-        ? `<button class="btn btn--ghost btn--small" onclick="cancelJob('${escHtml(job.id)}')">Zrušit job</button>`
+        ? `<button class="btn btn--ghost btn--small jobs-action-cancel" onclick="cancelJob('${escHtml(job.id)}',this)">Zrušit job</button>`
         : ''}
       ${(job.status === 'failed' || job.status === 'cancelled')
-        ? `<button class="btn btn--secondary btn--small" onclick="retryJob('${escHtml(job.id)}')">Zkusit znovu</button>`
+        ? `<button class="btn btn--secondary btn--small jobs-action-retry" onclick="retryJob('${escHtml(job.id)}',this)">Zkusit znovu</button>`
         : ''}
     </div>
     ${(job.type === 'document_analysis' && job.status === 'succeeded')
@@ -4198,7 +4410,11 @@ function closeJobDetail() {
   if (section) section.classList.add('hidden');
 }
 
-async function cancelJob(jobId) {
+async function cancelJob(jobId, triggerBtn) {
+  // Disable the button that triggered the action to prevent double-clicks
+  if (triggerBtn) { triggerBtn.disabled = true; triggerBtn.textContent = 'Ruším…'; }
+  // Also disable any matching buttons in the table row
+  document.querySelectorAll(`[data-job-id="${CSS.escape(jobId)}"] .jobs-action-cancel`).forEach(b => { b.disabled = true; });
   try {
     const res = await fetch('/api/jobs/' + encodeURIComponent(jobId) + '/cancel', { method: 'POST' });
     if (!res.ok) throw new Error(await res.text());
@@ -4207,20 +4423,23 @@ async function cancelJob(jobId) {
     if (_selectedJobId === jobId) showJobDetail(jobId);
   } catch (err) {
     showToast('Chyba: ' + err.message, 'error');
+    if (triggerBtn) { triggerBtn.disabled = false; triggerBtn.textContent = 'Zrušit'; }
   }
 }
 
-async function retryJob(jobId) {
+async function retryJob(jobId, triggerBtn) {
+  if (triggerBtn) { triggerBtn.disabled = true; triggerBtn.textContent = 'Zařazuji…'; }
+  document.querySelectorAll(`[data-job-id="${CSS.escape(jobId)}"] .jobs-action-retry`).forEach(b => { b.disabled = true; });
   try {
     const res = await fetch('/api/jobs/' + encodeURIComponent(jobId) + '/retry', { method: 'POST' });
     if (!res.ok) throw new Error(await res.text());
     const data = await res.json();
-    showToast('Nový pokus zařazen do fronty', 'success');
+    showToast('Job znovu zařazen do fronty', 'success');
     loadJobs();
-    // Open the new job detail
     if (data.id) showJobDetail(data.id);
   } catch (err) {
     showToast('Chyba: ' + err.message, 'error');
+    if (triggerBtn) { triggerBtn.disabled = false; triggerBtn.textContent = 'Zkusit znovu'; }
   }
 }
 
@@ -5610,10 +5829,101 @@ const _modeHints = {
   advisor: 'Navrhuje akce, ty klikneš Spustit',
   autonomous: 'Spouští bezpečné akce sám',
 };
+const _modeIcons = {
+  observer: '👁️',
+  advisor: '🧑‍🏫',
+  autonomous: '🤖',
+};
 
 function updateResidentModeHint(mode) {
   const hint = document.getElementById('resident-mode-hint');
   if (hint) hint.textContent = _modeHints[mode] || '';
+
+  const icon = document.getElementById('resident-mode-icon');
+  if (icon) icon.textContent = _modeIcons[mode] || '🤖';
+
+  const warning = document.getElementById('resident-autonomous-warning');
+  if (warning) {
+    if (mode === 'autonomous') {
+      warning.classList.remove('hidden');
+    } else {
+      warning.classList.add('hidden');
+    }
+  }
+}
+
+// ── Panic / toggle autonomy ──────────────────────────────────────────────────
+async function toggleResidentAutonomy() {
+  const btn = document.getElementById('resident-panic-btn');
+  const modeSelect = document.getElementById('resident-mode-select');
+  const currentMode = modeSelect ? modeSelect.value : 'advisor';
+  // If currently autonomous → pause (advisor). Otherwise → autonomous.
+  const targetMode = currentMode === 'autonomous' ? 'advisor' : 'autonomous';
+  const endpoint = targetMode === 'advisor' ? '/api/resident/mode/pause' : '/api/resident/mode/autonomous';
+
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch(endpoint, { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    if (modeSelect) modeSelect.value = data.mode;
+    updateResidentModeHint(data.mode);
+    // Update button label
+    if (btn) {
+      if (data.mode === 'autonomous') {
+        btn.textContent = '⏸️ Pozastavit autonomii';
+        btn.classList.add('btn--danger');
+        btn.classList.remove('btn--primary');
+      } else {
+        btn.textContent = '🤖 Zapnout autonomii';
+        btn.classList.remove('btn--danger');
+        btn.classList.add('btn--primary');
+      }
+    }
+    showToast(data.message || 'Režim změněn', 'success');
+  } catch (e) {
+    showToast('Chyba při změně režimu: ' + e.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// ── System controls (restart / update) ───────────────────────────────────────
+async function restartApp() {
+  const btn = document.getElementById('restart-app-btn');
+  const statusEl = document.getElementById('restart-status');
+  if (!confirm('Opravdu restartovat AI Home Hub? Backend se na ~30 s nedostupný.')) return;
+  if (btn) btn.disabled = true;
+  if (statusEl) statusEl.textContent = 'Restart zahájen…';
+  try {
+    const res = await fetch('/api/admin/restart', { method: 'POST' });
+    const data = await res.json();
+    if (statusEl) statusEl.textContent = data.message || 'Restart zahájen';
+    showToast('Restart zahájen – backend se vrátí za cca 30 s', 'info');
+  } catch (e) {
+    if (statusEl) statusEl.textContent = 'Chyba: ' + e.message;
+    showToast('Restart selhal: ' + e.message, 'error');
+    if (btn) btn.disabled = false;
+  }
+  // Leave button disabled – backend is restarting and connection will drop
+}
+
+async function updateApp() {
+  const btn = document.getElementById('update-app-btn');
+  const statusEl = document.getElementById('update-status');
+  if (!confirm('Stáhnout aktualizace z Gitu a restartovat? Backend bude cca 30 s nedostupný.')) return;
+  if (btn) btn.disabled = true;
+  if (statusEl) statusEl.textContent = 'Update zahájen…';
+  try {
+    const res = await fetch('/api/admin/update', { method: 'POST' });
+    const data = await res.json();
+    if (statusEl) statusEl.textContent = data.message || 'Update zahájen';
+    showToast('Update zahájen (git pull + restart)', 'info');
+  } catch (e) {
+    if (statusEl) statusEl.textContent = 'Chyba: ' + e.message;
+    showToast('Update selhal: ' + e.message, 'error');
+    if (btn) btn.disabled = false;
+  }
 }
 
 function renderResidentAutoLogbook(data) {
