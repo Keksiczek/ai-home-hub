@@ -1,5 +1,6 @@
 """Multimodal chat router – LLM chat with base64-encoded image attachments."""
 import asyncio
+import base64 as _b64
 import logging
 from typing import Any, Dict, List
 
@@ -24,6 +25,8 @@ router = APIRouter()
 
 def _validate_images(images: list) -> None:
     """Raise HTTPException(400) if any image violates the configured limits."""
+    if not images:
+        return
     if len(images) > MAX_IMAGES_PER_MESSAGE:
         raise HTTPException(
             status_code=400,
@@ -32,24 +35,35 @@ def _validate_images(images: list) -> None:
                 f"maximum is {MAX_IMAGES_PER_MESSAGE}."
             ),
         )
-    for img in images:
+    for i, img in enumerate(images, 1):
         if img.media_type not in ALLOWED_IMAGE_TYPES:
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    f"Unsupported image type '{img.media_type}'. "
+                    f"Image #{i}: unsupported type '{img.media_type}'. "
                     f"Allowed: {', '.join(sorted(ALLOWED_IMAGE_TYPES))}."
                 ),
+            )
+        if not img.data:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Image #{i}: empty base64 data.",
             )
         # base64 encodes 3 bytes as 4 chars; approximate raw size
         approx_bytes = len(img.data) * 3 // 4
         if approx_bytes > MAX_IMAGE_SIZE_BYTES:
+            max_mb = MAX_IMAGE_SIZE_BYTES // (1024 * 1024)
             raise HTTPException(
                 status_code=400,
-                detail=(
-                    f"Image exceeds maximum size of "
-                    f"{MAX_IMAGE_SIZE_BYTES // (1024 * 1024)} MiB."
-                ),
+                detail=f"Image #{i} exceeds maximum size of {max_mb} MiB.",
+            )
+        # Validate base64 encoding
+        try:
+            _b64.b64decode(img.data, validate=True)
+        except Exception:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Image #{i}: invalid base64 encoding.",
             )
 
 

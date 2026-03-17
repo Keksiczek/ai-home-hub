@@ -3678,3 +3678,301 @@ details[open].reasoning-cycle-item > .reasoning-cycle-summary::before {
   border-color: #60a5fa;
   color: #60a5fa;
 }
+
+/* ============================================================
+   LIVE ACTIVITY BAR
+   ============================================================ */
+.activity-bar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 1rem;
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  border-bottom: 1px solid #2d3348;
+  font-size: 0.8rem;
+  color: #94a3b8;
+  flex-wrap: wrap;
+  cursor: pointer;
+  user-select: none;
+}
+
+.activity-bar:hover {
+  background: linear-gradient(135deg, #1e293b 0%, #1a2332 100%);
+}
+
+.activity-pulse {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  animation: pulse-glow 2s infinite;
+}
+
+.activity-pulse--working {
+  background: #eab308;
+}
+
+.activity-pulse--error {
+  background: #ef4444;
+  animation: none;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; box-shadow: 0 0 4px #22c55e; }
+  50% { opacity: 0.5; box-shadow: 0 0 8px #22c55e; }
+}
+
+.activity-divider {
+  color: #334155;
+}
+
+.activity-item {
+  white-space: nowrap;
+}
+
+/* ============================================================
+   AGENT LIVE WIDGET
+   ============================================================ */
+.agent-widget {
+  margin: 1rem;
+  border: 1px solid #2d3348;
+}
+
+.agent-widget-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #2d3348;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.agent-widget-body {
+  padding-top: 0.5rem;
+}
+
+.agent-widget-row {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+  font-size: 0.875rem;
+}
+
+.agent-widget-label {
+  color: #64748b;
+  min-width: 80px;
+}
+
+.agent-widget-value {
+  color: #e2e8f0;
+}
+
+.agent-widget-thought {
+  font-style: italic;
+  color: #94a3b8;
+}
+
+.agent-widget-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #1e293b;
+}
+
+/* ============================================================
+   RUNTIME SKILLS GRID
+   ============================================================ */
+.runtime-skills-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.5rem;
+}
+
+.skill-toggle-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: #1e293b;
+  border: 1px solid #2d3348;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.skill-toggle-item:hover {
+  border-color: #475569;
+}
+
+.skill-toggle-item input[type="checkbox"] {
+  accent-color: #60a5fa;
+}
+
+.skill-toggle-item .skill-icon {
+  font-size: 1.2rem;
+}
+
+.skill-toggle-item .skill-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.skill-toggle-item .skill-name {
+  font-size: 0.875rem;
+  color: #e2e8f0;
+}
+
+.skill-toggle-item .skill-desc {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Directory Browser ──────────────────────────────────── */
+.dir-browser-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dir-browser-entry {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: #e2e8f0;
+  transition: background 0.15s;
+}
+
+.dir-browser-entry:hover {
+  background: #1e293b;
+}
+
+.dir-browser-entry--dir {
+  font-weight: 500;
+}
+
+.dir-browser-entry--file {
+  color: #94a3b8;
+  cursor: default;
+}
+
+.dir-browser-entry__icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+/* ============================================================
+   CLICKABLE LINKS IN CHAT
+   ============================================================ */
+.chat-message a {
+  color: #60a5fa;
+  text-decoration: underline;
+  text-decoration-color: rgba(96, 165, 250, 0.3);
+}
+
+.chat-message a:hover {
+  color: #93c5fd;
+  text-decoration-color: #93c5fd;
+}
+
+.chat-message a[target="_blank"]::after {
+  content: " \2197";
+  font-size: 0.75em;
+}
+
+.chat-file-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1rem 0.4rem;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  color: #60a5fa;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.chat-file-link:hover {
+  background: #334155;
+  border-color: #60a5fa;
+}
+
+.chat-job-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1rem 0.4rem;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  color: #a78bfa;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.chat-job-link:hover {
+  background: #334155;
+  border-color: #a78bfa;
+}
+
+/* ============================================================
+   JOB QUEUE SECTION
+   ============================================================ */
+.job-queue-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid #1e293b;
+  font-size: 0.875rem;
+}
+
+.job-queue-item:last-child {
+  border-bottom: none;
+}
+
+.job-queue-title {
+  color: #e2e8f0;
+  flex: 1;
+}
+
+.job-queue-status {
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.job-queue-status--running {
+  background: rgba(96, 165, 250, 0.15);
+  color: #60a5fa;
+}
+
+.job-queue-status--queued {
+  background: rgba(234, 179, 8, 0.15);
+  color: #eab308;
+}
+
+/* ============================================================
+   BROWSE PICKER BUTTON
+   ============================================================ */
+.browse-picker-btn {
+  white-space: nowrap;
+}

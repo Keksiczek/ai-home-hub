@@ -262,7 +262,7 @@ function switchTab(tabName) {
   if (tabName === 'skills') loadSkills();
   if (tabName === 'jobs') loadJobs();
   if (tabName === 'actions') { loadQuickActions(); loadVSCodeProjects(); loadActionHistory(); }
-  if (tabName === 'settings') { loadSettings(); loadOllamaModels(); }
+  if (tabName === 'settings') { loadSettings(); loadOllamaModels(); loadRuntimeSkills(); }
   if (tabName === 'files-manager') loadFilesManager();
   if (tabName === 'resident') loadResidentDashboard();
   if (tabName === 'overnight') loadOvernightStatus();
@@ -424,6 +424,8 @@ function handleWsMessage(msg) {
   else if (msg.type === 'status_alert') handleStatusAlert(msg);
   else if (msg.type === 'resident_tick') handleResidentTick(msg);
   else if (msg.type === 'resident_action') handleResidentAction(msg);
+  else if (msg.type === 'activity_update') handleActivityUpdate(msg);
+  else if (msg.type === 'agent_status') handleAgentStatusUpdate(msg);
 }
 
 function handleIngestProgress(msg) {
@@ -910,9 +912,8 @@ async function sendMessage() {
         mode,
         profile: 'vision',
         images: attachedImages.map(img => ({
-          filename: img.filename,
           data: img.data,
-          mime_type: img.mime_type,
+          media_type: img.mime_type,
         })),
       };
       if (currentSessionId) body.session_id = currentSessionId;
@@ -929,11 +930,11 @@ async function sendMessage() {
         currentSessionId = data.session_id;
         document.getElementById('session-label').textContent = `Relace: ${data.session_id}`;
       }
-      appendBubble('ai', data.response, {
-        provider: 'ollama',
-        model: data.model_used,
-        kb_context_used: data.kb_context_used,
-        images_processed: data.images_processed,
+      appendBubble('ai', data.reply, {
+        provider: data.meta?.provider || 'ollama',
+        model: data.meta?.model,
+        kb_context_used: data.meta?.kb_context_used,
+        images_count: data.meta?.images_count,
       });
 
       // Clear images
@@ -6719,3 +6720,387 @@ function bindCustomProfileBtn() {
     }
   });
 }
+
+/* ============================================================
+   LIVE ACTIVITY BAR
+   ============================================================ */
+function handleActivityUpdate(msg) {
+  const pulse = document.getElementById('activity-pulse');
+  const resStatus = document.getElementById('act-resident-status');
+  const jobsCount = document.getElementById('act-jobs-count');
+  const kbChunks = document.getElementById('act-kb-chunks');
+  const ollamaStatus = document.getElementById('act-ollama-status');
+  const ramUsage = document.getElementById('act-ram-usage');
+
+  if (!pulse) return;
+
+  // Resident status
+  const resident = msg.resident || {};
+  const statusMap = { idle: '\ud83d\udfe2 idle', thinking: '\ud83d\udfe1 thinking...', executing: '\ud83d\udfe1 executing', error: '\ud83d\udd34 error' };
+  if (resStatus) resStatus.textContent = statusMap[resident.status] || resident.status || 'unknown';
+
+  // Pulse color
+  if (resident.status === 'error') {
+    pulse.className = 'activity-pulse activity-pulse--error';
+  } else if (resident.status === 'thinking' || resident.status === 'executing') {
+    pulse.className = 'activity-pulse activity-pulse--working';
+  } else {
+    pulse.className = 'activity-pulse';
+  }
+
+  // Jobs
+  const jobs = msg.jobs || {};
+  if (jobsCount) jobsCount.textContent = jobs.total_active || 0;
+
+  // KB
+  const kb = msg.kb || {};
+  if (kbChunks) kbChunks.textContent = kb.total_chunks || 0;
+
+  // Ollama
+  const ollama = msg.ollama || {};
+  if (ollamaStatus) {
+    if (ollama.status === 'running') {
+      ollamaStatus.textContent = '\ud83d\udfe2 Ollama';
+    } else {
+      ollamaStatus.textContent = '\u26aa Ollama';
+    }
+  }
+
+  // RAM
+  const resources = msg.resources || {};
+  if (ramUsage && resources.ram_used_mb) {
+    const used = (resources.ram_used_mb / 1024).toFixed(1);
+    const total = (resources.ram_total_mb / 1024).toFixed(1);
+    ramUsage.textContent = `${used}/${total}GB`;
+  }
+}
+
+/* ============================================================
+   AGENT STATUS LIVE WIDGET
+   ============================================================ */
+function handleAgentStatusUpdate(msg) {
+  const statusEl = document.getElementById('aw-status');
+  const thoughtEl = document.getElementById('aw-thought');
+  const lastActionEl = document.getElementById('aw-last-action');
+  const cycleEl = document.getElementById('aw-cycle');
+
+  if (!statusEl) return;
+
+  const statusIcons = { idle: '\ud83d\udfe2', thinking: '\ud83d\udfe1', executing: '\ud83d\udfe1', error: '\ud83d\udd34' };
+  const statusTexts = { idle: 'Idle', thinking: 'Thinking...', executing: 'Executing', error: 'Error' };
+  const status = msg.status || 'idle';
+  statusEl.textContent = `${statusIcons[status] || '\u26aa'} ${statusTexts[status] || status}`;
+
+  if (thoughtEl) {
+    thoughtEl.textContent = msg.current_thought || '\u2014';
+  }
+
+  if (lastActionEl) {
+    lastActionEl.textContent = msg.last_action || '\u2014';
+  }
+
+  if (cycleEl) {
+    const nextRun = msg.next_run_in || 0;
+    const mins = Math.floor(nextRun / 60);
+    const secs = nextRun % 60;
+    cycleEl.textContent = `#${msg.cycle_count || 0} | Dal\u0161\u00ed za: ${mins}:${String(secs).padStart(2, '0')}`;
+  }
+}
+
+/* ============================================================
+   FILE PICKER – Server-side directory browser
+   ============================================================ */
+let _dirBrowserTargetInput = null;
+let _dirBrowserPickerType = 'directory';
+let _dirBrowserCurrentPath = '~';
+
+function bindFilePickers() {
+  document.querySelectorAll('.browse-picker-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const targetId = btn.dataset.target;
+      _dirBrowserPickerType = btn.dataset.type || 'directory';
+      _dirBrowserTargetInput = document.getElementById(targetId);
+      if (!_dirBrowserTargetInput) return;
+
+      // Start browsing from current input value or home
+      const startPath = _dirBrowserTargetInput.value.trim() || '~';
+      openDirBrowser(startPath);
+    });
+  });
+
+  // Modal buttons
+  const cancelBtn = document.getElementById('dir-browser-cancel');
+  const selectBtn = document.getElementById('dir-browser-select');
+  const upBtn = document.getElementById('dir-browser-up');
+
+  if (cancelBtn) cancelBtn.addEventListener('click', closeDirBrowser);
+  if (selectBtn) selectBtn.addEventListener('click', () => {
+    if (_dirBrowserTargetInput && _dirBrowserCurrentPath) {
+      _dirBrowserTargetInput.value = _dirBrowserCurrentPath;
+      showToast('Cesta vybrána: ' + _dirBrowserCurrentPath, 'success');
+    }
+    closeDirBrowser();
+  });
+  if (upBtn) upBtn.addEventListener('click', () => {
+    const pathEl = document.getElementById('dir-browser-path');
+    const parent = pathEl?.dataset?.parent;
+    if (parent) loadDirBrowserEntries(parent);
+  });
+}
+
+async function openDirBrowser(startPath) {
+  const overlay = document.getElementById('dir-browser-overlay');
+  if (!overlay) return;
+  show(overlay);
+  const titleEl = document.getElementById('dir-browser-title');
+  if (titleEl) titleEl.textContent = _dirBrowserPickerType === 'directory' ? 'Vybrat složku' : 'Vybrat soubor';
+  await loadDirBrowserEntries(startPath);
+}
+
+function closeDirBrowser() {
+  const overlay = document.getElementById('dir-browser-overlay');
+  if (overlay) hide(overlay);
+}
+
+async function loadDirBrowserEntries(path) {
+  const pathEl = document.getElementById('dir-browser-path');
+  const entriesEl = document.getElementById('dir-browser-entries');
+  if (!pathEl || !entriesEl) return;
+
+  pathEl.textContent = 'Načítám...';
+  entriesEl.innerHTML = '';
+
+  try {
+    const resp = await fetch('/api/filesystem/browse?path=' + encodeURIComponent(path));
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      showToast(err.detail || 'Nepřístupná cesta', 'error');
+      return;
+    }
+    const data = await resp.json();
+    _dirBrowserCurrentPath = data.current;
+    pathEl.textContent = data.current;
+    pathEl.dataset.parent = data.parent || '';
+
+    const dirs = (data.entries || []).filter(e => e.is_dir);
+    const files = _dirBrowserPickerType === 'file'
+      ? (data.entries || []).filter(e => !e.is_dir)
+      : [];
+
+    if (dirs.length === 0 && files.length === 0) {
+      entriesEl.innerHTML = '<p class="hint-text" style="padding:1rem">Prázdná složka</p>';
+      return;
+    }
+
+    entriesEl.innerHTML = dirs.map(e =>
+      '<div class="dir-browser-entry dir-browser-entry--dir" data-path="' + escHtml(e.path) + '">' +
+        '<span class="dir-browser-entry__icon">📁</span>' +
+        '<span>' + escHtml(e.name) + '</span>' +
+      '</div>'
+    ).join('') + files.map(e =>
+      '<div class="dir-browser-entry dir-browser-entry--file" data-path="' + escHtml(e.path) + '">' +
+        '<span class="dir-browser-entry__icon">📄</span>' +
+        '<span>' + escHtml(e.name) + '</span>' +
+      '</div>'
+    ).join('');
+
+    entriesEl.querySelectorAll('.dir-browser-entry--dir').forEach(el => {
+      el.addEventListener('click', () => loadDirBrowserEntries(el.dataset.path));
+    });
+    if (_dirBrowserPickerType === 'file') {
+      entriesEl.querySelectorAll('.dir-browser-entry--file').forEach(el => {
+        el.addEventListener('click', () => {
+          if (_dirBrowserTargetInput) {
+            _dirBrowserTargetInput.value = el.dataset.path;
+            showToast('Soubor vybrán: ' + el.dataset.path, 'success');
+          }
+          closeDirBrowser();
+        });
+      });
+    }
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
+}
+
+/* ============================================================
+   CLICKABLE LINKS – Markdown, file paths, job IDs
+   ============================================================ */
+function linkifyContent(html) {
+  // Auto-linkify URLs in plain text
+  html = html.replace(
+    /(?<!["'=])https?:\/\/[^\s<>"')\]]+/g,
+    function(url) { return '<a href="' + escHtml(url) + '" target="_blank" rel="noopener">' + escHtml(url) + '</a>'; }
+  );
+
+  // File path regex -> inline Open link
+  html = html.replace(
+    /((?:\/[\w.\-]+){2,})/g,
+    function(match) {
+      if (match.startsWith('http')) return match;
+      return match + ' <a class="chat-file-link" href="/api/files/action?type=open_vscode&path=' + encodeURIComponent(match) + '" target="_blank">\ud83d\udcc1 Open</a>';
+    }
+  );
+
+  // Job ID regex -> inline View link (UUID pattern)
+  html = html.replace(
+    /\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b/g,
+    function(match) { return '<a class="chat-job-link" onclick="showJobDetail(\'' + match + '\')">\ud83d\udcca ' + match.substring(0, 8) + '...</a>'; }
+  );
+
+  return html;
+}
+
+/* ============================================================
+   RUNTIME SKILLS PANEL (Settings tab)
+   ============================================================ */
+async function loadRuntimeSkills() {
+  const panel = document.getElementById('runtime-skills-panel');
+  const badge = document.getElementById('skills-count-badge');
+  if (!panel) return;
+
+  try {
+    const resp = await fetch('/api/skills-runtime/catalog');
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const skills = data.skills || [];
+
+    if (badge) badge.textContent = skills.length;
+
+    panel.innerHTML = skills.map(function(s) {
+      return '<label class="skill-toggle-item">' +
+        '<input type="checkbox" ' + (s.enabled ? 'checked' : '') + ' data-skill="' + escHtml(s.name) + '" onchange="toggleRuntimeSkill(this)" />' +
+        '<span class="skill-icon">' + (s.icon || '\u2699') + '</span>' +
+        '<span class="skill-info">' +
+          '<span class="skill-name">' + escHtml(s.name) + '</span>' +
+          (s.description ? '<span class="skill-desc">' + escHtml(s.description) + '</span>' : '') +
+        '</span>' +
+        '</label>';
+    }).join('');
+  } catch (e) {
+    panel.innerHTML = '<p class="empty-state">Chyba na\u010d\u00edt\u00e1n\u00ed skills</p>';
+  }
+}
+
+async function toggleRuntimeSkill(checkbox) {
+  const panel = document.getElementById('runtime-skills-panel');
+  if (!panel) return;
+
+  const allCheckboxes = panel.querySelectorAll('input[type="checkbox"]');
+  const enabledSkills = [];
+  allCheckboxes.forEach(function(cb) {
+    if (cb.checked) enabledSkills.push(cb.dataset.skill);
+  });
+
+  try {
+    await fetch('/api/skills-runtime/toggle', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled_skills: enabledSkills }),
+    });
+    showToast('Skills aktualizov\u00e1ny', 'success');
+  } catch (e) {
+    showToast('Chyba: ' + e.message, 'error');
+  }
+}
+
+/* ============================================================
+   JOB RUN NOW / SCHEDULE / QUEUE
+   ============================================================ */
+function bindJobRunControls() {
+  const runNowBtn = document.getElementById('job-run-now-btn');
+  const scheduleBtn = document.getElementById('job-schedule-btn');
+
+  if (runNowBtn) {
+    runNowBtn.addEventListener('click', async function() {
+      const type = (document.getElementById('job-run-type') || {}).value || 'long_llm_task';
+      const title = (document.getElementById('job-run-title') || {}).value || ('Manual: ' + type);
+      try {
+        const resp = await fetch('/api/jobs/run-now', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: type, title: title }),
+        });
+        if (!resp.ok) throw new Error(await resp.text());
+        const data = await resp.json();
+        showToast('Job spu\u0161t\u011bn: ' + data.id.substring(0, 8), 'success');
+        loadJobs();
+      } catch (e) {
+        showToast('Chyba: ' + e.message, 'error');
+      }
+    });
+  }
+
+  if (scheduleBtn) {
+    scheduleBtn.addEventListener('click', async function() {
+      const type = (document.getElementById('job-run-type') || {}).value || 'long_llm_task';
+      const title = (document.getElementById('job-run-title') || {}).value || ('Scheduled: ' + type);
+      const dt = (document.getElementById('job-schedule-datetime') || {}).value;
+      if (!dt) {
+        showToast('Vyber datum a \u010das pro napl\u00e1nov\u00e1n\u00ed', 'error');
+        return;
+      }
+      try {
+        const resp = await fetch('/api/jobs/schedule', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: type, title: title, run_at: new Date(dt).toISOString() }),
+        });
+        if (!resp.ok) throw new Error(await resp.text());
+        showToast('Job napl\u00e1nov\u00e1n', 'success');
+        loadJobs();
+      } catch (e) {
+        showToast('Chyba: ' + e.message, 'error');
+      }
+    });
+  }
+}
+
+async function loadJobQueue() {
+  const section = document.getElementById('job-queue-section');
+  const list = document.getElementById('job-queue-list');
+  if (!section || !list) return;
+
+  section.classList.remove('hidden');
+
+  try {
+    const resp = await fetch('/api/jobs/queue');
+    if (!resp.ok) throw new Error(await resp.text());
+    const data = await resp.json();
+    const queue = data.queue || [];
+
+    if (queue.length === 0) {
+      list.innerHTML = '<p class="empty-state">\u017d\u00e1dn\u00e9 aktivn\u00ed joby</p>';
+      return;
+    }
+
+    list.innerHTML = queue.map(function(j) {
+      return '<div class="job-queue-item">' +
+        '<span class="job-queue-title">' + escHtml(j.title) + '</span>' +
+        '<span class="job-queue-status job-queue-status--' + j.status + '">' + j.status + '</span>' +
+        '<button class="btn btn--ghost btn--small" onclick="cancelJobFromQueue(\'' + j.id + '\')" title="Zru\u0161it">\u2715</button>' +
+        '</div>';
+    }).join('');
+  } catch (e) {
+    list.innerHTML = '<p class="empty-state">Chyba: ' + escHtml(e.message) + '</p>';
+  }
+}
+
+async function cancelJobFromQueue(jobId) {
+  try {
+    await fetch('/api/jobs/' + jobId + '/cancel', { method: 'POST' });
+    showToast('Job zru\u0161en', 'success');
+    loadJobQueue();
+    loadJobs();
+  } catch (e) {
+    showToast('Chyba: ' + e.message, 'error');
+  }
+}
+
+/* ============================================================
+   INIT NEW FEATURES (called from DOMContentLoaded)
+   ============================================================ */
+document.addEventListener('DOMContentLoaded', function() {
+  bindFilePickers();
+  bindJobRunControls();
+});

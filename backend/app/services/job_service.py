@@ -174,6 +174,18 @@ class JobService:
             "avg_task_duration_s": round(sum(durations) / len(durations), 1) if durations else 0.0,
         }
 
+    def delete_job(self, job_id: str) -> bool:
+        """Permanently delete a job by ID. Returns True if found and deleted."""
+        with self._lock:
+            jobs = self._read_raw()
+            original_len = len(jobs)
+            jobs = [j for j in jobs if j["id"] != job_id]
+            if len(jobs) < original_len:
+                self._write_raw(jobs)
+                logger.info("Job deleted: %s", job_id)
+                return True
+        return False
+
     def reset_stale_running_jobs(self) -> int:
         """On startup, reset any 'running' jobs back to 'queued'
         (they were interrupted by a server restart)."""

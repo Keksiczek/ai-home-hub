@@ -1,8 +1,8 @@
 """Jobs router – CRUD for persistent job queue."""
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.services.job_service import get_job_service
 
@@ -15,6 +15,22 @@ class CreateJobRequest(BaseModel):
     input_summary: str = ""
     payload: Dict[str, Any] = {}
     priority: str = "normal"
+
+
+class RunNowRequest(BaseModel):
+    type: str
+    title: str
+    input_summary: str = ""
+    payload: Dict[str, Any] = {}
+
+
+class ScheduleJobRequest(BaseModel):
+    type: str
+    title: str
+    cron: str = ""  # e.g. "0 22 * * *"
+    run_at: str = ""  # ISO datetime for one-shot scheduling
+    input_summary: str = ""
+    payload: Dict[str, Any] = {}
 
 
 @router.post("/jobs", tags=["jobs"])
@@ -42,6 +58,67 @@ async def list_jobs(
     svc = get_job_service()
     jobs = svc.list_jobs(status=status, type=type, limit=limit, offset=offset)
     return {"jobs": [j.model_dump() for j in jobs], "count": len(jobs)}
+
+
+@router.post("/jobs/run-now", tags=["jobs"])
+async def run_job_now(req: RunNowRequest) -> Dict[str, Any]:
+    """Create a high-priority job for immediate execution."""
+    svc = get_job_service()
+    job = svc.create_job(
+        type=req.type,
+        title=req.title,
+        input_summary=req.input_summary,
+        payload=req.payload,
+        priority="high",
+    )
+    return {"id": job.id, "status": "queued", "priority": "high", "message": "Job queued for immediate execution"}
+
+
+@router.post("/jobs/schedule", tags=["jobs"])
+async def schedule_job(req: ScheduleJobRequest) -> Dict[str, Any]:
+    """Schedule a job for later execution via cron expression or datetime."""
+    svc = get_job_service()
+    meta: Dict[str, Any] = {}
+    if req.cron:
+        meta["cron"] = req.cron
+        meta["scheduled_type"] = "cron"
+    elif req.run_at:
+        meta["run_at"] = req.run_at
+        meta["scheduled_type"] = "one_shot"
+    else:
+        raise HTTPException(400, "Either 'cron' or 'run_at' must be provided")
+
+    job = svc.create_job(
+        type=req.type,
+        title=req.title,
+        input_summary=req.input_summary,
+        payload=req.payload,
+        priority="normal",
+        meta=meta,
+    )
+    return {
+        "id": job.id,
+        "status": "queued",
+        "schedule": meta,
+        "message": f"Job scheduled: {req.cron or req.run_at}",
+    }
+
+
+@router.get("/jobs/queue", tags=["jobs"])
+async def get_job_queue() -> Dict[str, Any]:
+    """Return all active jobs (queued + running) as a real-time queue view."""
+    svc = get_job_service()
+    queued = svc.list_jobs(status="queued", limit=100)
+    running = svc.list_jobs(status="running", limit=20)
+    paused = svc.list_jobs(status="paused", limit=20)
+    all_active = running + queued + paused
+    return {
+        "queue": [j.model_dump() for j in all_active],
+        "running_count": len(running),
+        "queued_count": len(queued),
+        "paused_count": len(paused),
+        "total": len(all_active),
+    }
 
 
 @router.get("/jobs/{job_id}", tags=["jobs"])
@@ -133,6 +210,17 @@ async def retry_job(job_id: str) -> Dict[str, Any]:
         meta={**original.meta, "retry_of": original.id},
     )
     return {"id": new_job.id, "status": new_job.status, "retry_of": original.id}
+
+
+@router.delete("/jobs/{job_id}", tags=["jobs"])
+async def delete_job(job_id: str) -> Dict[str, Any]:
+    """Permanently delete a job from the queue."""
+    svc = get_job_service()
+    job = svc.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    svc.delete_job(job_id)
+    return {"id": job_id, "status": "deleted"}
 
 
 @router.get("/overnight/status", tags=["jobs"])

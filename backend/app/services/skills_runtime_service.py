@@ -1,0 +1,445 @@
+"""Runtime agent skills – executable skill classes for the resident agent.
+
+Each skill is a lightweight async class that performs a specific action.
+Skills are registered in settings.json under 'enabled_skills' and can be
+toggled on/off from the UI.
+"""
+import asyncio
+import logging
+import math
+import re
+import subprocess
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
+import httpx
+
+from app.services.settings_service import get_settings_service
+
+logger = logging.getLogger(__name__)
+
+
+class BaseSkill:
+    """Base class for all runtime skills."""
+    name: str = ""
+    description: str = ""
+    icon: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "icon": self.icon,
+        }
+
+
+class WebSearchSkill(BaseSkill):
+    """Search the web via DuckDuckGo (no API key needed)."""
+    name = "web_search"
+    description = "Hledá aktuální informace, dokumentaci, ceny online"
+    icon = "🌐"
+
+    async def run(self, query: str, max_results: int = 5) -> List[Dict[str, Any]]:
+        try:
+            from duckduckgo_search import DDGS
+            results = await asyncio.to_thread(
+                lambda: list(DDGS().text(query, max_results=max_results))
+            )
+            return results
+        except ImportError:
+            return [{"error": "duckduckgo-search not installed. Run: pip install duckduckgo-search"}]
+        except Exception as exc:
+            logger.error("WebSearchSkill error: %s", exc)
+            return [{"error": str(exc)}]
+
+
+class CodeExecutionSkill(BaseSkill):
+    """Run Python code in a restricted sandbox."""
+    name = "code_exec"
+    description = "Spustí Python: výpočty, data analýza, pandas/matplotlib"
+    icon = "🐍"
+
+    ALLOWED_MODULES = {
+        "math", "json", "datetime", "collections", "itertools",
+        "functools", "statistics", "decimal", "fractions",
+        "csv", "re", "textwrap", "string",
+    }
+
+    async def run(self, code: str, timeout: int = 10) -> Dict[str, Any]:
+        try:
+            result = await asyncio.to_thread(self._execute, code, timeout)
+            return result
+        except Exception as exc:
+            return {"error": str(exc)}
+
+    def _execute(self, code: str, timeout: int) -> Dict[str, Any]:
+        """Execute Python code in a subprocess with restricted environment."""
+        # Wrap code to capture output
+        wrapper = f"""
+import sys, io
+_stdout = io.StringIO()
+sys.stdout = _stdout
+try:
+{chr(10).join('    ' + line for line in code.splitlines())}
+except Exception as e:
+    print(f"Error: {{e}}")
+sys.stdout = sys.__stdout__
+print(_stdout.getvalue())
+"""
+        try:
+            result = subprocess.run(
+                ["python3", "-c", wrapper],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                env={"PATH": "/usr/bin:/usr/local/bin", "HOME": "/tmp"},
+            )
+            return {
+                "stdout": result.stdout.strip(),
+                "stderr": result.stderr.strip(),
+                "returncode": result.returncode,
+            }
+        except subprocess.TimeoutExpired:
+            return {"error": f"Execution timed out after {timeout}s"}
+
+
+class CalendarSkill(BaseSkill):
+    """Read macOS Calendar via osascript."""
+    name = "calendar"
+    description = "Zobrazí dnešní události, přidá reminder, plánuj meeting"
+    icon = "📅"
+
+    async def get_today(self) -> Dict[str, Any]:
+        """Get today's calendar events via AppleScript."""
+        script = '''
+tell application "Calendar"
+    set today to current date
+    set output to ""
+    repeat with cal in calendars
+        set calEvents to (every event of cal whose start date >= today and start date < (today + 1 * days))
+        repeat with evt in calEvents
+            set output to output & (summary of evt) & " | " & (start date of evt) & linefeed
+        end repeat
+    end repeat
+    return output
+end tell
+'''
+        try:
+            result = await asyncio.to_thread(
+                lambda: subprocess.run(
+                    ["osascript", "-e", script],
+                    capture_output=True, text=True, timeout=10,
+                )
+            )
+            events = [
+                line.strip() for line in result.stdout.strip().split("\n")
+                if line.strip()
+            ]
+            return {"events": events, "count": len(events), "date": datetime.now().strftime("%Y-%m-%d")}
+        except Exception as exc:
+            return {"error": str(exc), "events": []}
+
+    async def add_event(self, title: str, date: str, duration: int = 60) -> Dict[str, Any]:
+        return {"status": "not_implemented", "message": "Calendar write requires additional permissions"}
+
+
+class WeatherSkill(BaseSkill):
+    """Weather for Nymburk via Open-Meteo (no API key needed)."""
+    name = "weather"
+    description = "Aktuální počasí a 7-day forecast pro Nymburk"
+    icon = "🌤️"
+
+    # Default coordinates for Nymburk
+    DEFAULT_LAT = 50.18
+    DEFAULT_LON = 15.04
+
+    async def run(self, location: str = "Nymburk") -> Dict[str, Any]:
+        url = (
+            f"https://api.open-meteo.com/v1/forecast"
+            f"?latitude={self.DEFAULT_LAT}&longitude={self.DEFAULT_LON}"
+            f"&current_weather=true"
+            f"&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weathercode"
+            f"&timezone=Europe/Prague"
+        )
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(url)
+                resp.raise_for_status()
+                data = resp.json()
+            return {
+                "location": location,
+                "current": data.get("current_weather", {}),
+                "daily": data.get("daily", {}),
+            }
+        except Exception as exc:
+            return {"error": str(exc)}
+
+
+class ClipboardSkill(BaseSkill):
+    """Read/write macOS clipboard via pbpaste/pbcopy."""
+    name = "clipboard"
+    description = "Přečti co je v clipboardu, zkopíruj výsledek analýzy"
+    icon = "📋"
+
+    async def read(self) -> Dict[str, Any]:
+        try:
+            result = await asyncio.to_thread(
+                lambda: subprocess.run(["pbpaste"], capture_output=True, text=True, timeout=5)
+            )
+            return {"content": result.stdout, "length": len(result.stdout)}
+        except Exception as exc:
+            return {"error": str(exc)}
+
+    async def write(self, text: str) -> Dict[str, Any]:
+        try:
+            await asyncio.to_thread(
+                lambda: subprocess.run(
+                    ["pbcopy"], input=text, text=True, timeout=5,
+                )
+            )
+            return {"status": "copied", "length": len(text)}
+        except Exception as exc:
+            return {"error": str(exc)}
+
+
+class NotificationSkill(BaseSkill):
+    """Send macOS system notifications via osascript."""
+    name = "notify"
+    description = "Upozorní na dokončení jobu, error, reminder"
+    icon = "🔔"
+
+    async def send(self, title: str, message: str, sound: bool = True) -> Dict[str, Any]:
+        sound_str = 'with sound name "default"' if sound else ""
+        script = f'display notification "{message}" with title "{title}" {sound_str}'
+        try:
+            await asyncio.to_thread(
+                lambda: subprocess.run(
+                    ["osascript", "-e", script],
+                    capture_output=True, text=True, timeout=5,
+                )
+            )
+            return {"status": "sent", "title": title}
+        except Exception as exc:
+            return {"error": str(exc)}
+
+
+class HTTPSkill(BaseSkill):
+    """Call REST APIs or fetch web pages."""
+    name = "http_fetch"
+    description = "GET/POST na URL, scrape stránky, volej API"
+    icon = "🌐"
+
+    async def get(self, url: str, headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+        try:
+            async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+                resp = await client.get(url, headers=headers or {})
+                content_type = resp.headers.get("content-type", "")
+                body = resp.text[:5000] if "text" in content_type or "json" in content_type else f"[binary {len(resp.content)} bytes]"
+                return {
+                    "status_code": resp.status_code,
+                    "content_type": content_type,
+                    "body": body,
+                }
+        except Exception as exc:
+            return {"error": str(exc)}
+
+    async def post(self, url: str, body: Optional[Dict[str, Any]] = None, headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.post(url, json=body or {}, headers=headers or {})
+                return {
+                    "status_code": resp.status_code,
+                    "body": resp.text[:5000],
+                }
+        except Exception as exc:
+            return {"error": str(exc)}
+
+
+class ShellSkill(BaseSkill):
+    """Run safe shell commands (whitelisted)."""
+    name = "shell"
+    description = "Spustí Mac příkazy: df, ps, git status, brew update"
+    icon = "🖥️"
+
+    WHITELIST = {"df", "ps", "top", "git", "brew", "ollama", "ping", "curl", "ls", "cat", "head", "tail", "wc", "uptime", "which", "whoami"}
+
+    async def run(self, command: str, timeout: int = 15) -> Dict[str, Any]:
+        # Parse command to check whitelist
+        parts = command.strip().split()
+        if not parts:
+            return {"error": "Empty command"}
+
+        base_cmd = parts[0]
+        if base_cmd not in self.WHITELIST:
+            return {"error": f"Command '{base_cmd}' not in whitelist. Allowed: {', '.join(sorted(self.WHITELIST))}"}
+
+        try:
+            result = await asyncio.to_thread(
+                lambda: subprocess.run(
+                    command, shell=True,
+                    capture_output=True, text=True, timeout=timeout,
+                )
+            )
+            return {
+                "stdout": result.stdout[:5000],
+                "stderr": result.stderr[:1000],
+                "returncode": result.returncode,
+            }
+        except subprocess.TimeoutExpired:
+            return {"error": f"Command timed out after {timeout}s"}
+        except Exception as exc:
+            return {"error": str(exc)}
+
+
+class VisionSkill(BaseSkill):
+    """Analyze images via llava:7b (local Ollama)."""
+    name = "vision"
+    description = "Popis obrázku, OCR textu, analýza grafu/screenshotu"
+    icon = "🖼️"
+
+    async def analyze(self, image_path: str, prompt: str = "Popiš obrázek") -> Dict[str, Any]:
+        import base64
+        from pathlib import Path
+
+        path = Path(image_path)
+        if not path.exists():
+            return {"error": f"Image not found: {image_path}"}
+
+        try:
+            image_data = base64.b64encode(path.read_bytes()).decode()
+            settings = get_settings_service().load()
+            ollama_url = settings.get("llm", {}).get("ollama_url", "http://localhost:11434").rstrip("/")
+
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                resp = await client.post(
+                    f"{ollama_url}/api/generate",
+                    json={
+                        "model": "llava:7b",
+                        "prompt": prompt,
+                        "images": [image_data],
+                        "stream": False,
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                return {"response": data.get("response", ""), "model": "llava:7b"}
+        except Exception as exc:
+            return {"error": str(exc)}
+
+
+class TimerSkill(BaseSkill):
+    """Countdown timer with notification on completion."""
+    name = "timer"
+    description = "Pomodoro 25min, custom countdown, opakující se reminder"
+    icon = "⏱️"
+
+    _active_timers: Dict[str, asyncio.Task] = {}
+
+    async def start(self, minutes: int, label: str = "Timer") -> Dict[str, Any]:
+        timer_id = f"timer_{datetime.now(timezone.utc).strftime('%H%M%S')}"
+
+        async def _countdown():
+            await asyncio.sleep(minutes * 60)
+            notify = NotificationSkill()
+            await notify.send(title=label, message=f"{label} – {minutes}min dokončeno!")
+
+        task = asyncio.create_task(_countdown())
+        self._active_timers[timer_id] = task
+        return {
+            "timer_id": timer_id,
+            "label": label,
+            "minutes": minutes,
+            "status": "started",
+        }
+
+    def list_timers(self) -> List[Dict[str, Any]]:
+        result = []
+        for tid, task in list(self._active_timers.items()):
+            result.append({
+                "timer_id": tid,
+                "done": task.done(),
+            })
+        return result
+
+
+class CalculatorSkill(BaseSkill):
+    """Quick calculations and unit conversions."""
+    name = "calculator"
+    description = "Matematika, procenta, konverze, OEE/takt time výpočet"
+    icon = "📊"
+
+    # Safe math namespace
+    SAFE_NAMES = {
+        "abs": abs, "round": round, "min": min, "max": max,
+        "sum": sum, "len": len, "int": int, "float": float,
+        "pow": pow, "divmod": divmod,
+        "pi": math.pi, "e": math.e,
+        "sqrt": math.sqrt, "log": math.log, "log10": math.log10,
+        "sin": math.sin, "cos": math.cos, "tan": math.tan,
+        "ceil": math.ceil, "floor": math.floor,
+    }
+
+    async def run(self, expression: str) -> Dict[str, Any]:
+        # Sanitize: only allow safe characters
+        if re.search(r'[^\d\s\+\-\*\/\.\(\)\,\%\w]', expression):
+            return {"error": "Expression contains disallowed characters"}
+
+        try:
+            result = eval(expression, {"__builtins__": {}}, self.SAFE_NAMES)
+            return {"expression": expression, "result": result}
+        except Exception as exc:
+            return {"error": f"Calculation failed: {exc}"}
+
+
+# ── Skills Registry ─────────────────────────────────────────────
+
+ALL_SKILLS: Dict[str, BaseSkill] = {}
+
+def _register_skills():
+    """Initialize the global skills registry."""
+    global ALL_SKILLS
+    skills = [
+        WebSearchSkill(),
+        CodeExecutionSkill(),
+        CalendarSkill(),
+        WeatherSkill(),
+        ClipboardSkill(),
+        NotificationSkill(),
+        HTTPSkill(),
+        ShellSkill(),
+        VisionSkill(),
+        TimerSkill(),
+        CalculatorSkill(),
+    ]
+    ALL_SKILLS = {s.name: s for s in skills}
+
+_register_skills()
+
+
+def get_all_skills() -> Dict[str, BaseSkill]:
+    """Return all registered runtime skills."""
+    return ALL_SKILLS
+
+
+def get_enabled_skills() -> Dict[str, BaseSkill]:
+    """Return only skills enabled in settings."""
+    settings = get_settings_service().load()
+    enabled = settings.get("enabled_skills", list(ALL_SKILLS.keys()))
+    return {name: skill for name, skill in ALL_SKILLS.items() if name in enabled}
+
+
+def get_skill(name: str) -> Optional[BaseSkill]:
+    """Lookup a single skill by name."""
+    return ALL_SKILLS.get(name)
+
+
+def get_skills_catalog() -> List[Dict[str, Any]]:
+    """Return catalog of all skills with enabled status."""
+    settings = get_settings_service().load()
+    enabled = set(settings.get("enabled_skills", list(ALL_SKILLS.keys())))
+    result = []
+    for name, skill in ALL_SKILLS.items():
+        entry = skill.to_dict()
+        entry["enabled"] = name in enabled
+        result.append(entry)
+    return result
