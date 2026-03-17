@@ -208,6 +208,22 @@ class MultimodalChatRequest(BaseModel):
     session_id: Optional[str] = None
 
 
+# ── File metadata ──────────────────────────────────────────────
+
+class FileMetadata(BaseModel):
+    """Unified metadata schema for all file formats in the Knowledge Base."""
+    filename: str
+    filetype: str  # MIME-like: "text/plain", "application/pdf", "audio/mpeg"
+    size_bytes: int = 0
+    indexed_at: Optional[datetime] = None
+    collection: str = "default"
+    pages_or_duration: Optional[float] = None  # pages for docs, seconds for audio/video
+    language: Optional[str] = None
+    chunk_count: int = 0
+    media_type: Literal["text", "image", "audio", "video", "office", "archive"] = "text"
+    preview_url: Optional[str] = None
+
+
 # ── Knowledge base management ────────────────────────────────
 
 class ReindexFileRequest(BaseModel):

@@ -413,7 +413,101 @@ async def incremental_ingest(
     return {"job_id": job_id, "status": "pending"}
 
 
+# ── File listing ──────────────────────────────────────────────────
+
+
+@router.get("/knowledge/files", tags=["knowledge"])
+async def list_kb_files(
+    collection: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> Dict[str, Any]:
+    """List indexed files with metadata, preview, and chunk counts.
+
+    Groups chunks by ``file_path`` to produce a per-file view.
+    Supports filtering by ``collection`` and pagination via ``limit``/``offset``.
+    """
+    from app.services.file_parser_service import FileParserService
+
+    vector_store = get_vector_store_service()
+
+    # Fetch all chunk metadata (bounded to 50k for safety)
+    where_filter = {"collection": collection} if collection else None
+    try:
+        raw = await asyncio.to_thread(
+            vector_store.collection.get,
+            limit=50_000,
+            include=["metadatas", "documents"],
+            where=where_filter,
+        )
+    except Exception as exc:
+        logger.warning("Failed to list KB files: %s", exc)
+        return {"files": [], "total": 0}
+
+    metadatas = raw.get("metadatas") or []
+    documents = raw.get("documents") or []
+
+    # Group by file_path
+    file_map: Dict[str, Dict[str, Any]] = {}
+    for idx, meta in enumerate(metadatas):
+        fp = meta.get("file_path", "")
+        if not fp:
+            continue
+        if fp not in file_map:
+            ext = Path(fp).suffix.lower()
+            file_map[fp] = {
+                "id": fp,
+                "file_path": fp,
+                "file_name": meta.get("file_name", Path(fp).name),
+                "collection": meta.get("collection", "default"),
+                "chunk_count": 0,
+                "page_count": meta.get("page_count", 1),
+                "media_type": FileParserService.MEDIA_TYPES.get(ext, "text"),
+                "filetype": FileParserService.MIME_TYPES.get(ext, "application/octet-stream"),
+                "mtime": meta.get("mtime"),
+                "preview": "",
+                "size_bytes": 0,
+            }
+            # Try to get file size from disk
+            try:
+                file_map[fp]["size_bytes"] = Path(fp).stat().st_size
+            except OSError:
+                pass
+        file_map[fp]["chunk_count"] += 1
+        # Capture first chunk as preview
+        if not file_map[fp]["preview"] and idx < len(documents):
+            file_map[fp]["preview"] = (documents[idx] or "")[:500]
+
+    # Sort by mtime descending (newest first)
+    all_files = sorted(file_map.values(), key=lambda f: f.get("mtime") or 0, reverse=True)
+    total = len(all_files)
+    paginated = all_files[offset: offset + limit]
+
+    return {"files": paginated, "total": total}
+
+
 # ── File deletion ────────────────────────────────────────────────
+
+
+@router.delete("/knowledge/files/{file_id:path}", tags=["knowledge"],
+               dependencies=[Depends(verify_api_key)])
+async def delete_kb_file_by_id(file_id: str) -> Dict[str, Any]:
+    """Remove all indexed chunks for a file. Also deletes the upload if in data/uploads/kb/."""
+    vector_store = get_vector_store_service()
+    deleted_chunks = await vector_store.delete_by_file_path(file_id)
+    if deleted_chunks == 0:
+        raise HTTPException(404, f"No indexed chunks found for: {file_id}")
+
+    # Clean up uploaded file if it's in our uploads directory
+    upload_path = Path(file_id)
+    if upload_path.exists() and str(_UPLOADS_DIR) in str(upload_path):
+        try:
+            upload_path.unlink()
+            logger.info("Deleted upload file: %s", file_id)
+        except OSError as exc:
+            logger.warning("Could not delete file %s: %s", file_id, exc)
+
+    return {"file_id": file_id, "deleted_chunks": deleted_chunks}
 
 
 @router.delete("/knowledge/files", tags=["knowledge"],
@@ -806,3 +900,27 @@ async def kb_overview() -> Dict[str, Any]:
         "cache_age_seconds": stats.get("cache_age_seconds"),
         "collections": coll_list,
     }
+
+
+# ── Retention policy ──────────────────────────────────────────────
+
+
+@router.get("/knowledge/retention/config", tags=["knowledge"])
+async def get_retention_config() -> Dict[str, Any]:
+    """Return current retention configuration from settings."""
+    settings_svc = get_settings_service()
+    kb_cfg = settings_svc.load().get("knowledge_base", {})
+    return {
+        "retention_days": kb_cfg.get("retention_days", 30),
+        "max_size_gb": kb_cfg.get("max_size_gb", 10),
+    }
+
+
+@router.post("/knowledge/retention/run", tags=["knowledge"],
+             dependencies=[Depends(verify_api_key)])
+async def run_retention_job() -> Dict[str, Any]:
+    """Manually trigger KB retention cleanup (delete old / oversized data)."""
+    from app.services.kb_retention_service import run_kb_retention
+    result = await run_kb_retention()
+    return result
+

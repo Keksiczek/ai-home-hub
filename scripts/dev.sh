@@ -135,6 +135,15 @@ cmd_stop() {
   ok "Hotovo."
 }
 
+cmd_restart() {
+  info "Restartuji AI Home Hub (stop → start, bez git pull)…"
+  if _app_running; then
+    cmd_stop
+    sleep 2
+  fi
+  cmd_start
+}
+
 cmd_update() {
   info "Aktualizuji repozitář (git pull)…"
   if git -C "$REPO_DIR" pull origin main --ff-only; then
@@ -192,15 +201,17 @@ cmd_status() {
 # ── Entry point ───────────────────────────────────────────────────────────────
 CMD="${1:-}"
 case "$CMD" in
-  start)  cmd_start  ;;
-  stop)   cmd_stop   ;;
-  update) cmd_update ;;
-  status) cmd_status ;;
+  start)   cmd_start   ;;
+  stop)    cmd_stop    ;;
+  restart) cmd_restart ;;
+  update)  cmd_update  ;;
+  status)  cmd_status  ;;
   *)
-    echo "Použití: $0 <start|stop|update|status>"
+    echo "Použití: $0 <start|stop|restart|update|status>"
     echo ""
     echo "  start   – spustí backend + Tailscale funnel"
     echo "  stop    – zastaví Tailscale funnel + backend"
+    echo "  restart – stop + start (bez git pull)"
     echo "  update  – git pull + restart"
     echo "  status  – zobrazí stav procesů"
     exit 1
