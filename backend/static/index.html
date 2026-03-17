@@ -123,6 +123,14 @@
         </select>
         <div class="model-badge" id="model-badge">llama3.2</div>
 
+        <!-- Chat meta bar -->
+        <div class="chat-meta-bar" id="chat-meta-bar">
+          <span class="model-label" id="chat-meta-model">&#129302; Model: <span id="chat-meta-model-name">llama3.2</span></span>
+          <button class="view-toggle-btn" id="view-toggle-btn" title="P&#345;epnout hustotu zobrazen&iacute;">
+            &#9681; Kompaktn&iacute;
+          </button>
+        </div>
+
         <!-- Chat history -->
         <div class="chat-area">
           <div class="chat-history" id="chat-history" role="log" aria-live="polite"></div>
@@ -143,13 +151,19 @@
           <div id="vision-mode-indicator" class="vision-mode-badge hidden">
             &#128270; Vision mode aktivn&iacute;
           </div>
+          <!-- Quick prompts -->
+          <div class="quick-prompts-bar" id="quick-prompts-bar">
+            <button class="quick-prompt-btn" data-prompt="Shr&#328; n&iacute;&#382;e uveden&yacute; text do maxim&aacute;ln&#283; 5 odr&aacute;&#382;ek:">&#128221; Shrnutí</button>
+            <button class="quick-prompt-btn" data-prompt="Analyzuj n&iacute;&#382;e uveden&yacute; k&oacute;d a vysv&#283;tli, co d&#283;l&aacute;:">&#128187; Analyzuj kód</button>
+            <button class="quick-prompt-btn" data-prompt="Vysv&#283;tli n&aacute;sleduj&iacute;c&iacute; jednoduche, jako bych byl za&#269;&aacute;te&#269;n&iacute;k:">&#128161; Vysvětli</button>
+          </div>
           <div class="chat-input-row">
             <button class="btn-icon attach-btn" id="attach-btn" title="Pridat soubor">
               &#128206;
             </button>
             <input type="file" id="file-input" multiple hidden />
             <textarea class="chat-textarea" id="chat-input" rows="2"
-                      placeholder="Napi&#353; dotaz&#8230; (Shift+Enter = nov&yacute; &#345;&aacute;dek, Enter / Ctrl+Enter = odeslat)"></textarea>
+                      placeholder="Napi&#353; dotaz&#8230; Enter = odeslat, Shift+Enter = nov&yacute; &#345;&aacute;dek"></textarea>
             <button class="btn btn--primary btn--send" id="send-btn">
               &#10148;
               <span class="spinner spinner--small hidden" id="chat-spinner" aria-label="Odes&iacute;l&aacute;m..."></span>
@@ -681,8 +695,19 @@
             </select>
           </div>
         </div>
-        <div id="jobs-list" class="jobs-list">
-          <p class="empty-state">&#381;&aacute;dn&eacute; joby.</p>
+        <div class="jobs-limit-bar">
+          <span>Zobrazit:</span>
+          <button class="jobs-limit-toggle jobs-limit-toggle--active" id="jobs-limit-btn" data-limit="50">
+            Posledn&iacute;ch 50
+          </button>
+          <button class="jobs-limit-toggle" id="jobs-limit-all-btn" data-limit="0">
+            V&#353;echny
+          </button>
+        </div>
+        <div class="jobs-table-wrap">
+          <div id="jobs-list" class="jobs-list">
+            <p class="empty-state">&#381;&aacute;dn&eacute; joby.</p>
+          </div>
         </div>
       </section>
 
@@ -898,7 +923,10 @@
 
       <div class="panel-header">
         <h1 class="panel-title">Nastaven&iacute;</h1>
-        <div style="display:flex;gap:0.5rem">
+        <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+          <button class="theme-toggle-btn" id="theme-toggle-btn" title="P&#345;epnout t&eacute;ma">
+            &#127769; Tmav&eacute;
+          </button>
           <button class="btn btn--ghost btn--small" id="reload-settings-btn">Na&#269;&iacute;st</button>
           <button class="btn btn--primary btn--small" id="save-settings-btn">
             Ulo&#382;it
@@ -1332,9 +1360,21 @@
 
       <!-- Overview / Collections -->
       <section class="card">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;flex-wrap:wrap;gap:0.5rem">
           <h2 class="card-title">P&#345;ehled kolekcí</h2>
-          <button class="btn btn--ghost btn--small" id="kb-refresh-overview-btn">&#8635; Obnovit</button>
+          <div style="display:flex;align-items:center;gap:0.5rem">
+            <div class="kb-filter-bar">
+              <label class="hint-text" for="kb-type-filter">Filtr:</label>
+              <select class="kb-filter-select" id="kb-type-filter">
+                <option value="">V&#353;e</option>
+                <option value="text">Jen text</option>
+                <option value="pdf">PDF</option>
+                <option value="image">Obr&aacute;zky</option>
+                <option value="audio">Audio</option>
+              </select>
+            </div>
+            <button class="btn btn--ghost btn--small" id="kb-refresh-overview-btn">&#8635; Obnovit</button>
+          </div>
         </div>
         <div id="kb-overview-content">
           <p class="empty-state hint-text">Na&#269;&iacute;t&aacute;m...</p>

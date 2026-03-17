@@ -211,10 +211,12 @@ document.addEventListener('DOMContentLoaded', () => {
   bindJobsEvents();
   bindResidentEvents();
   bindKnowledgeManagerEvents();
+  bindQoLFeatures();
   initWebSocket();
   checkSetupStatus();
   bindMobileDragDrop();
   loadVersionFromHealth();
+  restoreTheme();
 });
 
 async function loadVersionFromHealth() {
@@ -504,29 +506,32 @@ async function _checkRamForVision() {
 
 function updateModelBadge() {
   const badge = document.getElementById('model-badge');
-  if (!badge) return;
+  const metaName = document.getElementById('chat-meta-model-name');
+
+  let modelName = 'llama3.2';
 
   // If a chat model is explicitly selected, show that
   const chatModelSelect = document.getElementById('chat-model-select');
   if (chatModelSelect && chatModelSelect.value) {
-    badge.textContent = chatModelSelect.value;
-    return;
-  }
-
-  // Map UI pill → settings profile key
-  const profileMap = { chat: 'chat', tech: 'powerbi', vision: 'vision', dolphin: 'lean' };
-  const settingsProfileKey = profileMap[currentProfile] || currentProfile;
-
-  const profiles = _currentSettings?.profiles || {};
-  const profileConfig = profiles[settingsProfileKey] || profiles[currentProfile];
-  if (profileConfig && profileConfig.model) {
-    badge.textContent = profileConfig.model;
+    modelName = chatModelSelect.value;
   } else {
-    // Fallback to default model
-    badge.textContent = _currentSettings?.llm?.default_model
-      || _currentSettings?.llm?.model
-      || 'llama3.2';
+    // Map UI pill → settings profile key
+    const profileMap = { chat: 'chat', tech: 'powerbi', vision: 'vision', dolphin: 'lean' };
+    const settingsProfileKey = profileMap[currentProfile] || currentProfile;
+
+    const profiles = _currentSettings?.profiles || {};
+    const profileConfig = profiles[settingsProfileKey] || profiles[currentProfile];
+    if (profileConfig && profileConfig.model) {
+      modelName = profileConfig.model;
+    } else {
+      modelName = _currentSettings?.llm?.default_model
+        || _currentSettings?.llm?.model
+        || 'llama3.2';
+    }
   }
+
+  if (badge) badge.textContent = modelName;
+  if (metaName) metaName.textContent = modelName;
 }
 
 function populateChatModelSelect() {
@@ -3948,6 +3953,7 @@ async function deleteMemory(id) {
 let _jobsCache = [];
 let _jobsPollTimer = null;
 let _selectedJobId = null;
+let _jobsLimit = 50;
 
 function bindJobsEvents() {
   const refreshBtn = document.getElementById('refresh-jobs-btn');
@@ -3965,6 +3971,22 @@ function bindJobsEvents() {
   // Media upload
   bindMediaUploadEvents();
 
+  // Jobs limit toggle
+  const limitBtn = document.getElementById('jobs-limit-btn');
+  const limitAllBtn = document.getElementById('jobs-limit-all-btn');
+  if (limitBtn) limitBtn.addEventListener('click', () => {
+    _jobsLimit = 50;
+    limitBtn.classList.add('jobs-limit-toggle--active');
+    if (limitAllBtn) limitAllBtn.classList.remove('jobs-limit-toggle--active');
+    loadJobs();
+  });
+  if (limitAllBtn) limitAllBtn.addEventListener('click', () => {
+    _jobsLimit = 0;
+    limitAllBtn.classList.add('jobs-limit-toggle--active');
+    if (limitBtn) limitBtn.classList.remove('jobs-limit-toggle--active');
+    loadJobs();
+  });
+
   // Document analysis wizard
   bindDocAnalysisEvents();
 }
@@ -3976,7 +3998,8 @@ async function loadJobs() {
   // Read filter values
   const statusFilter = (document.getElementById('jobs-filter-status') || {}).value || '';
   const typeFilter = (document.getElementById('jobs-filter-type') || {}).value || '';
-  let url = '/api/jobs?limit=50';
+  const limitParam = _jobsLimit > 0 ? _jobsLimit : 500;
+  let url = `/api/jobs?limit=${limitParam}`;
   if (statusFilter) url += '&status=' + encodeURIComponent(statusFilter);
   if (typeFilter) url += '&type=' + encodeURIComponent(typeFilter);
 
@@ -5647,4 +5670,118 @@ function renderResidentAutoLogbook(data) {
         <span class="auto-logbook-title">${escHtml(t.title)}</span>
       </div>`;
   }).join('');
+}
+
+/* ============================================================
+   QoL FEATURES – theme, quick prompts, view density, KB filter
+   ============================================================ */
+
+function restoreTheme() {
+  const saved = localStorage.getItem('ai-hub-theme') || 'dark';
+  applyTheme(saved);
+}
+
+function applyTheme(theme) {
+  const html = document.documentElement;
+  if (theme === 'light') {
+    html.setAttribute('data-theme', 'light');
+  } else {
+    html.removeAttribute('data-theme');
+  }
+  const btn = document.getElementById('theme-toggle-btn');
+  if (btn) {
+    btn.textContent = theme === 'light' ? '☀️ Světlé' : '🌙 Tmavé';
+  }
+  localStorage.setItem('ai-hub-theme', theme);
+}
+
+function bindQoLFeatures() {
+  // ── Theme toggle ──────────────────────────────────────────
+  const themeBtn = document.getElementById('theme-toggle-btn');
+  if (themeBtn) {
+    themeBtn.addEventListener('click', () => {
+      const current = localStorage.getItem('ai-hub-theme') || 'dark';
+      applyTheme(current === 'dark' ? 'light' : 'dark');
+    });
+  }
+
+  // ── Quick prompts ─────────────────────────────────────────
+  const quickPromptsBar = document.getElementById('quick-prompts-bar');
+  if (quickPromptsBar) {
+    quickPromptsBar.addEventListener('click', (e) => {
+      const btn = e.target.closest('.quick-prompt-btn');
+      if (!btn) return;
+      const promptText = btn.dataset.prompt;
+      if (!promptText) return;
+      const textarea = document.getElementById('chat-input');
+      if (textarea) {
+        const existing = textarea.value.trim();
+        textarea.value = existing ? `${promptText}\n\n${existing}` : promptText + '\n\n';
+        textarea.focus();
+        // Position cursor at end
+        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+        // Auto-resize
+        textarea.style.height = 'auto';
+        textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
+      }
+    });
+  }
+
+  // ── View density toggle ───────────────────────────────────
+  const viewToggleBtn = document.getElementById('view-toggle-btn');
+  if (viewToggleBtn) {
+    const savedCompact = localStorage.getItem('ai-hub-compact') === 'true';
+    if (savedCompact) {
+      document.body.classList.add('view-compact');
+      viewToggleBtn.textContent = '⊞ Standardní';
+    }
+    viewToggleBtn.addEventListener('click', () => {
+      const isCompact = document.body.classList.toggle('view-compact');
+      viewToggleBtn.textContent = isCompact ? '⊞ Standardní' : '⊟ Kompaktní';
+      localStorage.setItem('ai-hub-compact', isCompact);
+    });
+  }
+
+  // ── KB type filter ────────────────────────────────────────
+  const kbTypeFilter = document.getElementById('kb-type-filter');
+  if (kbTypeFilter) {
+    kbTypeFilter.addEventListener('change', () => {
+      filterKbOverview(kbTypeFilter.value);
+    });
+  }
+}
+
+// Filter KB collections table by media_type (client-side only)
+function filterKbOverview(typeFilter) {
+  const el = document.getElementById('kb-overview-content');
+  if (!el) return;
+
+  const rows = el.querySelectorAll('.kb-collections-table tbody tr');
+  if (!rows.length) return;
+
+  rows.forEach(row => {
+    if (!typeFilter) {
+      row.style.display = '';
+      return;
+    }
+    const typesCell = row.cells[3];
+    const text = typesCell ? typesCell.textContent.toLowerCase() : '';
+    const matches = _kbTypeMatchesFilter(text, typeFilter);
+    row.style.display = matches ? '' : 'none';
+  });
+}
+
+function _kbTypeMatchesFilter(cellText, filter) {
+  const textExts = ['txt', 'md', 'json', 'csv', 'html', 'xml', 'yml', 'yaml', 'py', 'js', 'ts'];
+  const pdfExts = ['pdf', 'docx', 'xlsx'];
+  const imageExts = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'];
+  const audioExts = ['mp3', 'mp4', 'wav', 'm4a', 'ogg', 'webm', 'mov'];
+
+  switch (filter) {
+    case 'text':  return textExts.some(e => cellText.includes(e));
+    case 'pdf':   return pdfExts.some(e => cellText.includes(e));
+    case 'image': return imageExts.some(e => cellText.includes(e));
+    case 'audio': return audioExts.some(e => cellText.includes(e));
+    default: return true;
+  }
 }
