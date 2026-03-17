@@ -41,6 +41,21 @@ async def resident_status() -> dict:
     return agent.get_state()
 
 
+@router.get("/heartbeat")
+async def resident_heartbeat() -> dict:
+    """Get resident agent heartbeat status – lightweight health check."""
+    agent = get_resident_agent()
+    state = agent.get_state()
+    return {
+        "is_running": state.get("is_running", False),
+        "heartbeat_status": state.get("heartbeat_status", "unknown"),
+        "last_heartbeat": state.get("last_heartbeat"),
+        "tick_count": state.get("tick_count", 0),
+        "consecutive_errors": state.get("consecutive_errors", 0),
+        "status": state.get("status", "idle"),
+    }
+
+
 @router.get("/dashboard")
 async def resident_dashboard() -> dict:
     """Get resident agent dashboard data: status, uptime, heartbeat, tasks, alerts, stats."""

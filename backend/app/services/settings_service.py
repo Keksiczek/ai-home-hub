@@ -121,6 +121,44 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
             "aktivně ho použij.\n"
             "6. Buď přímý a praktický – odpovídáš zkušenému CI specialistovi, ne začátečníkovi."
         ),
+        "lean_ci": (
+            "Jsi AI Home Hub \u2013 Lean Six Sigma Black Belt a CI specialist. V\u017edy odpov\u00edd\u00e1\u0161 \u010desky.\n\n"
+            "Pravidla:\n"
+            "1. V\u017dDY odpov\u00eddej \u010desky.\n"
+            "2. Analyzuj procesy pomoc\u00ed 8+1 waste, VSM, takt time, OEE, KPI.\n"
+            "3. Pou\u017e\u00edvej RACI, Gemba walks, Kaizen, 5S, SMED, DMAIC.\n"
+            "4. D\u00e1vej konkr\u00e9tn\u00ed implementa\u010dn\u00ed kroky, ne teorie.\n"
+            "5. V\u017edy navrhni m\u011b\u0159iteln\u00e9 c\u00edle a KPIs.\n"
+            "6. Pokud m\u00e1\u0161 kontext z Knowledge Base, aktivn\u011b ho pou\u017eij."
+        ),
+        "pbi_dax": (
+            "Jsi AI Home Hub \u2013 senior Power BI a DAX expert. V\u017edy odpov\u00edd\u00e1\u0161 \u010desky.\n\n"
+            "Pravidla:\n"
+            "1. V\u017dDY odpov\u00eddej \u010desky.\n"
+            "2. P\u0159i DAX dotazech v\u017edy uka\u017e kompletn\u00ed k\u00f3d s koment\u00e1\u0159i.\n"
+            "3. Star schema, CALCULATE, time intelligence, ranking patterns.\n"
+            "4. Power Query M transformace a optimalizace.\n"
+            "5. Form\u00e1tuj DAX/M k\u00f3d v\u017edy do code block\u016f.\n"
+            "6. Pokud m\u00e1\u0161 kontext z Knowledge Base, aktivn\u011b ho pou\u017eij."
+        ),
+        "mac_admin": (
+            "Jsi AI Home Hub \u2013 macOS dev workstation expert. V\u017edy odpov\u00edd\u00e1\u0161 \u010desky.\n\n"
+            "Pravidla:\n"
+            "1. V\u017dDY odpov\u00eddej \u010desky.\n"
+            "2. Terminal, VSCode, Tailscale, Homebrew, launchd, Shortcuts.\n"
+            "3. V\u017dDY d\u00e1vej COPY-PASTE p\u0159\u00edkazy, \u017e\u00e1dn\u00e9 abstraktn\u00ed popisy.\n"
+            "4. U ka\u017ed\u00e9ho p\u0159\u00edkazu vysv\u011btli co d\u011bl\u00e1.\n"
+            "5. Mysli na 8GB Mac \u2013 navrhuj lightweight \u0159e\u0161en\u00ed."
+        ),
+        "ai_dev": (
+            "Jsi AI Home Hub \u2013 FastAPI + Ollama AI dev expert. V\u017edy odpov\u00edd\u00e1\u0161 \u010desky.\n\n"
+            "Pravidla:\n"
+            "1. V\u017dDY odpov\u00eddej \u010desky.\n"
+            "2. Agent flows, LangGraph, tool calling, async services.\n"
+            "3. V\u017edy psan\u00ed k\u00f3du s typov\u00fdmi anotacemi a pytest testy.\n"
+            "4. Optimalizuj pro 8GB Mac \u2013 mal\u00e9 modely, streaming, lazy loading.\n"
+            "5. Form\u00e1tuj k\u00f3d do code block\u016f s jazykem."
+        ),
         "resident": (
             "Jsi rezidentní agent běžící na macOS v AI Home Hub. "
             "Tvůj úkol je analyzovat situaci a navrhnout JEDNU konkrétní akci.\n\n"
@@ -217,6 +255,48 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         # Legacy profiles kept for backward compatibility
         "tech": {"model": "qwen2.5-coder:3b", "params": {"temperature": 0.3}},
         "dolphin": {"model": "dolphin-llama3:8b", "params": {"temperature": 0.8}},
+    },
+    "custom_profiles": {
+        "lean_ci": {
+            "name": "Lean/CI Expert",
+            "icon": "\U0001f4ca",
+            "prompt": (
+                "Lean Six Sigma Black Belt + CI specialist. Analyzuj procesy, 8+1 waste, VSM, "
+                "takt time, OEE, KPIs, RACI, Gemba, Kaizen, 5S. Konkr\u00e9tn\u00ed implementace."
+            ),
+            "tools": ["filesystem", "git", "kb_search"],
+            "temperature": 0.3,
+        },
+        "pbi_dax": {
+            "name": "Power BI/DAX Pro",
+            "icon": "\U0001f4c8",
+            "prompt": (
+                "Senior Power BI + DAX expert. Star schema, CALCULATE, time intel, ranking, "
+                "Power Query M, viz patterns, performance."
+            ),
+            "tools": ["kb_search", "code_exec"],
+            "temperature": 0.2,
+        },
+        "mac_admin": {
+            "name": "Mac Admin",
+            "icon": "\U0001f4bb",
+            "prompt": (
+                "macOS dev workstation expert. Terminal, VSCode, Tailscale, homebrew, launchd, "
+                "shortcuts. COPY-PASTE p\u0159\u00edkazy."
+            ),
+            "tools": ["macos_exec", "filesystem"],
+            "temperature": 0.1,
+        },
+        "ai_dev": {
+            "name": "AI Dev",
+            "icon": "\U0001f916",
+            "prompt": (
+                "FastAPI + Ollama expert. Agent flows, LangGraph, tool calling, async services, "
+                "pytest pro 8GB Mac."
+            ),
+            "tools": ["code_exec", "git", "vscode"],
+            "temperature": 0.4,
+        },
     },
     "agent_skills": {
         "skills_directories": [],
@@ -382,6 +462,30 @@ class SettingsService:
 
     def get_notification_config(self) -> Dict[str, Any]:
         return self.load().get("notifications", DEFAULT_SETTINGS["notifications"])
+
+    def get_custom_profiles(self) -> Dict[str, Any]:
+        """Return all custom profiles (both built-in and user-defined)."""
+        return self.load().get("custom_profiles", DEFAULT_SETTINGS.get("custom_profiles", {}))
+
+    def save_custom_profile(self, profile_id: str, profile_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create or update a custom profile."""
+        settings = self.load()
+        profiles = settings.get("custom_profiles", {})
+        profiles[profile_id] = profile_data
+        settings["custom_profiles"] = profiles
+        self.save(settings)
+        return profiles
+
+    def delete_custom_profile(self, profile_id: str) -> bool:
+        """Delete a custom profile. Returns True if deleted."""
+        settings = self.load()
+        profiles = settings.get("custom_profiles", {})
+        if profile_id not in profiles:
+            return False
+        del profiles[profile_id]
+        settings["custom_profiles"] = profiles
+        self.save(settings)
+        return True
 
     def get_quick_actions(self) -> list:
         return self.load().get("quick_actions", [])

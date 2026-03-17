@@ -25,7 +25,7 @@ class Job(BaseModel):
     input_summary: str = ""
     payload: Dict[str, Any] = Field(default_factory=dict)
     priority: str = "normal"  # "high" | "normal" | "low"
-    status: str = "queued"  # "queued" | "running" | "succeeded" | "failed" | "cancelled"
+    status: str = "queued"  # "queued" | "running" | "paused" | "succeeded" | "failed" | "cancelled"
     progress: float = 0.0  # 0–100
     created_at: str = Field(default_factory=lambda: _now())
     started_at: Optional[str] = None

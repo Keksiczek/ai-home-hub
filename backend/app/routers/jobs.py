@@ -73,6 +73,40 @@ async def cancel_job(job_id: str) -> Dict[str, Any]:
     return {"id": job.id, "status": job.status}
 
 
+@router.post("/jobs/{job_id}/pause", tags=["jobs"])
+async def pause_job(job_id: str) -> Dict[str, Any]:
+    """Pause a running job (sets status to 'paused')."""
+    svc = get_job_service()
+    job = svc.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    if job.status != "running":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Job {job_id} is '{job.status}', only running jobs can be paused",
+        )
+    job.status = "paused"
+    svc.update_job(job)
+    return {"id": job.id, "status": job.status}
+
+
+@router.post("/jobs/{job_id}/resume", tags=["jobs"])
+async def resume_job(job_id: str) -> Dict[str, Any]:
+    """Resume a paused job (sets status back to 'queued' for the worker to pick up)."""
+    svc = get_job_service()
+    job = svc.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    if job.status != "paused":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Job {job_id} is '{job.status}', only paused jobs can be resumed",
+        )
+    job.status = "queued"
+    svc.update_job(job)
+    return {"id": job.id, "status": job.status}
+
+
 @router.post("/jobs/{job_id}/retry", tags=["jobs"])
 async def retry_job(job_id: str) -> Dict[str, Any]:
     """Re-queue a failed or cancelled job by creating a fresh copy with status 'queued'.

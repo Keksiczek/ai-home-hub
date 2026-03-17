@@ -2796,6 +2796,7 @@ body {
 .job-status--succeeded { background: rgba(34, 197, 94, 0.15); color: #4ade80; }
 .job-status--failed { background: rgba(239, 68, 68, 0.15); color: #f87171; }
 .job-status--cancelled { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
+.job-status--paused { background: rgba(168, 85, 247, 0.15); color: #a78bfa; }
 
 .job-progress-bar {
   display: inline-block;
@@ -3594,4 +3595,86 @@ details[open].reasoning-cycle-item > .reasoning-cycle-summary::before {
   .wizard-modal { max-width: 100%; }
   .wizard-steps { padding: 1rem 1rem 0.25rem; }
   .wizard-step-line { max-width: 30px; min-width: 12px; }
+}
+
+/* ============================================================
+   FILE MANAGER
+   ============================================================ */
+
+.file-tree-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  font-size: 0.85rem;
+  transition: background 0.15s;
+}
+
+.file-tree-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.file-tree-icon {
+  flex-shrink: 0;
+  font-size: 1rem;
+}
+
+.file-tree-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #e2e8f0;
+}
+
+.file-tree-size {
+  flex-shrink: 0;
+  color: #64748b;
+  font-size: 0.75rem;
+  min-width: 60px;
+  text-align: right;
+}
+
+.file-tree-actions {
+  flex-shrink: 0;
+  display: flex;
+  gap: 0.25rem;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.file-tree-item:hover .file-tree-actions {
+  opacity: 1;
+}
+
+.files-preview-content {
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.file-preview-text {
+  background: #0f172a;
+  padding: 1rem;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #e2e8f0;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* Custom profile add button */
+.pill--custom-add {
+  border: 1px dashed #475569;
+  background: transparent;
+  color: #94a3b8;
+}
+
+.pill--custom-add:hover {
+  border-color: #60a5fa;
+  color: #60a5fa;
 }

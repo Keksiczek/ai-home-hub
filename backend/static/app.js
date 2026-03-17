@@ -10,7 +10,7 @@
 const uploadedFiles = [];
 const attachedImages = []; // {filename, data (base64), mime_type, previewUrl}
 let currentSessionId = null;
-let currentProfile = 'chat';
+let currentProfile = localStorage.getItem('aih_profile') || 'lean_ci';
 let ws = null;
 // wsReconnectTimer removed – handled inside ReconnectingWS
 let _currentSettings = null;
@@ -214,6 +214,8 @@ document.addEventListener('DOMContentLoaded', () => {
   bindQoLFeatures();
   bindWizard();
   bindPromptGenerator();
+  bindFilesManager();
+  bindCustomProfileBtn();
   initWebSocket();
   checkSetupStatus();
   bindMobileDragDrop();
@@ -261,6 +263,7 @@ function switchTab(tabName) {
   if (tabName === 'jobs') loadJobs();
   if (tabName === 'actions') { loadQuickActions(); loadVSCodeProjects(); loadActionHistory(); }
   if (tabName === 'settings') { loadSettings(); loadOllamaModels(); }
+  if (tabName === 'files-manager') loadFilesManager();
   if (tabName === 'resident') loadResidentDashboard();
   if (tabName === 'overnight') loadOvernightStatus();
   if (tabName === 'knowledge') { loadKbOverview(); loadKBFiles(); loadRetentionConfig(); }
@@ -445,26 +448,44 @@ function handleIngestProgress(msg) {
    ============================================================ */
 // Fallback profile → default model mapping (used if settings not loaded)
 const PROFILE_DEFAULT_MODELS = {
+  lean_ci: 'llama3.2',
+  pbi_dax: 'qwen2.5-coder:3b',
+  mac_admin: 'llama3.2',
+  ai_dev: 'llama3.2',
+  vision: 'llava:7b',
+  // Legacy
   chat: 'llama3.2:latest',
   tech: 'qwen2.5-coder:3b',
-  vision: 'llava:7b',
   dolphin: 'llama3.2',
 };
 
 function bindProfilePills() {
-  document.querySelectorAll('#profile-pills .pill').forEach(pill => {
+  document.querySelectorAll('#profile-pills .pill[data-profile]').forEach(pill => {
     pill.addEventListener('click', () => {
       currentProfile = pill.dataset.profile;
-      document.querySelectorAll('#profile-pills .pill').forEach(p =>
+      localStorage.setItem('aih_profile', currentProfile);
+      document.querySelectorAll('#profile-pills .pill[data-profile]').forEach(p =>
         p.classList.toggle('pill--active', p.dataset.profile === currentProfile)
       );
       // Reset model dropdown to default for the selected profile
       _resetModelForProfile(currentProfile);
       updateModelBadge();
+      // Start new chat session on profile switch
+      currentSessionId = null;
+      const sessionLabel = document.getElementById('session-label');
+      if (sessionLabel) sessionLabel.textContent = 'Nov\u00e1 relace';
       // RAM warning for vision profile (llava:7b is 4.4 GB)
       if (currentProfile === 'vision') _checkRamForVision();
     });
   });
+  // Restore persisted profile on load
+  const savedProfile = localStorage.getItem('aih_profile');
+  if (savedProfile) {
+    const pill = document.querySelector(`#profile-pills .pill[data-profile="${savedProfile}"]`);
+    if (pill) {
+      pill.click();
+    }
+  }
 }
 
 function _resetModelForProfile(profile) {
@@ -472,7 +493,7 @@ function _resetModelForProfile(profile) {
   if (!chatModelSelect) return;
 
   // Try to get default model from settings
-  const profileMap = { chat: 'chat', tech: 'powerbi', vision: 'vision', dolphin: 'lean' };
+  const profileMap = { lean_ci: 'lean', pbi_dax: 'powerbi', mac_admin: 'chat', ai_dev: 'chat', vision: 'vision', chat: 'chat', tech: 'powerbi', dolphin: 'lean' };
   const settingsKey = profileMap[profile] || profile;
   const profiles = _currentSettings?.profiles || {};
   const profileConfig = profiles[settingsKey] || profiles[profile];
@@ -518,7 +539,7 @@ function updateModelBadge() {
     modelName = chatModelSelect.value;
   } else {
     // Map UI pill → settings profile key
-    const profileMap = { chat: 'chat', tech: 'powerbi', vision: 'vision', dolphin: 'lean' };
+    const profileMap = { lean_ci: 'lean', pbi_dax: 'powerbi', mac_admin: 'chat', ai_dev: 'chat', vision: 'vision', chat: 'chat', tech: 'powerbi', dolphin: 'lean' };
     const settingsProfileKey = profileMap[currentProfile] || currentProfile;
 
     const profiles = _currentSettings?.profiles || {};
@@ -790,6 +811,7 @@ async function takeScreenshot() {
   const btn = document.getElementById('screenshot-btn');
   if (btn) btn.disabled = true;
   try {
+    // Try macOS native screenshot first
     const res = await fetch('/api/integrations/macos/screenshot?mode=file', { method: 'POST' });
     const data = await res.json();
     if (data.success && data.image) {
@@ -797,7 +819,6 @@ async function takeScreenshot() {
         showToast(`Max ${MAX_IMAGES} obrazku na zpravu`, 'warning');
         return;
       }
-      // Create a blob for preview
       const byteChars = atob(data.image);
       const byteArray = new Uint8Array(byteChars.length);
       for (let i = 0; i < byteChars.length; i++) byteArray[i] = byteChars.charCodeAt(i);
@@ -812,12 +833,47 @@ async function takeScreenshot() {
       renderImagePreviews();
       showToast('Screenshot prilozen', 'success');
     } else {
-      showToast(data.error || 'Screenshot selhal (vyzaduje macOS)', 'error');
+      // Fallback: html2canvas for mobile/non-macOS
+      await _takeScreenshotFallback();
     }
   } catch (err) {
-    showToast(`Screenshot chyba: ${err.message}`, 'error');
+    // Network error → try fallback
+    try {
+      await _takeScreenshotFallback();
+    } catch (fallbackErr) {
+      showToast(`Screenshot chyba: ${fallbackErr.message}`, 'error');
+    }
   } finally {
     if (btn) btn.disabled = false;
+  }
+}
+
+async function _takeScreenshotFallback() {
+  if (attachedImages.length >= MAX_IMAGES) {
+    showToast(`Max ${MAX_IMAGES} obrazku na zpravu`, 'warning');
+    return;
+  }
+  // Use canvas capture of the main content area
+  const target = document.getElementById('main-content') || document.body;
+  try {
+    // Try html2canvas if available (loaded dynamically)
+    if (typeof html2canvas !== 'undefined') {
+      const canvas = await html2canvas(target, { scale: 1, useCORS: true });
+      const dataUrl = canvas.toDataURL('image/png');
+      const base64 = dataUrl.split(',')[1];
+      attachedImages.push({
+        filename: 'screenshot.png',
+        data: base64,
+        mime_type: 'image/png',
+        previewUrl: dataUrl,
+      });
+      renderImagePreviews();
+      showToast('Screenshot (fallback) prilozen', 'success');
+    } else {
+      showToast('Screenshot vyzaduje macOS nebo html2canvas knihovnu', 'warning');
+    }
+  } catch (err) {
+    showToast('Screenshot fallback selhal: ' + err.message, 'error');
   }
 }
 
@@ -827,10 +883,10 @@ async function sendMessage() {
   if (!message) { showToast(t('msg_empty'), 'warning'); return; }
 
   // Map UI profile pill to backend mode (system-prompt selection) and LLM profile
-  const modeMap = { chat: 'general', tech: 'powerbi', vision: 'general', dolphin: 'lean' };
+  const modeMap = { lean_ci: 'lean_ci', pbi_dax: 'pbi_dax', mac_admin: 'mac_admin', ai_dev: 'ai_dev', vision: 'general', chat: 'general', tech: 'powerbi', dolphin: 'lean' };
   const mode = modeMap[currentProfile] || 'general';
   // LLM profile for model/sampling-param selection (maps UI pill names to settings profiles)
-  const profileMap = { chat: 'chat', tech: 'powerbi', vision: 'vision', dolphin: 'lean' };
+  const profileMap = { lean_ci: 'lean', pbi_dax: 'powerbi', mac_admin: 'chat', ai_dev: 'chat', vision: 'vision', chat: 'chat', tech: 'powerbi', dolphin: 'lean' };
   const llmProfile = profileMap[currentProfile] || currentProfile;
 
   const contextFileIds = uploadedFiles.map(f => f.id);
@@ -4281,8 +4337,14 @@ function renderJobsList(jobs) {
             <td class="jobs-cell-duration">${formatJobDuration(j.started_at, j.finished_at)}</td>
             <td class="jobs-cell-date">${formatJobDate(j.created_at)}</td>
             <td style="white-space:nowrap">
-              ${(j.status === 'queued' || j.status === 'running')
-                ? `<button class="btn btn--ghost btn--small jobs-action-cancel" onclick="cancelJob('${escHtml(j.id)}',this)">Zrušit</button>`
+              ${j.status === 'running'
+                ? `<button class="btn btn--ghost btn--small" onclick="pauseJob('${escHtml(j.id)}',this)" title="Pozastavit">&#9208; Pause</button>`
+                : ''}
+              ${j.status === 'paused'
+                ? `<button class="btn btn--secondary btn--small" onclick="resumeJob('${escHtml(j.id)}',this)" title="Obnovit">&#9654; Resume</button>`
+                : ''}
+              ${(j.status === 'queued' || j.status === 'running' || j.status === 'paused')
+                ? `<button class="btn btn--ghost btn--small jobs-action-cancel" onclick="cancelJob('${escHtml(j.id)}',this)">Zru&#353;it</button>`
                 : ''}
               ${(j.status === 'failed' || j.status === 'cancelled')
                 ? `<button class="btn btn--secondary btn--small jobs-action-retry" onclick="retryJob('${escHtml(j.id)}',this)">Znovu</button>`
@@ -4460,6 +4522,32 @@ async function retryJob(jobId, triggerBtn) {
   } catch (err) {
     showToast('Chyba: ' + err.message, 'error');
     if (triggerBtn) { triggerBtn.disabled = false; triggerBtn.textContent = 'Zkusit znovu'; }
+  }
+}
+
+async function pauseJob(jobId, triggerBtn) {
+  if (triggerBtn) { triggerBtn.disabled = true; triggerBtn.textContent = 'Pausing\u2026'; }
+  try {
+    const res = await fetch('/api/jobs/' + encodeURIComponent(jobId) + '/pause', { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    showToast('Job pozastaven', 'success');
+    loadJobs();
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+    if (triggerBtn) { triggerBtn.disabled = false; }
+  }
+}
+
+async function resumeJob(jobId, triggerBtn) {
+  if (triggerBtn) { triggerBtn.disabled = true; triggerBtn.textContent = 'Resuming\u2026'; }
+  try {
+    const res = await fetch('/api/jobs/' + encodeURIComponent(jobId) + '/resume', { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    showToast('Job obnoven', 'success');
+    loadJobs();
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+    if (triggerBtn) { triggerBtn.disabled = false; }
   }
 }
 
@@ -6468,4 +6556,166 @@ function bindPromptGenerator() {
       showToast('Prompt vložen do chatu');
     });
   }
+}
+
+/* ============================================================
+   FILE MANAGER
+   ============================================================ */
+
+let _filesCurrentPath = '';
+
+function bindFilesManager() {
+  const browseBtn = document.getElementById('files-browse-btn');
+  const refreshBtn = document.getElementById('refresh-files-btn');
+  const pathInput = document.getElementById('files-path-input');
+  const previewClose = document.getElementById('files-preview-close');
+
+  if (browseBtn) browseBtn.addEventListener('click', () => {
+    const path = (pathInput || {}).value.trim();
+    if (!path) { showToast('Zadej cestu', 'warning'); return; }
+    _filesCurrentPath = path;
+    loadFileTree(path);
+  });
+
+  if (refreshBtn) refreshBtn.addEventListener('click', () => {
+    if (_filesCurrentPath) loadFileTree(_filesCurrentPath);
+  });
+
+  if (pathInput) pathInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); browseBtn && browseBtn.click(); }
+  });
+
+  if (previewClose) previewClose.addEventListener('click', () => {
+    const panel = document.getElementById('files-preview-panel');
+    if (panel) panel.classList.add('hidden');
+  });
+}
+
+function loadFilesManager() {
+  if (_filesCurrentPath) loadFileTree(_filesCurrentPath);
+}
+
+async function loadFileTree(path) {
+  const container = document.getElementById('files-tree-container');
+  if (!container) return;
+  container.innerHTML = '<div class="empty-state">Na\u010d\u00edt\u00e1m...</div>';
+
+  try {
+    const res = await fetch('/api/files/tree?path=' + encodeURIComponent(path) + '&max_depth=3');
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    container.innerHTML = renderFileTree(data.entries, 0);
+  } catch (err) {
+    container.innerHTML = '<div class="resident-error-box">Chyba: ' + escHtml(err.message) + '</div>';
+  }
+}
+
+function renderFileTree(entries, depth) {
+  if (!entries || !entries.length) return '<div class="empty-state">\u017d\u00e1dn\u00e9 soubory</div>';
+  const indent = depth * 1.25;
+  return entries.map(e => {
+    const icon = e.is_dir ? '\ud83d\udcc1' : (e.is_image ? '\ud83d\uddbc\ufe0f' : '\ud83d\udcc4');
+    const sizeStr = e.is_dir ? '' : formatFileSize(e.size);
+    const children = e.children ? renderFileTree(e.children, depth + 1) : '';
+    const actions = e.is_dir
+      ? `<button class="btn btn--ghost btn--small" onclick="navigateToDir('${escHtml(e.path)}')">Otev\u0159\u00edt</button>`
+      : `<button class="btn btn--ghost btn--small" onclick="previewFile('${escHtml(e.path)}')" title="N\u00e1hled">N\u00e1hled</button>
+         <button class="btn btn--ghost btn--small" onclick="uploadFileToKB('${escHtml(e.path)}')" title="Do KB">KB\u2191</button>`;
+    return `
+      <div class="file-tree-item" style="padding-left:${indent}rem">
+        <span class="file-tree-icon">${icon}</span>
+        <span class="file-tree-name" title="${escHtml(e.path)}">${escHtml(e.name)}</span>
+        <span class="file-tree-size">${sizeStr}</span>
+        <span class="file-tree-actions">${actions}</span>
+      </div>
+      ${children}`;
+  }).join('');
+}
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function navigateToDir(path) {
+  const pathInput = document.getElementById('files-path-input');
+  if (pathInput) pathInput.value = path;
+  _filesCurrentPath = path;
+  loadFileTree(path);
+}
+
+async function previewFile(path) {
+  const panel = document.getElementById('files-preview-panel');
+  const title = document.getElementById('files-preview-title');
+  const content = document.getElementById('files-preview-content');
+  if (!panel || !content) return;
+
+  panel.classList.remove('hidden');
+  if (title) title.textContent = path.split('/').pop();
+  content.innerHTML = '<div class="empty-state">Na\u010d\u00edt\u00e1m...</div>';
+
+  try {
+    const res = await fetch('/api/files/preview?path=' + encodeURIComponent(path));
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+
+    if (data.type === 'text') {
+      content.innerHTML = '<pre class="file-preview-text">' + escHtml(data.content) + '</pre>';
+    } else if (data.type === 'image') {
+      content.innerHTML = '<div style="text-align:center"><img src="/api/filesystem/read?path=' +
+        encodeURIComponent(path) + '" style="max-width:100%;max-height:400px;border-radius:8px" alt="' +
+        escHtml(data.name) + '" /></div>';
+    } else {
+      content.innerHTML = '<div class="empty-state">Bin\u00e1rn\u00ed soubor \u2013 n\u00e1hled nen\u00ed dostupn\u00fd<br>' +
+        'Velikost: ' + formatFileSize(data.size) + '</div>';
+    }
+  } catch (err) {
+    content.innerHTML = '<div class="resident-error-box">Chyba: ' + escHtml(err.message) + '</div>';
+  }
+}
+
+async function uploadFileToKB(path) {
+  try {
+    const res = await fetch('/api/files/upload-to-kb?path=' + encodeURIComponent(path), { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    showToast('Soubor za\u0159azen do KB: ' + (data.file || path.split('/').pop()), 'success');
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
+}
+
+/* ============================================================
+   CUSTOM PROFILES MODAL
+   ============================================================ */
+
+function bindCustomProfileBtn() {
+  const btn = document.getElementById('custom-profile-btn');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    const name = prompt('N\u00e1zev nov\u00e9ho profilu (nap\u0159. data_analyst):');
+    if (!name || !name.trim()) return;
+    const profileId = name.trim().toLowerCase().replace(/\s+/g, '_');
+    const profilePrompt = prompt('Syst\u00e9mov\u00fd prompt pro profil:');
+    if (!profilePrompt) return;
+
+    try {
+      const res = await fetch('/api/profiles/' + encodeURIComponent(profileId), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: name.trim(),
+          icon: '\ud83e\udd16',
+          prompt: profilePrompt,
+          tools: [],
+          temperature: 0.3,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      showToast('Profil vytvo\u0159en: ' + name.trim(), 'success');
+    } catch (err) {
+      showToast('Chyba: ' + err.message, 'error');
+    }
+  });
 }
