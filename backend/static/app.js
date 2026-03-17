@@ -2297,11 +2297,19 @@ async function loadSettings() {
     renderAgentSkillsDirsList();
     loadAgentSkillsCatalog();
 
+    // Tailscale Funnel
+    const ts = s.tailscale || {};
+    setChecked('s-tailscale-enabled', ts.enable_funnel || false);
+    setVal('s-tailscale-port', ts.port ?? 8000);
+    setVal('s-tailscale-timeout', ts.timeout ?? 300);
+
     // API key – never pre-fill; user must re-enter to change
     setVal('s-api-key', '');
 
     // Update model badge
     updateModelBadge();
+    // Refresh tailscale status badge after loading
+    tailscaleRefreshStatus();
   } catch (err) {
     showToast(`${t('settings_load_error')}: ${err.message}`, 'error');
   }
@@ -2394,6 +2402,11 @@ async function saveSettings() {
     agent_skills: {
       use_default_skill_paths: getChecked('s-agent-skills-defaults'),
       skills_directories: _agentSkillsDirs,
+    },
+    tailscale: {
+      enable_funnel: getChecked('s-tailscale-enabled'),
+      port: Math.max(1, Math.min(65535, parseInt(getVal('s-tailscale-port') || '8000'))),
+      timeout: Math.max(30, Math.min(3600, parseInt(getVal('s-tailscale-timeout') || '300'))),
     },
     // Only include api_key when the user has typed a value; empty means "keep existing"
     ...(apiKey ? { api_key: apiKey } : {}),
@@ -5893,6 +5906,58 @@ async function toggleResidentAutonomy() {
   } finally {
     if (btn) btn.disabled = false;
   }
+}
+
+// ── Tailscale Funnel status helpers ──────────────────────────────────────────
+
+async function tailscaleRefreshStatus() {
+  const badge = document.getElementById('tailscale-status-badge');
+  const urlWrap = document.getElementById('tailscale-url-wrap');
+  const urlText = document.getElementById('tailscale-url-text');
+  if (!badge) return;
+
+  try {
+    const res = await fetch('/api/health');
+    if (!res.ok) throw new Error(res.status);
+    const data = await res.json();
+    const ts = data.tailscale_funnel || {};
+    const status = ts.status || 'unknown';
+
+    badge.className = 'badge';
+    urlWrap && (urlWrap.style.display = 'none');
+
+    if (status === 'disabled') {
+      badge.textContent = '— vypnuto';
+      badge.classList.add('badge--neutral');
+    } else if (status === 'running') {
+      badge.textContent = '● spuštěno';
+      badge.classList.add('badge--success');
+      if (ts.url && urlWrap && urlText) {
+        urlText.textContent = ts.url;
+        urlWrap.style.display = 'flex';
+      }
+    } else if (status === 'stopped') {
+      badge.textContent = '○ zastaveno';
+      badge.classList.add('badge--warning');
+    } else if (status === 'error') {
+      badge.textContent = '✕ chyba';
+      badge.classList.add('badge--danger');
+      badge.title = ts.error || '';
+    } else {
+      badge.textContent = status;
+      badge.classList.add('badge--neutral');
+    }
+  } catch (err) {
+    if (badge) { badge.textContent = '— nelze načíst'; badge.className = 'badge badge--neutral'; }
+  }
+}
+
+function tailscaleCopyUrl() {
+  const urlText = document.getElementById('tailscale-url-text');
+  if (!urlText || !urlText.textContent) return;
+  navigator.clipboard.writeText(urlText.textContent)
+    .then(() => showToast('URL zkopírována do schránky', 'success'))
+    .catch(() => showToast('Kopírování selhalo', 'error'));
 }
 
 // ── System controls (restart / update) ───────────────────────────────────────
