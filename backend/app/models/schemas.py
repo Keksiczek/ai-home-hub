@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -292,3 +292,37 @@ class SpawnSubAgentResponse(BaseModel):
     agent_type: str
     status: str
     message: str
+
+
+# ── Setup / first-run ────────────────────────────────────────
+
+class SetupCheckItem(BaseModel):
+    ok: bool
+    message: str
+    missing: Optional[List[str]] = None
+
+
+class SetupChecks(BaseModel):
+    ollama_running: SetupCheckItem
+    required_models: SetupCheckItem
+    chromadb_writable: SetupCheckItem
+    filesystem_dirs: SetupCheckItem
+
+
+class SetupStatusResponse(BaseModel):
+    completed: bool
+    first_run: bool
+    checks: SetupChecks
+
+
+# ── AI Prompt Generator ──────────────────────────────────────
+
+class PromptGeneratorRequest(BaseModel):
+    task_type: Literal["chat", "kb_search", "resident_mission", "file_analysis"] = "chat"
+    context: str = Field(default="", max_length=500)
+    tone: Literal["professional", "casual", "technical"] = "professional"
+
+
+class PromptGeneratorResponse(BaseModel):
+    generated_prompt: str
+    example_usage: str

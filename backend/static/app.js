@@ -212,6 +212,8 @@ document.addEventListener('DOMContentLoaded', () => {
   bindResidentEvents();
   bindKnowledgeManagerEvents();
   bindQoLFeatures();
+  bindWizard();
+  bindPromptGenerator();
   initWebSocket();
   checkSetupStatus();
   bindMobileDragDrop();
@@ -3719,31 +3721,13 @@ async function saveQuickAction() {
    ============================================================ */
 async function checkSetupStatus() {
   try {
-    const res = await fetch('/api/health/setup');
+    const res = await fetch('/api/setup/status');
     if (!res.ok) return;
     const data = await res.json();
-    if (!data.setup_complete) {
-      const incomplete = data.items.filter(i => !i.ok);
-      const banner = document.createElement('div');
-      banner.id = 'setup-banner';
-      banner.className = 'setup-banner';
-      banner.innerHTML = `
-        <strong>Prvni nastaveni potreba</strong>
-        <button class="setup-banner__dismiss" onclick="document.getElementById('setup-banner').remove()" title="${t('close')}">&#10005;</button>
-        <ul class="setup-banner__list">
-          ${incomplete.map(i => {
-            let action = `<button class="setup-banner__link" onclick="switchTab('settings')">${escHtml(i.label)}</button>`;
-            if (i.key === 'kb_indexed') {
-              action += ` <button class="btn btn--ghost btn--small" onclick="quickIndexKB(this)">Indexovat</button>`;
-            }
-            return `<li>${action} – ${escHtml(i.hint)}</li>`;
-          }).join('')}
-        </ul>
-      `;
-      const panel = document.getElementById('tab-chat');
-      if (panel) panel.prepend(banner);
+    if (data.first_run) {
+      showSetupWizard();
     }
-  } catch (e) { /* non-critical */ }
+  } catch (e) { /* non-critical – wizard is optional */ }
 }
 
 async function quickIndexKB(btn) {
@@ -5783,5 +5767,330 @@ function _kbTypeMatchesFilter(cellText, filter) {
     case 'image': return imageExts.some(e => cellText.includes(e));
     case 'audio': return audioExts.some(e => cellText.includes(e));
     default: return true;
+  }
+}
+
+/* ============================================================
+   SETUP WIZARD
+   ============================================================ */
+
+let _wizardStep = 1;
+let _wizardDirs = [];
+
+function showSetupWizard() {
+  const overlay = document.getElementById('setup-wizard-overlay');
+  if (!overlay) return;
+  _wizardStep = 1;
+  _wizardDirs = [];
+  overlay.classList.add('active');
+  _wizardRenderStep(1);
+  document.addEventListener('keydown', _wizardEscHandler);
+}
+
+function closeSetupWizard() {
+  const overlay = document.getElementById('setup-wizard-overlay');
+  if (overlay) overlay.classList.remove('active');
+  document.removeEventListener('keydown', _wizardEscHandler);
+  // Mark setup complete so wizard doesn't reappear
+  fetch('/api/setup/complete', { method: 'POST' }).catch(() => {});
+}
+
+function _wizardEscHandler(e) {
+  if (e.key === 'Escape') closeSetupWizard();
+}
+
+function _wizardRenderStep(n) {
+  _wizardStep = n;
+  // Update step indicators
+  document.querySelectorAll('.wizard-step').forEach(el => {
+    const s = parseInt(el.dataset.step, 10);
+    el.classList.toggle('wizard-step--active', s === n);
+    el.classList.toggle('wizard-step--done', s < n);
+  });
+  // Show/hide panes
+  document.querySelectorAll('.wizard-pane').forEach(el => {
+    el.style.display = parseInt(el.dataset.pane, 10) === n ? '' : 'none';
+  });
+  // Step-specific init
+  if (n === 2) _wizardRunChecks();
+}
+
+async function _wizardRunChecks() {
+  const container = document.getElementById('wizard-checks-list');
+  if (!container) return;
+  container.innerHTML = '<div class="wizard-check-item"><span class="wizard-check-icon">⏳</span><div class="wizard-check-body"><div class="wizard-check-label">Probíhá kontrola...</div></div></div>';
+
+  try {
+    const res = await fetch('/api/setup/status');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const checks = data.checks || {};
+
+    const items = [
+      { key: 'ollama_running',    label: 'Ollama běží' },
+      { key: 'required_models',   label: 'Potřebné modely' },
+      { key: 'chromadb_writable', label: 'ChromaDB zapisovatelná' },
+      { key: 'filesystem_dirs',   label: 'Povolené adresáře' },
+    ];
+
+    container.innerHTML = items.map(({ key, label }) => {
+      const item = checks[key] || {};
+      const icon = item.ok ? '✅' : '❌';
+      const cls  = item.ok ? 'ok' : 'fail';
+      const msg  = item.message || '';
+      const missing = (item.missing || []).map(m => `<span class="wizard-dir-chip">${escHtml(m)}</span>`).join(' ');
+      return `
+        <div class="wizard-check-item wizard-check-item--${cls}">
+          <span class="wizard-check-icon">${icon}</span>
+          <div class="wizard-check-body">
+            <div class="wizard-check-label">${escHtml(label)}</div>
+            ${msg ? `<div class="wizard-check-msg">${escHtml(msg)}</div>` : ''}
+            ${missing ? `<div class="wizard-check-missing">${missing}</div>` : ''}
+          </div>
+        </div>`;
+    }).join('');
+  } catch {
+    container.innerHTML = '<div class="wizard-check-item wizard-check-item--fail"><span class="wizard-check-icon">❌</span><div class="wizard-check-body"><div class="wizard-check-label">Chyba při kontrole prostředí</div></div></div>';
+  }
+}
+
+function _wizardRenderDirs() {
+  const list = document.getElementById('wizard-dirs-list');
+  if (!list) return;
+  if (!_wizardDirs.length) {
+    list.innerHTML = '<span style="color:var(--text-dim);font-size:0.85rem">Zatím žádné adresáře.</span>';
+    return;
+  }
+  list.innerHTML = _wizardDirs.map((d, i) =>
+    `<span class="wizard-dir-chip">${escHtml(d)} <button class="wizard-dir-remove" data-idx="${i}" title="Odebrat">×</button></span>`
+  ).join('');
+  list.querySelectorAll('.wizard-dir-remove').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _wizardDirs.splice(parseInt(btn.dataset.idx, 10), 1);
+      _wizardRenderDirs();
+    });
+  });
+}
+
+function _wizardAddDir() {
+  const input = document.getElementById('wizard-dir-input');
+  if (!input) return;
+  const val = input.value.trim();
+  if (!val) return;
+  if (!_wizardDirs.includes(val)) {
+    _wizardDirs.push(val);
+    _wizardRenderDirs();
+  }
+  input.value = '';
+}
+
+async function _wizardSaveSettings() {
+  const btn = document.getElementById('wizard-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Ukládám...'; }
+
+  try {
+    // Save allowed dirs
+    if (_wizardDirs.length) {
+      const res = await fetch('/api/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filesystem: { allowed_directories: _wizardDirs } }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+    }
+
+    // Save resident mode if selected
+    const modeEl = document.getElementById('wizard-resident-mode');
+    if (modeEl && modeEl.value) {
+      await fetch('/api/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resident: { mode: modeEl.value } }),
+      });
+    }
+
+    showToast('Nastavení uloženo');
+    _wizardRenderStep(4);
+  } catch (err) {
+    showToast('Chyba při ukládání: ' + err.message, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Uložit a pokračovat'; }
+  }
+}
+
+async function _wizardGeneratePrompt() {
+  const btn = document.getElementById('wizard-gen-prompt-btn');
+  const out = document.getElementById('wizard-prompt-result');
+  if (!out) return;
+
+  const taskType = (document.getElementById('wizard-pg-task') || {}).value || 'chat';
+  const context  = (document.getElementById('wizard-pg-context') || {}).value || '';
+  const tone     = (document.getElementById('wizard-pg-tone') || {}).value || 'professional';
+
+  if (btn) { btn.disabled = true; btn.textContent = 'Generuji...'; }
+  out.textContent = '';
+
+  try {
+    const res = await fetch('/api/prompts/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task_type: taskType, context, tone }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    out.textContent = data.generated_prompt;
+
+    const exampleEl = document.getElementById('wizard-prompt-example');
+    if (exampleEl) exampleEl.textContent = data.example_usage || '';
+
+    const copyBtn = document.getElementById('wizard-copy-prompt-btn');
+    if (copyBtn) copyBtn.style.display = '';
+  } catch (err) {
+    out.textContent = 'Chyba: ' + err.message;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '✨ Generovat prompt'; }
+  }
+}
+
+function bindWizard() {
+  const overlay = document.getElementById('setup-wizard-overlay');
+  if (!overlay) return;
+
+  // Close on overlay background click
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeSetupWizard();
+  });
+
+  // Close button
+  const closeBtn = document.getElementById('wizard-close-btn');
+  if (closeBtn) closeBtn.addEventListener('click', closeSetupWizard);
+
+  // Step navigation buttons
+  overlay.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-wizard-next]');
+    if (btn) {
+      const next = parseInt(btn.dataset.wizardNext, 10);
+      _wizardRenderStep(next);
+    }
+  });
+
+  // Add directory
+  const addDirBtn = document.getElementById('wizard-add-dir-btn');
+  if (addDirBtn) addDirBtn.addEventListener('click', _wizardAddDir);
+
+  const dirInput = document.getElementById('wizard-dir-input');
+  if (dirInput) {
+    dirInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); _wizardAddDir(); }
+    });
+  }
+
+  // Save settings (step 3 → 4)
+  const saveBtn = document.getElementById('wizard-save-btn');
+  if (saveBtn) saveBtn.addEventListener('click', _wizardSaveSettings);
+
+  // Generate prompt inside wizard step 3
+  const genBtn = document.getElementById('wizard-gen-prompt-btn');
+  if (genBtn) genBtn.addEventListener('click', _wizardGeneratePrompt);
+
+  // Copy wizard prompt
+  const copyBtn = document.getElementById('wizard-copy-prompt-btn');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', () => {
+      const out = document.getElementById('wizard-prompt-result');
+      if (out && out.textContent) {
+        navigator.clipboard.writeText(out.textContent).then(() => showToast('Zkopírováno!'));
+      }
+    });
+  }
+
+  // Finish / Done
+  const doneBtn = document.getElementById('wizard-done-btn');
+  if (doneBtn) doneBtn.addEventListener('click', closeSetupWizard);
+
+  // Re-launch from settings
+  const relaunchBtn = document.getElementById('relaunch-wizard-btn');
+  if (relaunchBtn) relaunchBtn.addEventListener('click', showSetupWizard);
+}
+
+/* ============================================================
+   PROMPT GENERATOR (Settings panel)
+   ============================================================ */
+
+async function generatePrompt() {
+  const btn    = document.getElementById('pg-generate-btn');
+  const result = document.getElementById('pg-result-text');
+  const wrap   = document.getElementById('pg-result-wrap');
+  if (!result) return;
+
+  const taskType = (document.getElementById('pg-task-type') || {}).value || 'chat';
+  const context  = (document.getElementById('pg-context') || {}).value || '';
+  const tone     = (document.getElementById('pg-tone') || {}).value || 'professional';
+
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Generuji...'; }
+  if (wrap) wrap.style.display = 'none';
+
+  try {
+    const res = await fetch('/api/prompts/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task_type: taskType, context, tone }),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(errText);
+    }
+    const data = await res.json();
+
+    result.textContent = data.generated_prompt;
+    const exampleEl = document.getElementById('pg-example-usage');
+    if (exampleEl) exampleEl.textContent = data.example_usage || '';
+
+    if (wrap) wrap.style.display = '';
+  } catch (err) {
+    if (result) result.textContent = 'Chyba: ' + err.message;
+    if (wrap) wrap.style.display = '';
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '✨ Generovat prompt'; }
+  }
+}
+
+function bindPromptGenerator() {
+  const section = document.getElementById('prompt-generator-section');
+  if (!section) return;
+
+  // Generate button
+  const genBtn = document.getElementById('pg-generate-btn');
+  if (genBtn) genBtn.addEventListener('click', generatePrompt);
+
+  // Example chips – fill context textarea
+  section.addEventListener('click', (e) => {
+    const chip = e.target.closest('.pg-example-chip');
+    if (!chip) return;
+    const ctx = document.getElementById('pg-context');
+    if (ctx) ctx.value = chip.dataset.example || chip.textContent.trim();
+  });
+
+  // Copy generated prompt
+  const copyBtn = document.getElementById('pg-copy-btn');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', () => {
+      const text = (document.getElementById('pg-result-text') || {}).textContent;
+      if (text) navigator.clipboard.writeText(text).then(() => showToast('Zkopírováno!'));
+    });
+  }
+
+  // Insert into chat
+  const insertBtn = document.getElementById('pg-insert-chat-btn');
+  if (insertBtn) {
+    insertBtn.addEventListener('click', () => {
+      const text = (document.getElementById('pg-result-text') || {}).textContent;
+      if (!text) return;
+      const chatInput = document.getElementById('chat-input');
+      if (chatInput) chatInput.value = text;
+      // Switch to chat tab
+      const chatNavBtn = document.querySelector('[data-section="chat"]');
+      if (chatNavBtn) chatNavBtn.click();
+      showToast('Prompt vložen do chatu');
+    });
   }
 }

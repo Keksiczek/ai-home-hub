@@ -1266,6 +1266,77 @@
         <button class="btn btn--primary btn--small" id="save-custom-prompt-btn" style="margin-top:0.5rem">Ulo&#382;it</button>
       </section>
 
+      <!-- AI Prompt Generator section -->
+      <section class="card settings-section" id="prompt-generator-section">
+        <h2 class="card-title"><span class="section-icon">&#129504;</span> AI Gener&aacute;tor prompt&#367;</h2>
+        <p class="section-subtitle">Nech&aacute;j AI vygenerovat efektivn&iacute; prompt pro tvůj &uacute;kol.</p>
+
+        <div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem">
+          <div class="form-group" style="flex:1;min-width:160px">
+            <label class="form-label" for="pg-task-type">Typ &uacute;kolu:</label>
+            <select class="select" id="pg-task-type">
+              <option value="chat">Chat s AI</option>
+              <option value="kb_search">Vyhled&aacute;v&aacute;n&iacute; v KB</option>
+              <option value="resident_mission">Resident mise</option>
+              <option value="file_analysis">Anal&yacute;za souboru</option>
+            </select>
+          </div>
+          <div class="form-group" style="flex:1;min-width:120px">
+            <label class="form-label" for="pg-tone">T&oacute;n:</label>
+            <select class="select" id="pg-tone">
+              <option value="professional">Profesion&aacute;ln&iacute;</option>
+              <option value="casual">Neform&aacute;ln&iacute;</option>
+              <option value="technical">Technick&yacute;</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="pg-context">Kontext:</label>
+          <textarea class="textarea" id="pg-context" rows="2"
+                    placeholder="Stru&#269;n&#283; popi&#353; co chce&#353; ud&#283;lat, nap&#345;. &quot;analyzuj v&yacute;konnost tabulky v Power BI&quot;"></textarea>
+        </div>
+
+        <!-- Example chips -->
+        <div style="margin-bottom:0.75rem">
+          <span class="hint-text" style="margin-right:0.5rem">P&#345;&iacute;klady:</span>
+          <div class="quick-prompts-bar" id="pg-examples-bar" style="display:inline-flex">
+            <button class="quick-prompt-btn" data-pg-ctx="shrň výsledky meetingu" data-pg-type="chat">Shrnutí meetingu</button>
+            <button class="quick-prompt-btn" data-pg-ctx="najdi všechny dokumenty o Lean CI" data-pg-type="kb_search">KB: Lean CI</button>
+            <button class="quick-prompt-btn" data-pg-ctx="sleduj výkon systému a upozorni na anomálie" data-pg-type="resident_mission">Monitoring</button>
+            <button class="quick-prompt-btn" data-pg-ctx="analyzuj tento PDF a vytvoř souhrn" data-pg-type="file_analysis">Analýza PDF</button>
+          </div>
+        </div>
+
+        <div class="form-group form-group--right">
+          <button class="btn btn--primary btn--small" id="pg-generate-btn">
+            &#128161; Generovat
+            <span class="spinner spinner--small hidden" id="pg-spinner"></span>
+          </button>
+        </div>
+
+        <div id="pg-result" class="hidden" style="margin-top:0.75rem">
+          <div class="section-title" style="margin-bottom:0.375rem">Vygenerovan&yacute; prompt:</div>
+          <textarea class="input" id="pg-result-text" rows="3" readonly
+                    style="font-size:0.9375rem;line-height:1.55;background:var(--bg-input)"></textarea>
+          <p class="hint-text" id="pg-example-usage" style="margin-top:0.25rem"></p>
+          <div style="display:flex;gap:0.5rem;margin-top:0.5rem">
+            <button class="btn btn--ghost btn--small" id="pg-copy-btn">&#128203; Kop&iacute;rovat</button>
+            <button class="btn btn--secondary btn--small" id="pg-insert-chat-btn">&#128172; Vlo&#382;it do chatu</button>
+          </div>
+        </div>
+        <div id="pg-error" class="result-box result-box--error hidden"></div>
+      </section>
+
+      <!-- Setup wizard launcher -->
+      <section class="card settings-section">
+        <h2 class="card-title"><span class="section-icon">&#127919;</span> Pr&#367;vodce nastaven&iacute;m</h2>
+        <p class="section-subtitle">Spust pr&#367;vodce prvn&iacute;m spuštěn&iacute;m znovu pro kontrolu prost&#345;ed&iacute; a z&aacute;kladn&iacute; konfiguraci.</p>
+        <button class="btn btn--secondary btn--small" id="relaunch-wizard-btn">
+          &#9889; Spustit pr&#367;vodce znovu
+        </button>
+      </section>
+
       <!-- VS Code Projects section -->
       <section class="card settings-section">
         <h2 class="card-title"><span class="section-icon">&#128187;</span> VS Code Projekty</h2>
@@ -1384,6 +1455,130 @@
     </div><!-- /tab-knowledge -->
 
   </main>
+
+  <!-- ===== FIRST-RUN WIZARD ===== -->
+  <div class="modal-overlay hidden" id="setup-wizard-overlay" role="dialog" aria-modal="true" aria-labelledby="wizard-title">
+    <div class="modal wizard-modal">
+
+      <!-- Step indicators -->
+      <div class="wizard-steps" aria-label="Průběh nastavení">
+        <div class="wizard-step wizard-step--active" data-step="1">1</div>
+        <div class="wizard-step-line"></div>
+        <div class="wizard-step" data-step="2">2</div>
+        <div class="wizard-step-line"></div>
+        <div class="wizard-step" data-step="3">3</div>
+        <div class="wizard-step-line"></div>
+        <div class="wizard-step" data-step="4">4</div>
+      </div>
+
+      <!-- Step 1: Welcome -->
+      <div class="wizard-pane" id="wizard-step-1">
+        <div class="modal-body" style="text-align:center;padding:2.5rem 2rem">
+          <div style="font-size:3.5rem;margin-bottom:1rem">&#129302;</div>
+          <h2 class="modal-title" id="wizard-title" style="font-size:1.5rem;margin-bottom:0.75rem">
+            V&iacute;tej v AI Home Hub
+          </h2>
+          <p style="color:var(--text-muted);margin-bottom:0.5rem;max-width:380px;margin-left:auto;margin-right:auto">
+            Tv&#367;j lok&aacute;ln&iacute; AI orchestr&aacute;tor. Tento pr&#367;vodce ti pomůže nastavit z&aacute;klady za 2 minuty.
+          </p>
+          <p style="color:var(--text-dim);font-size:0.8125rem;margin-bottom:2rem">
+            M&#367;&#382;e&#353; ho kdykoli spustit znovu ze Nastaven&iacute;.
+          </p>
+          <button class="btn btn--primary" id="wizard-step1-next" style="min-width:180px">
+            Za&#269;&iacute;t nastaven&iacute;
+          </button>
+        </div>
+      </div>
+
+      <!-- Step 2: Environment check -->
+      <div class="wizard-pane hidden" id="wizard-step-2">
+        <div class="modal-header">
+          <h2 class="modal-title">&#128269; Kontrola prost&#345;ed&iacute;</h2>
+          <button class="btn-icon" id="wizard-esc-btn" title="Zav&#345;&iacute;t">&#10005;</button>
+        </div>
+        <div class="modal-body">
+          <div id="wizard-checks-list" class="wizard-checks">
+            <div class="wizard-check-item">
+              <span class="dot-pulse" style="color:var(--text-muted)">&#9679;</span>
+              <span>Kontroluji prost&#345;ed&iacute;&#8230;</span>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer" style="justify-content:space-between">
+          <button class="btn btn--ghost btn--small" id="wizard-step2-retry">&#8635; Zkusit znovu</button>
+          <button class="btn btn--primary btn--small" id="wizard-step2-next">Pokra&#269;ovat</button>
+        </div>
+      </div>
+
+      <!-- Step 3: Basic settings -->
+      <div class="wizard-pane hidden" id="wizard-step-3">
+        <div class="modal-header">
+          <h2 class="modal-title">&#9881;&#65039; Z&aacute;kladn&iacute; nastaven&iacute;</h2>
+          <button class="btn-icon" id="wizard-esc-btn-3" title="Zav&#345;&iacute;t">&#10005;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">Povolen&eacute; adres&aacute;&#345;e:</label>
+            <div id="wizard-dirs-list" style="display:flex;flex-wrap:wrap;gap:0.375rem;margin-bottom:0.5rem"></div>
+            <div style="display:flex;gap:0.5rem">
+              <input type="text" class="input" id="wizard-new-dir" placeholder="~/Documents/AI-Hub" style="flex:1" />
+              <button class="btn btn--secondary btn--small" id="wizard-add-dir-btn">+ P&#345;idat</button>
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-top:1rem">
+            <label class="form-label">Re&#382;im Residenta:</label>
+            <div class="pill-group" id="wizard-mode-pills" style="margin-bottom:0">
+              <button class="pill" data-mode="observer">Observer</button>
+              <button class="pill pill--active" data-mode="advisor">Advisor</button>
+              <button class="pill" data-mode="autonomous">Autonomous</button>
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-top:1.25rem;padding-top:1rem;border-top:1px solid var(--border)">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
+              <span class="section-title" style="margin:0">&#129504; Vygenerovat prompt pro Residenta</span>
+            </div>
+            <p class="section-subtitle">Nech&aacute;j AI vygenerovat c&iacute;l mise podle tv&eacute;ho popisu.</p>
+            <div style="display:flex;gap:0.5rem">
+              <input type="text" class="input" id="wizard-resident-context"
+                     placeholder="nap&#345;. spravuj KB, sleduj syst&eacute;m" style="flex:1" />
+              <button class="btn btn--secondary btn--small" id="wizard-gen-prompt-btn">
+                Generovat
+                <span class="spinner spinner--small hidden" id="wizard-gen-spinner"></span>
+              </button>
+            </div>
+            <div id="wizard-generated-prompt" class="hidden" style="margin-top:0.5rem">
+              <textarea class="input" id="wizard-prompt-result" rows="2" readonly style="font-size:0.875rem"></textarea>
+              <div style="display:flex;gap:0.375rem;margin-top:0.375rem">
+                <button class="btn btn--ghost btn--small" id="wizard-copy-prompt-btn">&#128203; Kop&iacute;rovat</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer" style="justify-content:space-between">
+          <button class="btn btn--ghost btn--small" id="wizard-step3-back">&#8592; Zp&#283;t</button>
+          <button class="btn btn--primary btn--small" id="wizard-step3-save">Ulo&#382;it &amp; pokra&#269;ovat</button>
+        </div>
+      </div>
+
+      <!-- Step 4: Done -->
+      <div class="wizard-pane hidden" id="wizard-step-4">
+        <div class="modal-body" style="text-align:center;padding:2.5rem 2rem">
+          <div style="font-size:3rem;margin-bottom:1rem">&#127881;</div>
+          <h2 class="modal-title" style="font-size:1.5rem;margin-bottom:0.75rem">AI Home Hub je p&#345;ipraven!</h2>
+          <div id="wizard-final-checks" class="wizard-checks" style="text-align:left;max-width:360px;margin:0 auto 1.5rem"></div>
+          <p class="hint-text" style="margin-bottom:2rem">
+            Tip: Zkus <strong>Gener&aacute;tor prompt&#367;</strong> v Nastaven&iacute; pro l&eacute;pe strukturovan&eacute; dotazy.
+          </p>
+          <button class="btn btn--primary" id="wizard-finish-btn" style="min-width:180px">
+            P&#345;ej&iacute;t do aplikace
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
 
   <!-- ===== QUICK ACTION EDITOR MODAL ===== -->
   <div class="modal-overlay hidden" id="action-editor-modal">

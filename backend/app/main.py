@@ -16,6 +16,8 @@ from app.routers import agents, filesystem, integrations, jobs, settings, skills
 from app.routers import resident as resident_router
 from app.routers import media as media_router
 from app.routers import document_analysis as document_analysis_router
+from app.routers import setup as setup_router
+from app.routers import prompts as prompts_router
 from app.routers.websocket_router import router as ws_router
 
 # Wire up broadcast callback so agents/tasks can push WS updates
@@ -175,6 +177,8 @@ app.include_router(jobs.router, prefix="/api", tags=["jobs"])
 app.include_router(resident_router.router, prefix="/api", tags=["resident"])
 app.include_router(media_router.router, prefix="/api", tags=["media"])
 app.include_router(document_analysis_router.router, prefix="/api/document-analysis", tags=["document-analysis"])
+app.include_router(setup_router.router, prefix="/api", tags=["setup"])
+app.include_router(prompts_router.router, prefix="/api", tags=["prompts"])
 
 # Status (has its own /api/status prefix)
 app.include_router(status.router)
