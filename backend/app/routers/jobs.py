@@ -212,6 +212,24 @@ async def retry_job(job_id: str) -> Dict[str, Any]:
     return {"id": new_job.id, "status": new_job.status, "retry_of": original.id}
 
 
+class PriorityRequest(BaseModel):
+    priority: str  # "high" | "normal" | "low"
+
+
+@router.post("/jobs/{job_id}/priority", tags=["jobs"])
+async def set_job_priority(job_id: str, req: PriorityRequest) -> Dict[str, Any]:
+    """Update job priority (high/normal/low)."""
+    if req.priority not in ("high", "normal", "low"):
+        raise HTTPException(status_code=400, detail=f"Invalid priority: {req.priority}")
+    svc = get_job_service()
+    job = svc.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    job.priority = req.priority
+    svc.update_job(job)
+    return {"id": job.id, "priority": job.priority}
+
+
 @router.delete("/jobs/{job_id}", tags=["jobs"])
 async def delete_job(job_id: str) -> Dict[str, Any]:
     """Permanently delete a job from the queue."""

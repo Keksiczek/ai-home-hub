@@ -72,3 +72,50 @@ async def list_enabled_skills() -> Dict[str, Any]:
         "skills": [s.to_dict() for s in enabled.values()],
         "count": len(enabled),
     }
+
+
+# Predefined test cases for each skill
+_SKILL_TESTS: Dict[str, Dict[str, Any]] = {
+    "code_exec": {"method": "run", "params": {"code": "print(1+1)"}},
+    "web_search": {"method": "run", "params": {"query": "ollama", "max_results": 3}},
+    "calendar": {"method": "get_today", "params": {}},
+    "weather": {"method": "run", "params": {"location": "Nymburk"}},
+    "shell": {"method": "run", "params": {"command": "whoami"}},
+    "vision": {"method": "analyze", "params": {"image_path": "/tmp/test.png", "prompt": "test"}},
+    "timer": {"method": "list_timers", "params": {}},
+    "calculator": {"method": "run", "params": {"expression": "85 * 0.95 * 0.99"}},
+    "clipboard": {"method": "read", "params": {}},
+    "notify": {"method": "send", "params": {"title": "Test", "message": "Skill test OK"}},
+    "http_fetch": {"method": "get", "params": {"url": "https://httpbin.org/get"}},
+}
+
+
+@router.post("/test/{skill_name}")
+async def test_skill(skill_name: str) -> Dict[str, Any]:
+    """Run a predefined test for a specific skill and return the result."""
+    all_skills = get_all_skills()
+    skill = all_skills.get(skill_name)
+    if not skill:
+        raise HTTPException(404, f"Skill '{skill_name}' not found")
+
+    test_case = _SKILL_TESTS.get(skill_name)
+    if not test_case:
+        return {"success": False, "error": f"No test defined for '{skill_name}'"}
+
+    method_name = test_case["method"]
+    params = test_case["params"]
+
+    method = getattr(skill, method_name, None)
+    if method is None or not callable(method):
+        return {"success": False, "error": f"Method '{method_name}' not found on skill"}
+
+    try:
+        result = await method(**params)
+        has_error = isinstance(result, dict) and "error" in result
+        return {
+            "success": not has_error,
+            "skill": skill_name,
+            "output": result,
+        }
+    except Exception as exc:
+        return {"success": False, "skill": skill_name, "error": str(exc)}

@@ -993,10 +993,36 @@ async function sendMessage() {
 async function sendMessageStreaming(body, sendBtn, chatSpinner) {
   const chatHistoryEl = document.getElementById('chat-history');
 
-  // Create streaming AI bubble with cursor
+  // ── Premium loading animation (4 phases) ──
+  const loadingEl = document.createElement('div');
+  loadingEl.className = 'loading-message';
+  loadingEl.innerHTML = '<span class="loading-phase-icon">\uD83E\uDD16</span><span class="loading-phase-text">Thinking...</span>';
+  chatHistoryEl.appendChild(loadingEl);
+  chatHistoryEl.scrollTop = chatHistoryEl.scrollHeight;
+
+  const loadingPhases = [
+    { icon: '\uD83E\uDDE0', text: 'Searching KB...', cls: '', delay: 2000 },
+    { icon: '\u2728', text: 'Processing...', cls: 'loading-message--shimmer', delay: 1000 },
+    { icon: '\u2705', text: 'Generating reply...', cls: 'loading-message--final', delay: 3000 },
+  ];
+  let phaseIdx = 0;
+  const phaseTimer = setInterval(() => {
+    if (phaseIdx < loadingPhases.length) {
+      const phase = loadingPhases[phaseIdx];
+      loadingEl.querySelector('.loading-phase-icon').textContent = phase.icon;
+      loadingEl.querySelector('.loading-phase-text').textContent = phase.text;
+      if (phase.cls) loadingEl.className = 'loading-message ' + phase.cls;
+      phaseIdx++;
+    } else {
+      clearInterval(phaseTimer);
+    }
+  }, 2000);
+
+  // Create streaming AI bubble with cursor (hidden until first token)
   const bubble = document.createElement('div');
   bubble.className = 'bubble bubble--ai';
   bubble.style.position = 'relative';
+  bubble.style.display = 'none';
   const textEl = document.createElement('p');
   textEl.className = 'bubble__text';
   const cursor = document.createElement('span');
@@ -1038,12 +1064,21 @@ async function sendMessageStreaming(body, sendBtn, chatSpinner) {
       try {
         const msg = JSON.parse(event.data);
         if (msg.type === 'token') {
+          // On first token, hide loading and show bubble
+          if (!fullText) {
+            clearInterval(phaseTimer);
+            loadingEl.remove();
+            bubble.style.display = '';
+          }
           fullText += msg.content;
           // Update bubble text (keep cursor at end)
           textEl.textContent = fullText;
           textEl.appendChild(cursor);
           chatHistoryEl.scrollTop = chatHistoryEl.scrollHeight;
         } else if (msg.type === 'done') {
+          clearInterval(phaseTimer);
+          if (loadingEl.parentNode) loadingEl.remove();
+          bubble.style.display = '';
           // Remove cursor, add metadata
           cursor.remove();
           textEl.textContent = fullText;
@@ -1137,6 +1172,9 @@ async function sendMessageStreaming(body, sendBtn, chatSpinner) {
     };
 
     streamWs.onerror = () => {
+      clearInterval(phaseTimer);
+      if (loadingEl.parentNode) loadingEl.remove();
+      bubble.style.display = '';
       cursor.remove();
       if (!fullText) {
         textEl.textContent = 'Chyba pripojeni ke streamu';
@@ -7098,9 +7136,313 @@ async function cancelJobFromQueue(jobId) {
 }
 
 /* ============================================================
+   DRAG & DROP – images to chat
+   ============================================================ */
+function initChatDragDrop() {
+  const chatMain = document.querySelector('.chat-main');
+  const chatInput = document.getElementById('chat-input');
+  if (!chatMain) return;
+
+  let dragCounter = 0;
+
+  chatMain.addEventListener('dragenter', function(e) {
+    e.preventDefault();
+    dragCounter++;
+    chatMain.classList.add('drag-over');
+  });
+
+  chatMain.addEventListener('dragleave', function(e) {
+    dragCounter--;
+    if (dragCounter <= 0) {
+      dragCounter = 0;
+      chatMain.classList.remove('drag-over');
+    }
+  });
+
+  chatMain.addEventListener('dragover', function(e) {
+    e.preventDefault();
+  });
+
+  chatMain.addEventListener('drop', function(e) {
+    e.preventDefault();
+    dragCounter = 0;
+    chatMain.classList.remove('drag-over');
+
+    const files = Array.from(e.dataTransfer.files).filter(function(f) {
+      return f.type.startsWith('image/') && f.size < 5 * 1024 * 1024;
+    });
+
+    if (!files.length) {
+      showToast('P\u0159et\u00e1hni JPG/PNG (max 5MB)', 'warning');
+      return;
+    }
+
+    // Convert dropped files to base64 and add to attachedImages
+    files.forEach(function(file) {
+      if (attachedImages.length >= MAX_IMAGES) return;
+      const reader = new FileReader();
+      reader.onload = function(ev) {
+        const base64 = ev.target.result.split(',')[1];
+        const previewUrl = URL.createObjectURL(file);
+        attachedImages.push({
+          filename: file.name,
+          data: base64,
+          mime_type: file.type,
+          previewUrl: previewUrl,
+        });
+        renderImagePreviews();
+        showToast('Obr\u00e1zek p\u0159id\u00e1n: ' + file.name, 'success');
+      };
+      reader.readAsDataURL(file);
+    });
+  });
+}
+
+/* ============================================================
+   SKILLS TEST BUTTONS
+   ============================================================ */
+async function testRuntimeSkill(skillName, btn) {
+  btn.disabled = true;
+  btn.textContent = '\u23F3 Testing...';
+  btn.className = 'skill-test-btn';
+
+  try {
+    var resp = await fetch('/api/skills-runtime/test/' + encodeURIComponent(skillName), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    var data = await resp.json();
+
+    if (data.success) {
+      btn.textContent = '\u2705 OK';
+      btn.className = 'skill-test-btn skill-test-btn--success';
+      showToast('Skill ' + skillName + ': test OK', 'success');
+    } else {
+      btn.textContent = '\u274C Fail';
+      btn.className = 'skill-test-btn skill-test-btn--error';
+      showToast('Skill ' + skillName + ': ' + (data.error || 'test failed'), 'error');
+    }
+
+    // Show result text below
+    var resultEl = btn.parentElement.querySelector('.skill-test-result');
+    if (!resultEl) {
+      resultEl = document.createElement('div');
+      resultEl.className = 'skill-test-result';
+      btn.parentElement.appendChild(resultEl);
+    }
+    resultEl.textContent = data.success
+      ? JSON.stringify(data.output).substring(0, 100)
+      : (data.error || 'Failed');
+  } catch (err) {
+    btn.textContent = '\u274C Error';
+    btn.className = 'skill-test-btn skill-test-btn--error';
+    showToast('Test error: ' + err.message, 'error');
+  }
+
+  btn.disabled = false;
+  // Reset after 5s
+  setTimeout(function() {
+    btn.textContent = '\uD83E\uDDEA Test';
+    btn.className = 'skill-test-btn';
+    var r = btn.parentElement.querySelector('.skill-test-result');
+    if (r) r.remove();
+  }, 5000);
+}
+
+// Patch loadRuntimeSkills to add test buttons
+var _origLoadRuntimeSkills = loadRuntimeSkills;
+loadRuntimeSkills = async function() {
+  await _origLoadRuntimeSkills();
+
+  // Add test buttons to each skill toggle item
+  var panel = document.getElementById('runtime-skills-panel');
+  if (!panel) return;
+  var items = panel.querySelectorAll('.skill-toggle-item');
+  items.forEach(function(item) {
+    var cb = item.querySelector('input[type="checkbox"]');
+    if (!cb) return;
+    var skillName = cb.dataset.skill;
+    if (!skillName) return;
+
+    // Check if test button already exists
+    if (item.querySelector('.skill-test-btn')) return;
+
+    var testBtn = document.createElement('button');
+    testBtn.className = 'skill-test-btn';
+    testBtn.textContent = '\uD83E\uDDEA Test';
+    testBtn.title = 'Test skill: ' + skillName;
+    testBtn.onclick = function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      testRuntimeSkill(skillName, testBtn);
+    };
+    item.appendChild(testBtn);
+  });
+};
+
+/* ============================================================
+   ACTIVITY BAR TOOLTIPS
+   ============================================================ */
+function initActivityBarTooltips() {
+  var activityItems = document.querySelectorAll('.activity-item');
+  activityItems.forEach(function(item) {
+    var tooltip = document.createElement('div');
+    tooltip.className = 'activity-tooltip';
+    var id = item.id;
+
+    if (id === 'activity-resident') {
+      tooltip.innerHTML =
+        '<div class="activity-tooltip-title">\uD83E\uDD16 Resident Agent</div>' +
+        '<div class="activity-tooltip-row"><span class="activity-tooltip-label">Status:</span><span class="activity-tooltip-value" id="tip-resident-status">idle</span></div>' +
+        '<div class="activity-tooltip-row"><span class="activity-tooltip-label">Posledn\u00ed akce:</span><span class="activity-tooltip-value" id="tip-resident-action">\u2014</span></div>';
+    } else if (id === 'activity-jobs') {
+      tooltip.innerHTML =
+        '<div class="activity-tooltip-title">\uD83D\uDCBC Jobs</div>' +
+        '<div class="activity-tooltip-row"><span class="activity-tooltip-label">Running:</span><span class="activity-tooltip-value" id="tip-jobs-running">0</span></div>' +
+        '<div class="activity-tooltip-row"><span class="activity-tooltip-label">Queued:</span><span class="activity-tooltip-value" id="tip-jobs-queued">0</span></div>' +
+        '<div class="activity-tooltip-row"><span class="activity-tooltip-label">Failed:</span><span class="activity-tooltip-value" id="tip-jobs-failed">0</span></div>';
+    } else if (id === 'activity-kb') {
+      tooltip.innerHTML =
+        '<div class="activity-tooltip-title">\uD83E\uDDE0 Knowledge Base</div>' +
+        '<div class="activity-tooltip-row"><span class="activity-tooltip-label">Chunks:</span><span class="activity-tooltip-value" id="tip-kb-chunks">0</span></div>' +
+        '<div class="activity-tooltip-row"><span class="activity-tooltip-label">Status:</span><span class="activity-tooltip-value">Ready</span></div>';
+    } else if (id === 'activity-ollama') {
+      tooltip.innerHTML =
+        '<div class="activity-tooltip-title">Ollama LLM</div>' +
+        '<div class="activity-tooltip-row"><span class="activity-tooltip-label">Status:</span><span class="activity-tooltip-value" id="tip-ollama-detail">Unknown</span></div>';
+    } else if (id === 'activity-ram') {
+      tooltip.innerHTML =
+        '<div class="activity-tooltip-title">\uD83D\uDCBE System Resources</div>' +
+        '<div class="activity-tooltip-row"><span class="activity-tooltip-label">RAM:</span><span class="activity-tooltip-value" id="tip-ram-detail">?</span></div>' +
+        '<div class="activity-tooltip-row"><span class="activity-tooltip-label">CPU:</span><span class="activity-tooltip-value" id="tip-cpu-detail">?</span></div>';
+    }
+
+    item.appendChild(tooltip);
+  });
+}
+
+// Enhance handleActivityUpdate to also update tooltip values
+var _origHandleActivityUpdate = handleActivityUpdate;
+handleActivityUpdate = function(msg) {
+  _origHandleActivityUpdate(msg);
+
+  // Update tooltip details
+  var resident = msg.resident || {};
+  var tipStatus = document.getElementById('tip-resident-status');
+  if (tipStatus) tipStatus.textContent = resident.status || 'idle';
+  var tipAction = document.getElementById('tip-resident-action');
+  if (tipAction) tipAction.textContent = resident.last_action || '\u2014';
+
+  var jobs = msg.jobs || {};
+  var tipRunning = document.getElementById('tip-jobs-running');
+  if (tipRunning) tipRunning.textContent = jobs.running || 0;
+  var tipQueued = document.getElementById('tip-jobs-queued');
+  if (tipQueued) tipQueued.textContent = jobs.queued || 0;
+  var tipFailed = document.getElementById('tip-jobs-failed');
+  if (tipFailed) tipFailed.textContent = jobs.failed || 0;
+
+  var kb = msg.kb || {};
+  var tipChunks = document.getElementById('tip-kb-chunks');
+  if (tipChunks) tipChunks.textContent = kb.total_chunks || 0;
+
+  var ollama = msg.ollama || {};
+  var tipOllama = document.getElementById('tip-ollama-detail');
+  if (tipOllama) tipOllama.textContent = ollama.status === 'running' ? '\uD83D\uDFE2 Running' : '\u26AA Offline';
+
+  var resources = msg.resources || {};
+  var tipRam = document.getElementById('tip-ram-detail');
+  if (tipRam && resources.ram_used_mb) {
+    tipRam.textContent = (resources.ram_used_mb / 1024).toFixed(1) + '/' + (resources.ram_total_mb / 1024).toFixed(1) + ' GB';
+  }
+  var tipCpu = document.getElementById('tip-cpu-detail');
+  if (tipCpu && resources.cpu_percent != null) {
+    tipCpu.textContent = resources.cpu_percent + '%';
+  }
+};
+
+/* ============================================================
+   JOB PRIORITY & ENHANCED ACTIONS
+   ============================================================ */
+async function setJobPriority(jobId, priority, btn) {
+  try {
+    var resp = await fetch('/api/jobs/' + encodeURIComponent(jobId) + '/priority', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ priority: priority }),
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    showToast('Priorita: ' + priority, 'success');
+    loadJobs();
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
+}
+
+// Patch renderJobsList to add priority column + buttons
+var _origRenderJobsList = renderJobsList;
+renderJobsList = function(jobs) {
+  var container = document.getElementById('jobs-list');
+  if (!container) return;
+
+  if (!jobs.length) {
+    container.innerHTML = '<p class="empty-state">\u017D\u00e1dn\u00e9 joby.</p>';
+    return;
+  }
+
+  container.innerHTML =
+    '<div class="jobs-table-wrap">' +
+    '<table class="jobs-table">' +
+    '<thead><tr>' +
+    '<th>N\u00e1zev</th><th>Typ</th><th>Priorita</th><th>Status</th><th>Progress</th><th>Trv\u00e1n\u00ed</th><th>Vytvo\u0159eno</th><th></th>' +
+    '</tr></thead><tbody>' +
+    jobs.map(function(j) {
+      var priorityBadge = '<span class="job-priority-badge job-priority-badge--' + (j.priority || 'normal') + '">' + (j.priority || 'normal') + '</span>';
+      var priorityBtns = '';
+      if (j.status === 'queued') {
+        priorityBtns =
+          '<button class="job-priority-btn" onclick="setJobPriority(\'' + escHtml(j.id) + '\',\'high\')" title="High">\u2B06\uFE0F</button>' +
+          '<button class="job-priority-btn" onclick="setJobPriority(\'' + escHtml(j.id) + '\',\'low\')" title="Low">\u2B07\uFE0F</button>';
+      }
+
+      var actionBtns = '';
+      if (j.status === 'running') actionBtns += '<button class="btn btn--ghost btn--small" onclick="pauseJob(\'' + escHtml(j.id) + '\',this)" title="Pozastavit">&#9208; Pause</button>';
+      if (j.status === 'paused') actionBtns += '<button class="btn btn--secondary btn--small" onclick="resumeJob(\'' + escHtml(j.id) + '\',this)" title="Obnovit">&#9654; Resume</button>';
+      if (j.status === 'queued' || j.status === 'running' || j.status === 'paused') actionBtns += '<button class="btn btn--ghost btn--small jobs-action-cancel" onclick="cancelJob(\'' + escHtml(j.id) + '\',this)">Zru\u0161it</button>';
+      if (j.status === 'failed' || j.status === 'cancelled') actionBtns += '<button class="btn btn--secondary btn--small jobs-action-retry" onclick="retryJob(\'' + escHtml(j.id) + '\',this)">Znovu</button>';
+      if (j.status === 'succeeded' || j.status === 'failed' || j.status === 'cancelled') actionBtns += '<button class="btn btn--ghost btn--small" onclick="deleteJobUI(\'' + escHtml(j.id) + '\')" title="Smazat">\uD83D\uDDD1\uFE0F</button>';
+
+      return '<tr class="jobs-row ' + (j.status === 'running' ? 'jobs-row--running' : '') + '" data-job-id="' + escHtml(j.id) + '">' +
+        '<td class="jobs-cell-title" onclick="showJobDetail(\'' + escHtml(j.id) + '\')" style="cursor:pointer;color:#60a5fa">' + escHtml(j.title) + '</td>' +
+        '<td><span class="job-type-badge">' + escHtml(j.type) + '</span></td>' +
+        '<td>' + priorityBadge + ' ' + priorityBtns + '</td>' +
+        '<td><span class="job-status-badge job-status--' + j.status + '">' + escHtml(j.status) + '</span></td>' +
+        '<td><div class="job-progress-bar"><div class="job-progress-fill" style="width:' + Math.round(j.progress) + '%"></div></div><span class="job-progress-text">' + Math.round(j.progress) + '%</span></td>' +
+        '<td class="jobs-cell-duration">' + formatJobDuration(j.started_at, j.finished_at) + '</td>' +
+        '<td class="jobs-cell-date">' + formatJobDate(j.created_at) + '</td>' +
+        '<td style="white-space:nowrap">' + actionBtns + '</td>' +
+        '</tr>';
+    }).join('') +
+    '</tbody></table></div>';
+};
+
+async function deleteJobUI(jobId) {
+  if (!confirm('Smazat tento job?')) return;
+  try {
+    await fetch('/api/jobs/' + encodeURIComponent(jobId), { method: 'DELETE' });
+    showToast('Job smaz\u00e1n', 'success');
+    loadJobs();
+  } catch (e) {
+    showToast('Chyba: ' + e.message, 'error');
+  }
+}
+
+/* ============================================================
    INIT NEW FEATURES (called from DOMContentLoaded)
    ============================================================ */
 document.addEventListener('DOMContentLoaded', function() {
   bindFilePickers();
   bindJobRunControls();
+  initChatDragDrop();
+  initActivityBarTooltips();
 });
