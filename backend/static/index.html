@@ -758,6 +758,20 @@
         <p class="hint-text" id="overnight-progress-text" style="margin-top:0.5rem"></p>
       </section>
 
+      <!-- C4: Nightly Report Widget -->
+      <section class="card" id="nightly-report-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem">
+          <h2 class="card-title" style="margin:0">&#128202; Nightly Report</h2>
+          <div style="display:flex;gap:0.5rem">
+            <button class="btn btn--ghost btn--small" id="nightly-export-btn" title="Export .md">&#11015;&#65039; Export .md</button>
+            <button class="btn btn--secondary btn--small" id="nightly-regenerate-btn">&#128260; Regenerovat</button>
+          </div>
+        </div>
+        <div id="nightly-report-body" style="margin-top:1rem">
+          <p class="empty-state">Na&#269;&iacute;t&aacute;m...</p>
+        </div>
+      </section>
+
     </div><!-- /tab-overnight -->
 
     <!-- ======================== JOBS TAB ======================== -->
@@ -1315,6 +1329,7 @@
             &#127769; Tmav&eacute;
           </button>
           <button class="btn btn--ghost btn--small" id="reload-settings-btn">Na&#269;&iacute;st</button>
+          <button class="btn btn--ghost btn--small" id="restart-onboarding-btn" title="Spustit pr&#367;vodce znovu">&#128260; Pr&#367;vodce</button>
           <button class="btn btn--primary btn--small" id="save-settings-btn">
             Ulo&#382;it
             <span class="spinner spinner--small hidden" id="settings-spinner"></span>
@@ -2167,6 +2182,36 @@
         <button class="btn btn--ghost" id="dir-browser-cancel">Zrušit</button>
         <button class="btn btn--primary" id="dir-browser-select">Vybrat tuto složku</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ===== ONBOARDING WIZARD MODAL ===== -->
+  <div class="onboarding-overlay hidden" id="onboarding-overlay" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+    <div class="onboarding-modal">
+      <div class="onboarding-progress-bar-wrap">
+        <div class="onboarding-progress-bar" id="onboarding-progress-bar"></div>
+      </div>
+      <div class="onboarding-step-label" id="onboarding-step-label">Krok 1 / 5</div>
+      <h2 class="onboarding-title" id="onboarding-title"></h2>
+      <div class="onboarding-content" id="onboarding-content"></div>
+      <div class="onboarding-action-result" id="onboarding-action-result"></div>
+      <div class="onboarding-choices hidden" id="onboarding-choices"></div>
+      <div class="onboarding-footer">
+        <button class="btn btn--ghost" id="onboarding-back-btn">&larr; Zp&#283;t</button>
+        <button class="btn btn--primary" id="onboarding-next-btn">Dal&scaron;&iacute; &rarr;</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== COMMAND PALETTE (Ctrl+K) ===== -->
+  <div class="cmd-palette-overlay hidden" id="cmd-palette-overlay" role="dialog" aria-modal="true" aria-label="Command Palette">
+    <div class="cmd-palette">
+      <div class="cmd-palette-search">
+        <span class="cmd-palette-icon">&#128269;</span>
+        <input class="cmd-palette-input" id="cmd-palette-input" type="text" placeholder="Hledat nebo p&#345;&iacute;kaz..." autocomplete="off" />
+      </div>
+      <div class="cmd-palette-results" id="cmd-palette-results"></div>
+      <div class="cmd-palette-hint">Esc pro zav&#345;en&iacute; &middot; Enter pro v&yacute;b&#283;r &middot; &uarr;&darr; navigace</div>
     </div>
   </div>
 

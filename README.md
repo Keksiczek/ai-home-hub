@@ -1,265 +1,179 @@
 # AI Home Hub – Mac Control Center
 
-Lokální AI orchestrační centrum pro macOS, které propojuje Ollama, lokální nástroje (VS Code, git, filesystem) a agentní orchestraci do jednoho dashboardu. Běží plně lokálně na tvém Macu, optimalizované pro stroje typu MacBook Pro 2019 (Intel, 8 GB RAM).
+Lokální AI orchestrační centrum pro macOS. Propojuje Ollama, VS Code, filesystem a agentní orchestraci do jednoho dashboardu. Běží plně lokálně, optimalizované pro MacBook Pro 2019 (Intel, 8 GB RAM).
 
-> ⚠️ Projekt je v aktivním vývoji. API se může měnit.
-
----
-
-## Hlavní funkce
-
-- **Jednotný dashboard**
-  - Reálný přehled o CPU/RAM (včetně Ollama RSS) přes Resource Monitor.
-  - Panel Resident Agent (stav, poslední kroky, historie jobů).
-  - Overnight Jobs panel (naplánované noční joby, poslední běhy).
-  - Agent Guardrails vizualizace + toggles pro experimentální featury.
-
-- **Lokální LLM orchestrátor**
-  - Napojení na Ollama (modely: `llama3.2`, `qwen2.5-coder:3b`, `llava:7b`).
-  - Model routing přes profil → model (`coding` → `qwen2.5-coder:3b`, `summarize` → `llama3.2`).
-  - Guardrails per agent: `max_steps`, `step_timeout_s`, `max_total_tokens` a experimental flags.
-
-- **Resident Agent (daemon)**
-  - Dlouho běžící asyncio agent, který každých X sekund:
-    - čte joby z fronty,
-    - staví kontext (system summary, allowed_actions, posledních N kroků),
-    - volá LLM, které vrací **pouze JSON**, a deterministický dispatcher provede akci,
-    - umí agent handoff přes `spawn_specialist`.
-  - Každý krok má vlastní `asyncio.timeout` podle `AgentGuardrails`.
-
-- **Knowledge Base & RAG**
-  - KB index v ChromaDB (lokální persistent mód).
-  - KB Context Filter – summarizační bariéra mezi raw RAG výsledky a agentním kontextem.
-  - History compression – průběžná komprese konverzační historie do shrnutí.
-  - Nightly `kb_reindex` (inkrementální) přes NightScheduler.
-
-- **NightScheduler (overnight jobs)**
-  - Noční okno: 22:00–06:00 lokální čas, dedup per den.
-  - Vestavěné joby:
-    - `kb_reindex` – inkrementální reindex znalostní báze,
-    - `git_sweep` – scan & housekeeping VS Code projektů,
-    - `nightly_summary` – LLM denní report uložený do ChromaDB memory.
-
-- **Job systém**
-  - Fronta jobů (ad hoc i plánované).
-  - Job Worker daemon s guardraily, timeouty a WS broadcasting stavu.
-
-- **Filesystem & integrace**
-  - Bezpečné FS operace nad explicitně povolenými adresáři.
-  - Integrace s VS Code projekty.
-  - Hooky pro další integrace (MCP, devops/testing agenti jako experimentální features).
-
-- **WebSocket real-time UI**
-  - Async parallel broadcast (`asyncio.gather`) do více klientů.
-  - SPA klient s automatickým reconnectem (exponential backoff + jitter, ping/pong keepalive).
-  - Connection status indikátor (connected / reconnecting / failed).
-
-- **Stability & guardrails**
-  - Daemony postavené na `BackgroundService` base class (čisté start/stop, `CancelledError` handling).
-  - Centrální `TaskSupervisor`: registrace tasků, monitoring výjimek, restart politika, stav v `/api/health`.
-  - Chroma zápisy serializované přes globální `asyncio.Lock` + `asyncio.to_thread`.
-  - Ollama `keep_alive` řízený per model/profil pro šetrné zacházení s 8 GB RAM.
+> ⚠️ Projekt je v aktivním vývoji.
 
 ---
 
-## Architektura
+## ✨ Co umí
 
-### Backend stack
-
-- Python 3.11+, FastAPI, asyncio
-- ChromaDB (lokální persistent mód)
-- Ollama (lokální LLM server)
-- psutil (ResourceMonitor)
-
-### Klíčové adresáře
-
-```
-backend/
-  app/
-    main.py               # FastAPI entrypoint, lifespan, TaskSupervisor
-    routers/              # REST + WebSocket endpointy
-    services/
-      background_service.py   # Base class pro daemony
-      task_supervisor.py      # Centrální supervision background tasků
-      resident_agent.py       # Dlouho běžící agentní daemon
-      night_scheduler.py      # Overnight job scheduler
-      resource_monitor.py     # psutil daemon + WS broadcast
-      job_worker.py           # Job fronta a worker
-      vector_store_service.py # ChromaDB abstrakce + write lock
-      kb_watchdog.py          # Filesystem watching (watchdog/FSEvents)
-      ws_manager.py           # WebSocket ConnectionManager
-      ...
-    engines/              # LLM routing, Ollama klient, guardrails
-    middleware/           # Logging, rate limiting
-  static/                # Frontend SPA
-docs/                    # API kontrakt, architektura
-```
-
-### LLM a RAM optimalizace
-
-- `MODEL_ROUTING` + `resolve_model(profile)` mapuje profily na Ollama modely.
-- `AgentGuardrails` dataclass: `max_steps`, `step_timeout_s`, `max_total_tokens`, experimental flags.
-- `keep_alive` per model:
-  - `qwen2.5-coder:3b` → `120s`
-  - `llama3.2` → `60s`
-  - `llava:7b` → `0` (unload hned po použití)
-  - overnight joby → `0` (čistá RAM po skončení)
-- `asyncio.timeout` kolem každého LLM volání (z guardrails nebo fixní konstanty).
-
-### ChromaDB
-
-- Jeden sdílený `PersistentClient` per proces.
-- Zápisy přes globální `asyncio.Lock` + `asyncio.to_thread`.
-- Reads běží paralelně bez locku.
-- `/api/health/ready` má `asyncio.timeout(2.0)` kolem `get_stats()`.
+| Feature | Stav |
+|---------|------|
+| 💬 Chat s LLM (Ollama) | ✅ |
+| 🖼️ Image upload + Vision (llava:7b) | ✅ |
+| 🤖 4 custom profily (Lean/CI, PBI/DAX, Mac Admin, AI Dev) | ✅ |
+| 🧠 Resident Agent (autonomous, quiet hours, structured log) | ✅ |
+| 📚 Knowledge Base + multi-kolekce + tag search | ✅ |
+| 📁 File Manager (tree, VSCode open, KB upload) | ✅ |
+| 🔧 11 Agent Skills (web search, code exec, vision, shell...) | ✅ |
+| 💼 Job systém (run now, schedule, queue) | ✅ |
+| 🧠 Model Manager (Ollama + HuggingFace GGUF stahování) | ✅ |
+| ⚙️ LLM Settings (model routing, parametry, hot-reload) | ✅ |
+| 📊 Prometheus /metrics endpoint | ✅ |
+| ⚡ Live Activity Bar (WebSocket, RAM, jobs, KB stats) | ✅ |
+| 📸 Screenshot (Mac native + mobile html2canvas) | ✅ |
+| 🌐 Tailscale Funnel (remote přístup) | ✅ |
+| 🎯 First-run Onboarding Wizard | ✅ |
+| 🔍 Global Search Ctrl+K | ✅ |
+| 📊 Nightly Report Widget | ✅ |
 
 ---
 
-## Požadavky
+## 🚀 Rychlý start
 
-- **Hardware:** MacBook Pro 2019 (Intel i5, 8 GB RAM) nebo ekvivalent
-- **OS:** macOS
-- **Software:** Python 3.11+, Ollama (latest stable)
+### Požadavky
+- macOS (optimalizováno pro Intel 8GB)
+- Python 3.11+
+- [Ollama](https://ollama.com) nainstalovaný
 
-> Na 8 GB RAM doporučujeme mít v daný moment aktivní jen jeden větší model.
-
----
-
-## Development quick start
-
-Nejrychlejší způsob jak spustit nebo zastavit celé vývojové prostředí (backend + Tailscale tunel):
-
-```bash
-# Spustit vše (backend + Tailscale funnel)
-./scripts/dev.sh start
-
-# Zastavit vše
-./scripts/dev.sh stop
-
-# Aktualizovat kód (git pull) a restartovat
-./scripts/dev.sh update
-
-# Zobrazit stav procesů
-./scripts/dev.sh status
-```
-
-Nebo přes Make:
-
-```bash
-make dev-start   # = ./scripts/dev.sh start
-make dev-stop    # = ./scripts/dev.sh stop
-make dev-update  # = ./scripts/dev.sh update
-make dev-status  # = ./scripts/dev.sh status
-```
-
-> **Tailscale:** Pokud `tailscale` není nainstalovaný, skript zobrazí varování a pokračuje bez tunelu.
-> **git pull:** `start` záměrně nepulluje – pulluje pouze `update`. Rychlý start, bez nečekaných změn.
-
----
-
-## Instalace a spuštění
-
-### 1. Klonování repozitáře
+### Instalace
 
 ```bash
 git clone https://github.com/Keksiczek/ai-home-hub.git
-cd ai-home-hub/backend
-```
-
-### 2. Python prostředí
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-### 3. Ollama
-
-```bash
-# Spusť Ollama server
-ollama serve
+cd ai-home-hub
 
 # Stáhni modely
 ollama pull llama3.2
 ollama pull qwen2.5-coder:3b
 ollama pull llava:7b
+
+# Spusť
+./run-app.sh
+# nebo:
+cd backend && source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-### 4. Spuštění backendu
+Dashboard: http://localhost:8000
+
+### Make příkazy
 
 ```bash
-uvicorn app.main:app --reload
+make dev-start    # spustit backend + Tailscale
+make dev-stop     # zastavit vše
+make dev-update   # git pull + restart
+make dev-status   # stav procesů
 ```
 
-- Dashboard: `http://localhost:8000/`
-- API: `http://localhost:8000/api/...`
-- WebSocket: `ws://localhost:8000/ws`
+---
 
-> ⚠️ Vždy spouštěj s `--workers 1` (výchozí pro `--reload`). Více workerů není podporováno kvůli lokální ChromaDB a per-process write locku.
+## 🏗️ Architektura
+
+```
+backend/
+  app/
+    main.py                 # FastAPI entrypoint, lifespan, TaskSupervisor
+    routers/                # REST + WebSocket endpointy
+      chat.py               # LLM chat
+      chat_multimodal.py    # Vision chat (llava)
+      resident.py           # Resident Agent kontrola
+      models.py             # Model Manager + LLM Settings
+      knowledge.py          # KB + multi-kolekce
+      files.py              # File Manager
+      jobs.py               # Job systém
+      skills.py             # Agent Skills
+      websocket_router.py   # Activity bar WS
+    services/
+      resident_agent.py     # Autonomous daemon (structured log, quiet hours)
+      agent_orchestrator.py # LLM orchestrace + tool dispatch
+      job_service.py        # Job fronta a scheduling
+      model_manager_service.py  # Ollama + HuggingFace
+      vector_store_service.py   # ChromaDB + multi-KB
+      activity_service.py   # Live system stats aggregace
+      skills_service.py     # 11 agent skills
+      llm_service.py        # Model routing + keep_alive
+      resource_monitor.py   # psutil daemon
+    models/                 # Pydantic schemas
+    middleware/             # Logging, rate limiting
+    static/                 # Frontend SPA
+```
+
+### LLM Model routing
+
+| Profil | Model | keep_alive |
+|--------|-------|-----------|
+| chat | llama3.2:3b | 60s |
+| code | qwen2.5-coder:3b | 120s |
+| vision | llava:7b | 0 (unload) |
+| agent | dolphin-llama3:8b | 30s |
 
 ---
 
-## API (výběr)
+## 📡 API přehled
 
 | Endpoint | Popis |
-|---|---|
-| `GET /api/health` | Souhrnný health (komponenty, WS connections, background tasks) |
-| `GET /api/health/live` | Liveness probe |
-| `GET /api/health/ready` | Readiness probe (ChromaDB check s timeoutem) |
-| `GET /api/health/setup` | Checklist první konfigurace |
-| `DELETE /api/embeddings/cache` | Vyprázdnění embeddings cache |
-| `POST /api/chat` | LLM chat |
-| `POST /api/chat_multimodal` | Multimodální chat (llava) |
-| `/api/agents`, `/api/tasks`, `/api/jobs` | Agent orchestrace a job systém |
-| `/api/resident` | Resident Agent kontrola |
-| `/api/knowledge`, `/api/memory` | RAG a vektorová paměť |
-| `/api/files`, `/api/filesystem` | Filesystem operace |
-| `/api/settings` | Konfigurace |
-| `/api/media`, `/api/document-analysis` | Media a dokumenty |
+|----------|-------|
+| POST /api/chat | LLM chat |
+| POST /api/chat/multimodal | Vision chat (base64 image) |
+| GET /api/models/installed | Nainstalované Ollama modely |
+| POST /api/models/pull | Stáhnout model (SSE stream) |
+| GET /api/kb/collections | Seznam KB kolekcí |
+| GET /api/kb/search?q= | Semantic + tag search |
+| GET /api/resident/status | Stav agenta |
+| POST /api/resident/run-now | Okamžitý cyklus |
+| GET /api/jobs/queue | Job fronta |
+| POST /api/jobs/run-now | Spustit job okamžitě |
+| GET /api/jobs/nightly-report | Nightly Report (latest) |
+| GET /api/llm/settings | LLM konfigurace |
+| PATCH /api/llm/settings | Změna nastavení (hot-reload) |
+| GET /metrics | Prometheus metriky |
+| GET /api/health | Health check |
+| WS /ws | WebSocket (activity, agent status) |
+
+Kompletní API: http://localhost:8000/docs
 
 ---
 
-## Testy
+## 🎯 First-run Onboarding
 
-Backend testy jsou v `backend/tests/`. Spuštění:
+Při prvním spuštění se zobrazí průvodce, který:
+1. Zkontroluje dostupnost Ollama
+2. Navede k nastavení Knowledge Base
+3. Umožní výběr výchozího profilu (Lean/CI, PBI/DAX, Mac Admin, AI Dev)
+4. Spustí Resident Agent
+
+Průvodce lze kdykoli znovu spustit v **Nastavení → 🔄 Průvodce**.
+
+---
+
+## 🔍 Global Search (Ctrl+K)
+
+Command palette dostupná zkratkou **Ctrl+K** umožňuje:
+- Rychlou navigaci mezi záložkami
+- Spouštění akcí (Job, Agent, Screenshot...)
+- Sémantické vyhledávání v Knowledge Base (min. 3 znaky)
+
+---
+
+## 📊 Nightly Report
+
+Widget v záložce **Noční úlohy** zobrazuje poslední automaticky generovaný denní report (LLM souhrn aktivity agenta za 24h). Lze regenerovat ručně nebo exportovat jako `.md` soubor.
+
+---
+
+## 🧪 Testy
 
 ```bash
 cd backend
-
-# Všechny testy
 pytest tests/ -v
-
-# Pouze konkrétní skupiny
-pytest tests/test_resident_flow.py -v      # Resident Agent flow
-pytest tests/test_kb_upload_flow.py -v     # Knowledge Base upload
-pytest tests/test_jobs_api.py -v           # Jobs API (CRUD, cancel, retry)
 ```
 
----
-
-## Roadmap
-
-### Hotovo
-
-- ✅ BackgroundService base class + TaskSupervisor
-- ✅ ChromaDB write lock + health timeout
-- ✅ Ollama `keep_alive` per model/profil
-- ✅ `asyncio.timeout` kolem všech LLM volání
-- ✅ WebSocket parallel broadcast + frontend reconnect + status indikátor
-- ✅ pytest-asyncio testy pro daemony a TaskSupervisor
-- ✅ Filesystem watching (watchdog + FSEvents + debounce → KB dirty flag)
-
-### Plánováno
-
-- 🔲 Rozšíření experimentálních agentů (openclaw, antigravity, devops/testing)
-- 🔲 Vylepšený knowledge management (tagging, multi-KB)
-- 🔲 Monitoring metriky (Prometheus endpoint / lokální logging)
-- 🔲 Separace heavy jobů do samostatného worker procesu
-- 🔲 Rozšíření integrací (Home Assistant, další IDE)
+Testovací skupiny: `test_resident_flow.py`, `test_kb_upload_flow.py`, `test_jobs_api.py`
 
 ---
 
-## Licence
+## 📄 Licence
 
-MIT – viz [LICENSE](LICENSE) (doplnit).
+MIT – projekt je lokální a privátní. Sdílej zodpovědně.
