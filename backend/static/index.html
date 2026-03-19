@@ -575,6 +575,60 @@
           </div>
         </section>
 
+        <!-- Agent Log Viewer -->
+        <section class="card" id="resident-log-viewer-card">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+            <h2 class="card-title">Agent Log</h2>
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+              <select class="input input--small" id="log-level-filter" onchange="loadAgentLogs()" title="Filtr &#250;rovn&#283;">
+                <option value="">V&#353;echny</option>
+                <option value="INFO">INFO</option>
+                <option value="WARN">WARN</option>
+                <option value="ERROR">ERROR</option>
+              </select>
+              <input type="text" class="input input--small" id="log-cycle-filter"
+                     placeholder="Cyklus (nap&#345;. cycle-0042)" style="width:140px"
+                     onchange="loadAgentLogs()" />
+              <button class="btn btn--ghost btn--small" onclick="exportAgentLogs()" title="Export JSON">&#11015; Export</button>
+              <button class="btn btn--ghost btn--small btn--danger" onclick="clearAgentLogs()" title="Smazat log">&#128465; Smazat</button>
+            </div>
+          </div>
+          <div id="resident-log-list" class="resident-log-list">
+            <p class="empty-state">&#381;&#225;dn&#233; z&#225;znamy</p>
+          </div>
+        </section>
+
+        <!-- Agent Settings -->
+        <section class="card" id="resident-agent-settings-card">
+          <h2 class="card-title">Nastaven&#237; agenta</h2>
+          <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div>
+              <label class="form-label">Interval (s):</label>
+              <input type="number" class="input" id="agent-setting-interval" min="5" max="3600" value="30" />
+            </div>
+            <div>
+              <label class="form-label">Max cykl&#367;/den:</label>
+              <input type="number" class="input" id="agent-setting-max-cycles" min="1" max="10000" value="100" />
+            </div>
+            <div>
+              <label class="form-label">Tich&#253; re&#382;im od:</label>
+              <input type="time" class="input" id="agent-setting-quiet-start" value="22:00" />
+            </div>
+            <div>
+              <label class="form-label">Tich&#253; re&#382;im do:</label>
+              <input type="time" class="input" id="agent-setting-quiet-end" value="07:00" />
+            </div>
+          </div>
+          <div class="form-group" style="display:flex;align-items:center;gap:8px;margin-top:8px">
+            <label><input type="checkbox" id="agent-setting-quiet-enabled" /> Tich&#253; re&#382;im aktivn&#237;</label>
+          </div>
+          <div class="form-group form-group--right" style="gap:8px;display:flex;margin-top:8px">
+            <button class="btn btn--primary btn--small" onclick="saveAgentSettings()">Ulo&#382;it</button>
+            <button class="btn btn--ghost btn--small" onclick="agentRunNow()">Spustit te&#271;</button>
+            <button class="btn btn--ghost btn--small btn--danger" onclick="agentReset()">Reset</button>
+          </div>
+        </section>
+
         <!-- Help tooltip -->
         <details class="card resident-help-details">
           <summary class="card-title resident-help-summary">Jak pou&#382;&iacute;vat Resident Agent?</summary>
@@ -584,6 +638,7 @@
             <li><strong>Autonomous</strong> &ndash; spou&#353;t&iacute; bezpe&#269;n&eacute; akce s&aacute;m; maz&aacute;n&iacute; v&#382;dy po&#382;aduje potvrzen&iacute;.</li>
             <li><strong>Reasoning</strong> &ndash; agent pou&#382;&iacute;v&aacute; n&aacute;stroje (web, KB, metriky) pro lep&#353;&iacute; n&aacute;vrhy.</li>
             <li><strong>Mise</strong> &ndash; v&iacute;cekrokov&eacute; &uacute;koly s automatick&yacute;m pl&aacute;nov&aacute;n&iacute;m.</li>
+            <li><strong>Tich&#253; re&#382;im</strong> &ndash; agent se pozastav&iacute; v nastaven&yacute;ch hodin&aacute;ch (nap&#345;. 22:00&ndash;07:00).</li>
           </ul>
         </details>
 

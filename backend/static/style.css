@@ -3324,6 +3324,39 @@ details[open].reasoning-cycle-item > .reasoning-cycle-summary::before {
 }
 .auto-logbook-title { flex: 1; }
 
+/* ── Agent Log Viewer ────────────────────────────── */
+.resident-log-list {
+  max-height: 400px;
+  overflow-y: auto;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 0.82em;
+  line-height: 1.5;
+}
+.log-entry {
+  display: flex;
+  gap: 8px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.log-entry:last-child { border-bottom: none; }
+.log-time { color: var(--text-secondary); min-width: 72px; flex-shrink: 0; }
+.log-level {
+  font-weight: 600;
+  min-width: 44px;
+  text-align: center;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 0.85em;
+}
+.log-level--info { color: var(--accent); }
+.log-level--warn { color: var(--warning); }
+.log-level--error { color: var(--error); background: rgba(239, 68, 68, 0.1); }
+.log-event { color: var(--text-primary); font-weight: 500; }
+.log-cycle { color: var(--text-secondary); font-size: 0.85em; }
+.log-data { color: var(--text-tertiary); font-size: 0.85em; word-break: break-all; }
+
 /* ── Jobs filter bar ──────────────────────────────── */
 .jobs-filter-bar {
   display: flex;

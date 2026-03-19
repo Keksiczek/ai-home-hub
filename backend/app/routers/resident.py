@@ -32,6 +32,15 @@ class MissionCreateRequest(BaseModel):
     context: str = ""
 
 
+class AgentSettingsPatch(BaseModel):
+    interval_seconds: Optional[int] = Field(None, ge=5, le=3600)
+    model: Optional[str] = None
+    max_cycles_per_day: Optional[int] = Field(None, ge=1, le=10000)
+    quiet_hours_start: Optional[str] = None
+    quiet_hours_end: Optional[str] = None
+    quiet_hours_enabled: Optional[bool] = None
+
+
 # ── Core endpoints (unchanged) ───────────────────────────────
 
 @router.get("/status")
@@ -252,6 +261,106 @@ async def get_mission_detail(mission_id: str) -> dict:
         "started_at": job.started_at,
         "finished_at": job.finished_at,
     }
+
+
+# ── History & Logs ────────────────────────────────────────────
+
+@router.get("/history")
+async def get_agent_history(limit: int = Query(default=20, ge=1, le=200)) -> dict:
+    """Get recent cycle history."""
+    agent = get_resident_agent()
+    history = agent.get_cycle_history(limit=limit)
+    return {"history": history, "count": len(history)}
+
+
+@router.get("/logs")
+async def get_agent_logs(
+    level: Optional[str] = Query(default=None, pattern=r"^(INFO|WARN|ERROR)$"),
+    cycle: Optional[str] = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=1000),
+) -> dict:
+    """Get filterable structured log entries."""
+    agent = get_resident_agent()
+    logs = agent.get_logs(level=level, cycle=cycle, limit=limit)
+    return {"logs": logs, "count": len(logs)}
+
+
+@router.delete("/logs")
+async def clear_agent_logs() -> dict:
+    """Clear all agent log entries."""
+    agent = get_resident_agent()
+    count = agent.clear_logs()
+    return {"status": "ok", "cleared": count}
+
+
+# ── Pause / Resume / Run Now / Reset ─────────────────────────
+
+@router.post("/pause")
+async def agent_pause() -> dict:
+    """Pause the resident agent (stays running, skips ticks)."""
+    agent = get_resident_agent()
+    return await agent.pause()
+
+
+@router.post("/resume")
+async def agent_resume() -> dict:
+    """Resume a paused resident agent."""
+    agent = get_resident_agent()
+    return await agent.resume()
+
+
+@router.post("/run-now")
+async def agent_run_now() -> dict:
+    """Trigger an immediate cycle."""
+    agent = get_resident_agent()
+    try:
+        return await agent.run_now()
+    except Exception as exc:
+        logger.error("Run-now failed: %s", exc)
+        raise HTTPException(500, f"Run-now failed: {exc}")
+
+
+@router.post("/reset")
+async def agent_reset() -> dict:
+    """Reset agent counters, history, and memory."""
+    agent = get_resident_agent()
+    return await agent.reset()
+
+
+# ── Agent Settings ────────────────────────────────────────────
+
+@router.get("/agent-settings")
+async def get_agent_settings() -> dict:
+    """Get current agent runtime settings."""
+    agent = get_resident_agent()
+    return agent.get_agent_settings()
+
+
+@router.patch("/agent-settings")
+async def patch_agent_settings(req: AgentSettingsPatch) -> dict:
+    """Update agent runtime settings (interval, model, quiet hours, etc.)."""
+    agent = get_resident_agent()
+    updates = req.model_dump(exclude_none=True)
+    if not updates:
+        raise HTTPException(400, "No settings to update")
+    return agent.update_agent_settings(updates)
+
+
+# ── Agent Memory ──────────────────────────────────────────────
+
+@router.get("/agent-memory")
+async def get_agent_memory(limit: int = Query(default=50, ge=1, le=200)) -> dict:
+    """Get agent memory entries."""
+    agent = get_resident_agent()
+    items = await agent.get_agent_memory(limit=limit)
+    return {"memory": items, "count": len(items)}
+
+
+@router.delete("/agent-memory")
+async def clear_agent_memory() -> dict:
+    """Clear all resident agent memory entries."""
+    agent = get_resident_agent()
+    return await agent.clear_agent_memory()
 
 
 # ── Reflections ──────────────────────────────────────────────

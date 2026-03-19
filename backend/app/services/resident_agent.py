@@ -10,13 +10,18 @@ import asyncio
 import json
 import logging
 import time
+import traceback
+from collections import deque
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
+import structlog
+
 from app.services.background_service import BackgroundService
 
 logger = logging.getLogger(__name__)
+log = structlog.get_logger("resident_agent")
 
 # WS event types (imported locally to avoid circular imports)
 WS_EVENT_RESIDENT_TICK = "resident_tick"
@@ -76,8 +81,54 @@ THOUGHT_TICK_INTERVAL = 20  # run reasoner every 20th tick (~10 min at 30s inter
 MISSION_TICK_INTERVAL = 4   # check missions every 4th tick (~2 min)
 MAX_SUGGESTIONS_HISTORY = 20
 MAX_REFLECTIONS_HISTORY = 50
+MAX_CYCLE_HISTORY = 200
+MAX_LOG_ENTRIES = 1000
 
 WS_EVENT_RESIDENT_SUGGESTION = "resident_suggestion"
+
+
+@dataclass
+class CycleRecord:
+    """A single cycle history entry."""
+    cycle_id: str
+    cycle_number: int
+    timestamp: str
+    status: str  # success | error
+    action_type: str = ""
+    action_target: str = ""
+    output_preview: str = ""
+    duration_ms: float = 0.0
+    error: str = ""
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass
+class LogEntry:
+    """A single structured log entry."""
+    timestamp: str
+    level: str  # INFO | WARN | ERROR
+    event: str
+    cycle_id: str = ""
+    data: dict = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass
+class AgentSettings:
+    """Runtime-configurable agent settings."""
+    interval_seconds: int = 30
+    model: str = ""  # empty = use default from settings
+    max_cycles_per_day: int = 100
+    quiet_hours_start: str = "22:00"  # HH:MM
+    quiet_hours_end: str = "07:00"    # HH:MM
+    quiet_hours_enabled: bool = False
+
+    def to_dict(self) -> dict:
+        return asdict(self)
 
 
 class ResidentAgent(BackgroundService):
@@ -87,9 +138,16 @@ class ResidentAgent(BackgroundService):
         self._broadcast_fn: Optional[Callable] = None
         self._start_time: Optional[float] = None
         self._restart_requested: bool = False
+        self._paused: bool = False
         # Brain orchestrator state
         self._suggestions: List[Any] = []  # List[ResidentSuggestion]
         self._reflections: List[Any] = []  # List[ResidentReflection]
+        # History & logging
+        self._cycle_history: deque = deque(maxlen=MAX_CYCLE_HISTORY)
+        self._log_entries: deque = deque(maxlen=MAX_LOG_ENTRIES)
+        self._agent_settings = AgentSettings()
+        self._daily_cycle_count: int = 0
+        self._daily_reset_date: str = ""
 
     def set_broadcast(self, fn: Callable) -> None:
         """Register a coroutine for broadcasting WebSocket messages."""
@@ -102,8 +160,144 @@ class ResidentAgent(BackgroundService):
             except Exception as exc:
                 logger.debug("Resident agent broadcast failed: %s", exc)
 
+    def _add_log(self, level: str, event: str, cycle_id: str = "", **data) -> None:
+        """Add a structured log entry to the in-memory ring buffer."""
+        entry = LogEntry(
+            timestamp=_now(),
+            level=level,
+            event=event,
+            cycle_id=cycle_id,
+            data=data,
+        )
+        self._log_entries.append(entry)
+        # Also emit via structlog
+        log_fn = log.info if level == "INFO" else (log.warning if level == "WARN" else log.error)
+        log_fn(event, cycle_id=cycle_id, **data)
+
+    def _add_cycle_record(self, record: CycleRecord) -> None:
+        """Add a cycle record to history."""
+        self._cycle_history.append(record)
+
+    def get_cycle_history(self, limit: int = 20) -> List[dict]:
+        """Return recent cycle history as dicts."""
+        items = list(self._cycle_history)[-limit:]
+        return [r.to_dict() for r in items]
+
+    def get_logs(
+        self, level: Optional[str] = None, cycle: Optional[str] = None, limit: int = 100
+    ) -> List[dict]:
+        """Return filtered log entries."""
+        entries = list(self._log_entries)
+        if level:
+            entries = [e for e in entries if e.level == level.upper()]
+        if cycle:
+            entries = [e for e in entries if e.cycle_id == cycle]
+        return [e.to_dict() for e in entries[-limit:]]
+
+    def clear_logs(self) -> int:
+        """Clear all log entries. Returns count cleared."""
+        count = len(self._log_entries)
+        self._log_entries.clear()
+        return count
+
+    @property
+    def paused(self) -> bool:
+        return self._paused
+
+    async def pause(self) -> dict:
+        """Pause the agent (stays running but skips ticks)."""
+        if self._paused:
+            return {"status": "already_paused"}
+        self._paused = True
+        self._state.status = "paused"
+        self._add_log("INFO", "agent_paused")
+        await self._broadcast({"type": "agent_status", "status": "paused", "is_running": True})
+        return {"status": "paused", "message": "Agent paused."}
+
+    async def resume(self) -> dict:
+        """Resume a paused agent."""
+        if not self._paused:
+            return {"status": "not_paused"}
+        self._paused = False
+        self._state.status = "idle"
+        self._add_log("INFO", "agent_resumed")
+        return {"status": "resumed", "message": "Agent resumed."}
+
+    async def run_now(self) -> dict:
+        """Trigger an immediate cycle, bypassing the interval wait."""
+        if not self._state.is_running:
+            return {"status": "not_running", "message": "Agent is not running."}
+        was_paused = self._paused
+        self._paused = False  # temporarily unpause
+        self._add_log("INFO", "run_now_triggered")
+        try:
+            await self._tick()
+        finally:
+            if was_paused:
+                self._paused = True
+        return {"status": "ok", "message": "Immediate cycle completed.", "cycle": self._state.tick_count}
+
+    async def reset(self) -> dict:
+        """Reset counters, history, and agent memory."""
+        self._state.tick_count = 0
+        self._state.errors_since_start = 0
+        self._state.consecutive_errors = 0
+        self._state.recent_steps = []
+        self._state.alerts = []
+        self._state.current_thought = ""
+        self._state.last_action = None
+        self._cycle_history.clear()
+        self._log_entries.clear()
+        self._daily_cycle_count = 0
+        self._suggestions.clear()
+        self._reflections.clear()
+        self._add_log("INFO", "agent_reset")
+        return {"status": "ok", "message": "Agent reset complete."}
+
+    def get_agent_settings(self) -> dict:
+        return self._agent_settings.to_dict()
+
+    def update_agent_settings(self, updates: dict) -> dict:
+        """Update runtime agent settings."""
+        for key, value in updates.items():
+            if hasattr(self._agent_settings, key):
+                setattr(self._agent_settings, key, value)
+        self._add_log("INFO", "settings_updated", **updates)
+        return self._agent_settings.to_dict()
+
+    def _is_quiet_hours(self) -> bool:
+        """Check if current time is within quiet hours."""
+        if not self._agent_settings.quiet_hours_enabled:
+            return False
+        now = datetime.now()
+        current_minutes = now.hour * 60 + now.minute
+        try:
+            start_h, start_m = map(int, self._agent_settings.quiet_hours_start.split(":"))
+            end_h, end_m = map(int, self._agent_settings.quiet_hours_end.split(":"))
+        except (ValueError, AttributeError):
+            return False
+        start_minutes = start_h * 60 + start_m
+        end_minutes = end_h * 60 + end_m
+        if start_minutes <= end_minutes:
+            return start_minutes <= current_minutes < end_minutes
+        else:
+            # Overnight: e.g. 22:00 - 07:00
+            return current_minutes >= start_minutes or current_minutes < end_minutes
+
+    def _check_daily_limit(self) -> bool:
+        """Check if daily cycle limit is reached. Resets counter at midnight."""
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if self._daily_reset_date != today:
+            self._daily_reset_date = today
+            self._daily_cycle_count = 0
+        return self._daily_cycle_count < self._agent_settings.max_cycles_per_day
+
     def get_state(self) -> dict:
-        return self._state.to_dict()
+        d = self._state.to_dict()
+        d["paused"] = self._paused
+        d["quiet_hours_active"] = self._is_quiet_hours()
+        d["agent_settings"] = self._agent_settings.to_dict()
+        return d
 
     def get_uptime_seconds(self) -> float:
         if self._start_time is None:
@@ -172,20 +366,53 @@ class ResidentAgent(BackgroundService):
 
     async def _tick(self) -> None:
         """Single iteration of the resident agent loop."""
+        tick_start = time.monotonic()
         self._state.tick_count += 1
         self._state.last_tick = _now()
+        cycle_id = f"cycle-{self._state.tick_count:04d}"
 
-        # Heartbeat update with logging
+        # Skip tick if paused
+        if self._paused:
+            await self._heartbeat_broadcast()
+            interval = self._agent_settings.interval_seconds
+            await asyncio.sleep(interval)
+            return
+
+        # Skip tick during quiet hours
+        if self._is_quiet_hours():
+            self._state.status = "quiet"
+            self._add_log("INFO", "quiet_hours_skip", cycle_id=cycle_id)
+            await self._heartbeat_broadcast()
+            await asyncio.sleep(self._agent_settings.interval_seconds)
+            return
+
+        # Skip if daily limit reached
+        if not self._check_daily_limit():
+            self._state.status = "limit_reached"
+            self._add_log("WARN", "daily_limit_reached", cycle_id=cycle_id,
+                          count=self._daily_cycle_count,
+                          max=self._agent_settings.max_cycles_per_day)
+            await self._heartbeat_broadcast()
+            await asyncio.sleep(self._agent_settings.interval_seconds)
+            return
+
+        self._daily_cycle_count += 1
+
+        # Heartbeat update
         self._state.last_heartbeat = _now()
         self._update_heartbeat_status()
-        if self._state.tick_count % 10 == 0:
-            logger.info(
-                "Resident heartbeat: tick=%d status=%s heartbeat=%s errors=%d",
-                self._state.tick_count,
-                self._state.status,
-                self._state.heartbeat_status,
-                self._state.consecutive_errors,
-            )
+
+        self._add_log("INFO", "cycle_start", cycle_id=cycle_id,
+                       status="thinking",
+                       last_action=self._state.last_action or "",
+                       memory_items=len(self._state.recent_steps))
+
+        cycle_record = CycleRecord(
+            cycle_id=cycle_id,
+            cycle_number=self._state.tick_count,
+            timestamp=_now(),
+            status="success",
+        )
 
         try:
             await self._process_task_queue()
@@ -195,16 +422,39 @@ class ResidentAgent(BackgroundService):
             await self._proactive_alerts()
             # Successful tick resets consecutive error counter
             self._state.consecutive_errors = 0
+
+            duration_ms = (time.monotonic() - tick_start) * 1000
+            cycle_record.duration_ms = round(duration_ms, 1)
+            cycle_record.action_type = self._state.last_action or "periodic"
+            self._add_log("INFO", "cycle_end", cycle_id=cycle_id,
+                           duration_ms=cycle_record.duration_ms,
+                           next_run_in=self._agent_settings.interval_seconds)
         except Exception as exc:
             self._state.errors_since_start += 1
             self._state.consecutive_errors += 1
             self._state.status = "error"
-            logger.error("Resident agent tick error: %s", exc)
+            duration_ms = (time.monotonic() - tick_start) * 1000
+            cycle_record.status = "error"
+            cycle_record.error = str(exc)
+            cycle_record.duration_ms = round(duration_ms, 1)
+
+            self._add_log("ERROR", "cycle_failed", cycle_id=cycle_id,
+                           error=str(exc), traceback=traceback.format_exc())
 
             # Self-healing: too many consecutive errors → request restart
             if self._state.consecutive_errors >= CONSECUTIVE_ERROR_THRESHOLD:
                 await self._request_self_healing_restart()
 
+        self._add_cycle_record(cycle_record)
+        await self._heartbeat_broadcast()
+
+        # Count down next_run_in for the UI
+        interval = self._agent_settings.interval_seconds
+        self._state.next_run_in = interval
+        await asyncio.sleep(interval)
+
+    async def _heartbeat_broadcast(self) -> None:
+        """Push status via WebSocket for the live widget."""
         await self._broadcast({
             "type": WS_EVENT_RESIDENT_TICK,
             "tick": self._state.tick_count,
@@ -212,22 +462,22 @@ class ResidentAgent(BackgroundService):
             "last_tick": self._state.last_tick,
             "heartbeat_status": self._state.heartbeat_status,
         })
-
-        # Push detailed agent status for the live widget
         await self._broadcast({
             "type": "agent_status",
             "status": self._state.status,
             "current_thought": self._state.current_thought,
             "last_action": self._state.last_action,
             "cycle_count": self._state.tick_count,
-            "next_run_in": HEARTBEAT_INTERVAL_S,
+            "next_run_in": self._agent_settings.interval_seconds,
             "last_heartbeat": self._state.last_heartbeat,
             "is_running": self._state.is_running,
+            "paused": self._paused,
+            "quiet_hours_active": self._is_quiet_hours(),
+            "error_count": self._state.errors_since_start,
+            "uptime_seconds": round(self.get_uptime_seconds(), 1),
+            "memory_items": len(self._state.recent_steps),
+            "enabled_skills": list(ALLOWED_ACTIONS),
         })
-
-        # Count down next_run_in for the UI
-        self._state.next_run_in = HEARTBEAT_INTERVAL_S
-        await asyncio.sleep(HEARTBEAT_INTERVAL_S)
 
     def _update_heartbeat_status(self) -> None:
         """Determine heartbeat health based on error rate."""
@@ -728,8 +978,13 @@ class ResidentAgent(BackgroundService):
         """
         Jádro resident agenta – sestaví kontext, zavolá LLM, parsuje JSON, exekuuje akci.
         """
+        cycle_id = f"cycle-{self._state.tick_count:04d}"
         self._state.status = "thinking"
         self._state.current_thought = f"Přemýšlím nad úkolem: {task.get('goal', 'unknown')}"
+
+        self._add_log("INFO", "thought_generated", cycle_id=cycle_id,
+                       thought=self._state.current_thought[:100],
+                       tools_available=list(ALLOWED_ACTIONS))
 
         # 1. Sestav system_summary (max 300 tokenů)
         from app.services.resource_monitor import get_resource_monitor
@@ -822,7 +1077,18 @@ class ResidentAgent(BackgroundService):
         # 6. Exekuuj akci deterministicky
         self._state.status = "executing"
         self._state.current_thought = f"Provádím: {payload.get('action', 'unknown')}"
+
+        self._add_log("INFO", "action_planned", cycle_id=cycle_id,
+                       action_type=payload.get("action", "unknown"),
+                       action_target=str(payload.get("params", {})).get("query", payload.get("action", ""))[:80] if isinstance(payload.get("params"), dict) else "",
+                       confidence=payload.get("priority", "low"))
+
         result = await self._dispatch_action(payload)
+
+        self._add_log("INFO", "action_executed", cycle_id=cycle_id,
+                       success=True,
+                       output_preview=str(result)[:80],
+                       action=payload.get("action", "unknown"))
 
         # 7. Výsledek přidej do recent_steps (max 5)
         step_record = {
@@ -1052,6 +1318,39 @@ class ResidentAgent(BackgroundService):
             logger.debug("Failed to store agent handoff in memory: %s", exc)
 
         return {"spawned_agent_id": agent_id, "agent_type": agent_type, "goal": goal}
+
+
+    async def get_agent_memory(self, limit: int = 50) -> List[dict]:
+        """Retrieve agent memory entries from memory_service."""
+        try:
+            from app.services.memory_service import get_memory_service
+            mem = get_memory_service()
+            records = await mem.search_memory("resident agent", top_k=limit)
+            return [r.to_dict() for r in records]
+        except Exception as exc:
+            logger.debug("Failed to get agent memory: %s", exc)
+            return []
+
+    async def clear_agent_memory(self) -> dict:
+        """Clear all resident agent memory entries."""
+        try:
+            from app.services.memory_service import get_memory_service
+            mem = get_memory_service()
+            # Search for resident-tagged memories and delete them
+            records = await mem.search_memory("resident", top_k=200)
+            deleted = 0
+            for r in records:
+                if "resident" in r.tags:
+                    try:
+                        await mem.delete_memory(r.id)
+                        deleted += 1
+                    except Exception:
+                        pass
+            self._add_log("INFO", "memory_cleared", deleted=deleted)
+            return {"status": "ok", "deleted": deleted}
+        except Exception as exc:
+            logger.debug("Failed to clear agent memory: %s", exc)
+            return {"status": "error", "error": str(exc)}
 
 
 def _now() -> str:

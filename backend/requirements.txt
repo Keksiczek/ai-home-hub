@@ -24,3 +24,4 @@ python-pptx>=0.6.21
 EbookLib>=0.18
 beautifulsoup4>=4.12.0
 duckduckgo-search>=4.0
+structlog>=24.1.0
