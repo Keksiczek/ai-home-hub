@@ -363,3 +363,12 @@ class LLMSettingsUpdate(BaseModel):
     active_models: Optional[Dict[str, str]] = None
     parameters: Optional[Dict[str, Any]] = None
     ollama_url: Optional[str] = None
+
+
+class OllamaPerformanceUpdate(BaseModel):
+    context_length: Optional[int] = None        # OLLAMA_CONTEXT_LENGTH
+    kv_cache_type: Optional[str] = None         # OLLAMA_KV_CACHE_TYPE: f16 | q8_0 | q4_0
+    flash_attention: Optional[bool] = None      # OLLAMA_FLASH_ATTENTION
+    num_parallel: Optional[int] = None          # OLLAMA_NUM_PARALLEL 1–4
+    keep_alive: Optional[str] = None            # OLLAMA_KEEP_ALIVE: 0 | 5m | 30m | -1
+    restart_ollama: bool = False                # restart Ollama after save

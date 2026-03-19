@@ -25,6 +25,13 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
             "top_k": 40,
             "max_tokens": 2048,
         },
+        "ollama_performance": {
+            "context_length": 4096,
+            "kv_cache_type": "q8_0",
+            "flash_attention": True,
+            "num_parallel": 1,
+            "keep_alive": "5m",
+        },
     },
     "integrations": {
         "claude_mcp": {
