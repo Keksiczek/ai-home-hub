@@ -229,9 +229,72 @@ async def agent_status() -> dict:
             "last_heartbeat": state.get("last_heartbeat"),
             "tick_count": state.get("tick_count", 0),
             "errors": state.get("errors_since_start", 0),
+            "paused": state.get("paused", False),
+            "quiet_hours_active": state.get("quiet_hours_active", False),
         },
         "background_tasks": bg_tasks,
     }
+
+
+@app.get("/api/agent/history", tags=["agent"])
+async def agent_history(limit: int = 20) -> dict:
+    """Convenience alias for GET /api/resident/history."""
+    from app.services.resident_agent import get_resident_agent
+    agent = get_resident_agent()
+    history = agent.get_cycle_history(limit=limit)
+    return {"history": history, "count": len(history)}
+
+
+@app.get("/api/agent/logs", tags=["agent"])
+async def agent_logs(level: str = None, cycle: str = None, limit: int = 100) -> dict:
+    """Convenience alias for GET /api/resident/logs."""
+    from app.services.resident_agent import get_resident_agent
+    agent = get_resident_agent()
+    logs = agent.get_logs(level=level, cycle=cycle, limit=limit)
+    return {"logs": logs, "count": len(logs)}
+
+
+@app.post("/api/agent/pause", tags=["agent"])
+async def agent_pause() -> dict:
+    """Pause the resident agent."""
+    from app.services.resident_agent import get_resident_agent
+    return await get_resident_agent().pause()
+
+
+@app.post("/api/agent/run-now", tags=["agent"])
+async def agent_run_now() -> dict:
+    """Trigger an immediate agent cycle."""
+    from app.services.resident_agent import get_resident_agent
+    return await get_resident_agent().run_now()
+
+
+@app.post("/api/agent/reset", tags=["agent"])
+async def agent_reset() -> dict:
+    """Reset agent counters and memory."""
+    from app.services.resident_agent import get_resident_agent
+    return await get_resident_agent().reset()
+
+
+@app.patch("/api/agent/settings", tags=["agent"])
+async def agent_settings_patch(updates: dict) -> dict:
+    """Update agent runtime settings."""
+    from app.services.resident_agent import get_resident_agent
+    return get_resident_agent().update_agent_settings(updates)
+
+
+@app.get("/api/agent/memory", tags=["agent"])
+async def agent_memory_list(limit: int = 50) -> dict:
+    """Get agent memory entries."""
+    from app.services.resident_agent import get_resident_agent
+    items = await get_resident_agent().get_agent_memory(limit=limit)
+    return {"memory": items, "count": len(items)}
+
+
+@app.delete("/api/agent/memory", tags=["agent"])
+async def agent_memory_clear() -> dict:
+    """Clear agent memory."""
+    from app.services.resident_agent import get_resident_agent
+    return await get_resident_agent().clear_agent_memory()
 
 
 @app.get("/api/health/setup", tags=["health"])

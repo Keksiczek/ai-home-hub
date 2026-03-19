@@ -5461,6 +5461,9 @@ async function loadResidentDashboard() {
     _residentDashboardData = data;
     renderResidentDashboard(data);
     if (content) show(content);
+    // Also load logs and settings
+    loadAgentLogs();
+    loadAgentSettings();
   } catch (err) {
     showToast('Chyba dashboardu: ' + err.message, 'error');
     // Show inline error with retry – uživatel vidí příčinu místo prázdné stránky
@@ -6158,6 +6161,144 @@ function renderResidentAutoLogbook(data) {
         <span class="auto-logbook-title">${escHtml(t.title)}</span>
       </div>`;
   }).join('');
+}
+
+/* ============================================================
+   AGENT LOG VIEWER + SETTINGS (Resident Agent 2.0)
+   ============================================================ */
+
+async function loadAgentLogs() {
+  const level = document.getElementById('log-level-filter')?.value || '';
+  const cycle = document.getElementById('log-cycle-filter')?.value?.trim() || '';
+  const list = document.getElementById('resident-log-list');
+  if (!list) return;
+
+  let url = '/api/resident/logs?limit=100';
+  if (level) url += `&level=${level}`;
+  if (cycle) url += `&cycle=${encodeURIComponent(cycle)}`;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    const logs = data.logs || [];
+
+    if (!logs.length) {
+      list.innerHTML = '<p class="empty-state">\u017d\u00e1dn\u00e9 z\u00e1znamy</p>';
+      return;
+    }
+
+    list.innerHTML = logs.map(entry => {
+      const levelClass = entry.level === 'ERROR' ? 'log-level--error' :
+                          entry.level === 'WARN' ? 'log-level--warn' : 'log-level--info';
+      const ts = entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString('cs-CZ') : '';
+      const dataStr = entry.data && Object.keys(entry.data).length
+        ? Object.entries(entry.data).map(([k,v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`).join(' ')
+        : '';
+      return `<div class="log-entry">
+        <span class="log-time">${escHtml(ts)}</span>
+        <span class="log-level ${levelClass}">${escHtml(entry.level)}</span>
+        <span class="log-event">${escHtml(entry.event)}</span>
+        ${entry.cycle_id ? `<span class="log-cycle">${escHtml(entry.cycle_id)}</span>` : ''}
+        ${dataStr ? `<span class="log-data">${escHtml(dataStr.substring(0, 120))}</span>` : ''}
+      </div>`;
+    }).join('');
+  } catch (err) {
+    list.innerHTML = `<p class="empty-state">Chyba: ${escHtml(err.message)}</p>`;
+  }
+}
+
+async function exportAgentLogs() {
+  try {
+    const res = await fetch('/api/resident/logs?limit=1000');
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    const blob = new Blob([JSON.stringify(data.logs, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `agent-logs-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('Log exportov\u00e1n');
+  } catch (err) {
+    showToast('Export selhal: ' + err.message, 'error');
+  }
+}
+
+async function clearAgentLogs() {
+  if (!confirm('Smazat v\u0161echny logy agenta?')) return;
+  try {
+    const res = await fetch('/api/resident/logs', { method: 'DELETE' });
+    if (!res.ok) throw new Error(await res.text());
+    showToast('Logy smaz\u00e1ny');
+    loadAgentLogs();
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
+}
+
+async function loadAgentSettings() {
+  try {
+    const res = await fetch('/api/resident/agent-settings');
+    if (!res.ok) return;
+    const data = await res.json();
+    const intEl = document.getElementById('agent-setting-interval');
+    const maxEl = document.getElementById('agent-setting-max-cycles');
+    const qsEl = document.getElementById('agent-setting-quiet-start');
+    const qeEl = document.getElementById('agent-setting-quiet-end');
+    const qenEl = document.getElementById('agent-setting-quiet-enabled');
+    if (intEl) intEl.value = data.interval_seconds || 30;
+    if (maxEl) maxEl.value = data.max_cycles_per_day || 100;
+    if (qsEl) qsEl.value = data.quiet_hours_start || '22:00';
+    if (qeEl) qeEl.value = data.quiet_hours_end || '07:00';
+    if (qenEl) qenEl.checked = !!data.quiet_hours_enabled;
+  } catch (err) { /* ignore */ }
+}
+
+async function saveAgentSettings() {
+  const body = {
+    interval_seconds: parseInt(document.getElementById('agent-setting-interval')?.value) || 30,
+    max_cycles_per_day: parseInt(document.getElementById('agent-setting-max-cycles')?.value) || 100,
+    quiet_hours_start: document.getElementById('agent-setting-quiet-start')?.value || '22:00',
+    quiet_hours_end: document.getElementById('agent-setting-quiet-end')?.value || '07:00',
+    quiet_hours_enabled: !!document.getElementById('agent-setting-quiet-enabled')?.checked,
+  };
+  try {
+    const res = await fetch('/api/resident/agent-settings', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    showToast('Nastaven\u00ed ulo\u017eeno');
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
+}
+
+async function agentRunNow() {
+  try {
+    const res = await fetch('/api/resident/run-now', { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    showToast('Cyklus ' + (data.cycle || '') + ' dokon\u010den');
+    loadResidentDashboard();
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
+}
+
+async function agentReset() {
+  if (!confirm('Resetovat agenta? Sma\u017ee se historie, logy a po\u010d\u00edtadla.')) return;
+  try {
+    const res = await fetch('/api/resident/reset', { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    showToast('Agent resetov\u00e1n');
+    loadResidentDashboard();
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
 }
 
 /* ============================================================
