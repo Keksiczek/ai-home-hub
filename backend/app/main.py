@@ -297,6 +297,34 @@ async def agent_memory_clear() -> dict:
     return await get_resident_agent().clear_agent_memory()
 
 
+@app.delete("/api/agent/memory/{memory_id}", tags=["agent"])
+async def agent_memory_delete_by_id(memory_id: str) -> dict:
+    """Delete a single agent memory entry by ID."""
+    from app.services.resident_agent import get_resident_agent
+    result = await get_resident_agent().delete_agent_memory_by_id(memory_id)
+    if result.get("status") == "not_found":
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Memory {memory_id} not found")
+    return result
+
+
+@app.post("/api/agent/memory", tags=["agent"])
+async def agent_memory_add(body: dict) -> dict:
+    """Manually add an entry to agent memory.
+
+    Body::
+
+        {"content": "User prefers dark mode", "tags": ["#preference"]}
+    """
+    from fastapi import HTTPException
+    from app.services.resident_agent import get_resident_agent
+    content = body.get("content", "").strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="'content' is required")
+    tags = body.get("tags", [])
+    return await get_resident_agent().add_agent_memory_manual(content=content, tags=tags)
+
+
 @app.get("/api/health/setup", tags=["health"])
 async def setup_check() -> dict:
     """Return a checklist of first-time configuration items."""

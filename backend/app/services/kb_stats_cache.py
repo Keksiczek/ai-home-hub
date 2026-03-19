@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from app.services.metrics_service import kb_chunks_total
 from app.services.settings_service import get_settings_service
 
 logger = logging.getLogger(__name__)
@@ -81,6 +82,8 @@ def refresh_cache() -> Dict[str, Any]:
     data = compute_stats()
     _write_cache(data)
     logger.info("KB stats cache refreshed: %d chunks", data["total_chunks"])
+    # Update Prometheus metric for default collection
+    kb_chunks_total.labels(collection="knowledge_base").set(data["total_chunks"])
     return data
 
 

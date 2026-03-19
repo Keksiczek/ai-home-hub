@@ -11,6 +11,7 @@ from fastapi import APIRouter, File, Form, UploadFile, WebSocket, WebSocketDisco
 
 from app.models.schemas import ChatRequest, ChatResponse
 from app.services.llm_service import get_llm_service
+from app.services.metrics_service import chat_latency_seconds, chat_requests_total
 from app.services.session_service import get_session_service
 from app.utils.context_helpers import enrich_message
 
@@ -91,6 +92,10 @@ async def chat_stream_ws(websocket: WebSocket) -> None:
     cfg = llm_svc._settings.get_llm_config(profile=profile)
     model_used = model_override or cfg.get("model", "llama3.2")
 
+    # Prometheus instrumentation
+    chat_requests_total.labels(profile=profile or "default", model=model_used).inc()
+    chat_latency_seconds.labels(model=model_used).observe(time.monotonic() - start)
+
     meta: Dict[str, Any] = {
         "provider": "ollama",
         "model": model_used,
@@ -160,6 +165,11 @@ async def chat(request: ChatRequest) -> ChatResponse:
     if meta.get("provider") == "timeout":
         meta["error"] = True
         meta["error_type"] = "timeout"
+
+    # Prometheus instrumentation
+    model_used = meta.get("model", "unknown")
+    chat_requests_total.labels(profile=request.profile or "default", model=model_used).inc()
+    chat_latency_seconds.labels(model=model_used).observe(meta.get("latency_ms", 0) / 1000)
 
     # Persist both turns (store original message, not the one with KB context)
     session_svc.save_message(session_id, "user", request.message)

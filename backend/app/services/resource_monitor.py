@@ -11,6 +11,8 @@ from typing import Optional
 
 import psutil
 
+from app.services.metrics_service import ollama_memory_bytes
+
 logger = logging.getLogger(__name__)
 
 # Thresholds
@@ -121,6 +123,7 @@ class ResourceMonitor:
                 ollama_rss += proc.memory_info().rss / 1024 / 1024
             except (psutil.AccessDenied, psutil.NoSuchProcess):
                 pass
+        ollama_memory_bytes.set(ollama_rss * 1024 * 1024)
 
         ram_pct = vm.percent
         warnings = []

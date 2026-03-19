@@ -96,6 +96,46 @@ documents_parsed_total = Counter(
     ["status"],  # "success" or "error"
 )
 
+# ── Chat metrics ──────────────────────────────────────────────
+chat_requests_total = Counter(
+    "chat_requests_total",
+    "Total chat requests",
+    ["profile", "model"],
+)
+
+chat_latency_seconds = Histogram(
+    "chat_latency_seconds",
+    "Chat response latency",
+    ["model"],
+    buckets=[0.5, 1, 2, 5, 10, 30, 60],
+)
+
+# ── Active jobs gauge ─────────────────────────────────────────
+active_jobs = Gauge(
+    "active_jobs",
+    "Currently running jobs",
+)
+
+# ── KB chunks per collection ──────────────────────────────────
+kb_chunks_total = Gauge(
+    "kb_chunks_total",
+    "Total KB chunks",
+    ["collection"],
+)
+
+# ── Resident agent cycles ─────────────────────────────────────
+agent_cycles_total = Counter(
+    "agent_cycles_total",
+    "Resident agent cycles",
+    ["status"],
+)
+
+# ── Ollama memory ─────────────────────────────────────────────
+ollama_memory_bytes = Gauge(
+    "ollama_memory_bytes",
+    "Ollama RSS memory usage in bytes",
+)
+
 # ── Application info (static) ─────────────────────────────────
 app_info = Info("ai_home_hub", "Application version and config")
 

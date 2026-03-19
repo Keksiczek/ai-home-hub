@@ -8,6 +8,7 @@ from typing import Any, Callable, Coroutine, Dict, List, Optional, Set
 from app.services.background_service import BackgroundService
 from app.services.job_service import Job, JobService
 from app.services.metrics_service import (
+    active_jobs,
     job_duration_seconds,
     job_queue_depth,
     update_job_queue_metrics_from_list,
@@ -325,6 +326,7 @@ class JobWorker(BackgroundService):
 
         # Check how many slots are available
         running_count = len(self._running_job_ids)
+        active_jobs.set(running_count)
         available_slots = max_concurrent - running_count
         if available_slots <= 0:
             return
