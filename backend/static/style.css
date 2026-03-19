@@ -4409,3 +4409,189 @@ details[open].reasoning-cycle-item > .reasoning-cycle-summary::before {
   --warning: #f59e0b;
   --danger: #ef4444;
 }
+
+/* ============================================================
+   KB MANAGER – Collections & Search
+   ============================================================ */
+
+.kb-manager { }
+
+.kb-collections {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.kb-card {
+  background: var(--bg-elevated, #0d1117);
+  border: 1px solid var(--border, #21262d);
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  transition: border-color 0.15s;
+}
+
+.kb-card:hover {
+  border-color: var(--accent, #6366f1);
+}
+
+.kb-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.kb-icon { font-size: 1.1rem; }
+
+.kb-name {
+  font-weight: 600;
+  color: var(--text, #e5e7eb);
+  flex: 1;
+}
+
+.kb-count {
+  font-size: 0.8rem;
+  color: var(--text-muted, #9ca3af);
+  background: var(--bg-card, #0b1120);
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.25rem;
+}
+
+.kb-actions {
+  display: flex;
+  gap: 0.25rem;
+  margin-left: auto;
+}
+
+.kb-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+}
+
+.tag {
+  font-size: 0.75rem;
+  background: var(--accent-soft, rgba(99,102,241,0.15));
+  color: var(--accent, #6366f1);
+  padding: 0.1rem 0.45rem;
+  border-radius: 0.25rem;
+}
+
+/* KB Search Results */
+.kb-result-card {
+  background: var(--bg-card, #0b1120);
+  border: 1px solid var(--border, #21262d);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.kb-result-header {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  font-size: 0.8rem;
+}
+
+.kb-result-rank { font-weight: 700; color: var(--accent, #6366f1); }
+.kb-result-score { color: var(--text-muted, #9ca3af); }
+.kb-result-collection {
+  background: var(--bg-elevated, #0d1117);
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.kb-result-preview {
+  font-size: 0.875rem;
+  color: var(--text, #e5e7eb);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ============================================================
+   AGENT MEMORY TABLE
+   ============================================================ */
+
+.agent-memory { }
+
+.memory-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.memory-table th {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  color: var(--text-muted, #9ca3af);
+  border-bottom: 1px solid var(--border, #21262d);
+  font-weight: 600;
+  font-size: 0.8rem;
+}
+
+.memory-table td {
+  padding: 0.45rem 0.75rem;
+  border-bottom: 1px solid var(--border, #21262d);
+  vertical-align: top;
+}
+
+.memory-table tbody tr:hover { background: var(--bg-elevated, #0d1117); }
+
+.btn--danger-text { color: var(--danger, #ef4444) !important; }
+.btn--danger-text:hover { background: rgba(239,68,68,0.1) !important; }
+
+/* ============================================================
+   TOAST CONTAINER (multi-toast)
+   ============================================================ */
+
+.toast-container {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 0.5rem;
+  z-index: 9999;
+  pointer-events: none;
+}
+
+.toast-container .toast {
+  position: static;
+  pointer-events: auto;
+  animation: toast-in 0.2s ease;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ============================================================
+   LIGHT THEME – KB MANAGER & MEMORY
+   ============================================================ */
+
+[data-theme="light"] .kb-card {
+  background: #fff;
+  border-color: #d1d5db;
+}
+
+[data-theme="light"] .kb-result-card {
+  background: #f9fafb;
+  border-color: #d1d5db;
+}
+
+[data-theme="light"] .memory-table th,
+[data-theme="light"] .memory-table td {
+  border-color: #e5e7eb;
+}
+
+[data-theme="light"] .memory-table tbody tr:hover {
+  background: #f3f4f6;
+}
