@@ -21,6 +21,7 @@ from app.routers import media as media_router
 from app.routers import document_analysis as document_analysis_router
 from app.routers import setup as setup_router
 from app.routers import prompts as prompts_router
+from app.routers import models as models_router
 from app.routers.websocket_router import router as ws_router
 
 # Wire up broadcast callback so agents/tasks can push WS updates
@@ -198,6 +199,7 @@ app.include_router(document_analysis_router.router, prefix="/api/document-analys
 app.include_router(setup_router.router, prefix="/api", tags=["setup"])
 app.include_router(prompts_router.router, prefix="/api", tags=["prompts"])
 app.include_router(profiles_router.router, prefix="/api", tags=["profiles"])
+app.include_router(models_router.router, prefix="/api", tags=["models", "llm"])
 
 # Status (has its own /api/status prefix)
 app.include_router(status.router)

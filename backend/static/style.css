@@ -4278,6 +4278,95 @@ details[open].reasoning-cycle-item > .reasoning-cycle-summary::before {
 }
 
 /* ============================================================
+   MODEL MANAGER & LLM SETTINGS
+   ============================================================ */
+
+/* Model list rows */
+.model-list { display: flex; flex-direction: column; gap: 6px; }
+
+.model-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: rgba(255,255,255,0.04);
+  border-radius: var(--radius-md, 8px);
+  transition: background 0.15s;
+}
+.model-row:hover { background: rgba(255,255,255,0.07); }
+
+.model-row--hf {
+  flex-wrap: wrap;
+}
+
+.model-row-icon { font-size: 18px; flex-shrink: 0; }
+.model-row-name { font-weight: 600; color: var(--text-heading, #f1f5f9); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-row-size { color: var(--text-muted, #9ca3af); font-size: 13px; flex-shrink: 0; }
+
+.model-badge {
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.model-badge--chat    { background: rgba(59,130,246,0.12); color: #3b82f6; }
+.model-badge--vision  { background: rgba(139,92,246,0.12); color: #8b5cf6; }
+.model-badge--code    { background: rgba(16,185,129,0.12); color: #10b981; }
+.model-badge--embedding { background: rgba(245,158,11,0.12); color: #f59e0b; }
+.model-badge--installed { background: rgba(34,197,94,0.12); color: #22c55e; font-weight: 500; }
+
+.model-delete-btn { padding: 4px 8px !important; font-size: 14px; opacity: 0.5; }
+.model-delete-btn:hover { opacity: 1; }
+
+/* Models sub-tabs */
+.models-subtab--active { border-color: var(--accent, #6366f1) !important; color: var(--accent, #6366f1) !important; }
+
+/* Download overlay */
+.download-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(8px);
+  z-index: 1000;
+}
+.download-modal-card {
+  background: var(--bg-card, #0b1120);
+  border: 1px solid var(--border-focus, #6366f1);
+  border-radius: var(--radius-xl, 16px);
+  padding: 28px 32px;
+  min-width: 380px;
+  max-width: 480px;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+}
+.download-modal-card h3 {
+  margin: 0 0 8px 0;
+  color: var(--text-heading, #f1f5f9);
+}
+
+/* LLM settings page */
+.llm-status-dot { font-size: 14px; }
+
+/* Slider styling */
+.slider {
+  width: 100%;
+  accent-color: var(--accent, #6366f1);
+  cursor: pointer;
+}
+
+/* Small buttons */
+.btn--sm { padding: 4px 12px; font-size: 12px; }
+
+/* Light theme overrides for model manager */
+[data-theme="light"] .model-row { background: rgba(0,0,0,0.03); }
+[data-theme="light"] .model-row:hover { background: rgba(0,0,0,0.06); }
+[data-theme="light"] .download-overlay { background: rgba(255,255,255,0.7); }
+[data-theme="light"] .download-modal-card { background: #fff; border-color: var(--accent); }
+
+/* ============================================================
    ENHANCED CSS THEME OVERRIDES
    ============================================================ */
 :root {

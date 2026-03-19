@@ -267,6 +267,8 @@ function switchTab(tabName) {
   if (tabName === 'resident') loadResidentDashboard();
   if (tabName === 'overnight') loadOvernightStatus();
   if (tabName === 'knowledge') { loadKbOverview(); loadKBFiles(); loadRetentionConfig(); }
+  if (tabName === 'models') loadModelsTab();
+  if (tabName === 'llm-settings') loadLLMSettingsTab();
 }
 
 function bindMobileMenu() {
@@ -7438,6 +7440,365 @@ async function deleteJobUI(jobId) {
 }
 
 /* ============================================================
+   MODEL MANAGER TAB
+   ============================================================ */
+
+let _currentModelDownload = null; // AbortController for SSE
+
+async function loadModelsTab() {
+  loadInstalledModels();
+  loadModelsDiskUsage();
+}
+
+async function loadInstalledModels() {
+  try {
+    const resp = await fetch('/api/models/installed');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    renderInstalledModels(data.models || []);
+  } catch (err) {
+    document.getElementById('installed-models-list').innerHTML =
+      '<p class="empty-state">Chyba: ' + escHtml(err.message) + '</p>';
+  }
+}
+
+function renderInstalledModels(models) {
+  const el = document.getElementById('installed-models-list');
+  if (!models.length) {
+    el.innerHTML = '<p class="empty-state">Žádné nainstalované modely</p>';
+    return;
+  }
+  el.innerHTML = models.map(m => {
+    const sizeGB = (m.size / (1024*1024*1024)).toFixed(1);
+    const typeIcon = m.type === 'vision' ? '\u{1F441}' : m.type === 'code' ? '\u{1F4BB}' : '\u{1F4AC}';
+    return `<div class="model-row">
+      <span class="model-row-icon">${typeIcon}</span>
+      <span class="model-row-name">${escHtml(m.name)}</span>
+      <span class="model-row-size">${sizeGB} GB</span>
+      <span class="model-badge model-badge--${m.type}">${m.type}</span>
+      <button class="btn btn--ghost btn--sm model-delete-btn" onclick="deleteOllamaModel('${escHtml(m.name)}')" title="Smazat">\u{1F5D1}</button>
+    </div>`;
+  }).join('');
+}
+
+async function loadModelsDiskUsage() {
+  try {
+    const resp = await fetch('/api/models/disk');
+    const data = await resp.json();
+    const freeGB = (data.free / (1024*1024*1024)).toFixed(1);
+    const totalGB = (data.total / (1024*1024*1024)).toFixed(0);
+    const modelsGB = (data.models_size / (1024*1024*1024)).toFixed(1);
+    const pct = ((data.models_size / data.total) * 100).toFixed(1);
+    document.getElementById('models-disk-label').innerHTML =
+      `\u{1F4BE} Modely: ${modelsGB} GB | Volno: ${freeGB} GB / ${totalGB} GB`;
+    document.getElementById('models-disk-progress').style.width = pct + '%';
+  } catch (e) { /* non-critical */ }
+}
+
+function switchModelsSubtab(sub) {
+  document.querySelectorAll('.models-subtab').forEach(b => {
+    b.classList.toggle('models-subtab--active', b.dataset.subtab === sub);
+    b.classList.toggle('btn--primary', b.dataset.subtab === sub);
+    b.classList.toggle('btn--ghost', b.dataset.subtab !== sub);
+  });
+  document.querySelectorAll('.models-subpanel').forEach(p => {
+    p.classList.toggle('hidden', p.id !== 'models-sub-' + sub);
+  });
+  if (sub === 'recommended') loadRecommendedModels();
+}
+
+async function searchOllamaModels() {
+  const q = document.getElementById('ollama-search-input').value.trim();
+  if (!q) return;
+  try {
+    const resp = await fetch('/api/models/search/ollama?q=' + encodeURIComponent(q));
+    const data = await resp.json();
+    renderSearchResults(data.results || [], 'ollama-search-results', 'ollama');
+  } catch (err) {
+    showToast('Chyba hledání: ' + err.message, 'error');
+  }
+}
+
+async function searchHuggingFaceModels() {
+  const q = document.getElementById('hf-search-input').value.trim();
+  if (!q) return;
+  const el = document.getElementById('hf-search-results');
+  el.innerHTML = '<p class="empty-state">Hledám...</p>';
+  try {
+    const resp = await fetch('/api/models/search/huggingface?q=' + encodeURIComponent(q));
+    const data = await resp.json();
+    renderSearchResults(data.results || [], 'hf-search-results', 'huggingface');
+  } catch (err) {
+    el.innerHTML = '<p class="empty-state">Chyba: ' + escHtml(err.message) + '</p>';
+  }
+}
+
+function renderSearchResults(results, containerId, source) {
+  const el = document.getElementById(containerId);
+  if (!results.length) {
+    el.innerHTML = '<p class="empty-state">Žádné výsledky</p>';
+    return;
+  }
+  if (source === 'huggingface') {
+    el.innerHTML = results.map(m => `<div class="model-row model-row--hf">
+      <div style="flex:1;min-width:0">
+        <div class="model-row-name">${escHtml(m.name)}</div>
+        <div style="font-size:12px;color:var(--text-dim)">${escHtml(m.id)}</div>
+      </div>
+      <span style="color:var(--text-muted);font-size:12px">\u{2B07} ${(m.downloads||0).toLocaleString()} | \u{2764} ${m.likes||0}</span>
+      <button class="btn btn--primary btn--sm" onclick="pullModelByName('${escHtml(m.ollama_name)}')">\u{2B07}\u{FE0F} Stáhnout</button>
+    </div>`).join('');
+  } else {
+    el.innerHTML = results.map(m => `<div class="model-row">
+      <span class="model-row-name">${escHtml(m.name)}</span>
+      <span class="model-row-size">${m.size_gb} GB</span>
+      <span class="model-badge model-badge--${m.type}">${m.type}</span>
+      <span style="color:var(--text-muted);font-size:12px">\u{2B07} ${m.pulls}</span>
+      <button class="btn btn--primary btn--sm" onclick="pullModelByName('${escHtml(m.name)}')">\u{2B07}\u{FE0F} Stáhnout</button>
+    </div>`).join('');
+  }
+}
+
+async function loadRecommendedModels() {
+  try {
+    const resp = await fetch('/api/models/recommended');
+    const data = await resp.json();
+    const el = document.getElementById('recommended-models-list');
+    el.innerHTML = (data.models || []).map(m => {
+      const icon = m.installed ? '\u{2705}' : '\u{1F4A1}';
+      const action = m.installed
+        ? '<span class="model-badge model-badge--installed">nainstalován</span>'
+        : `<button class="btn btn--primary btn--sm" onclick="pullModelByName('${escHtml(m.name)}')">\u{2B07}\u{FE0F} Stáhnout</button>`;
+      return `<div class="model-row">
+        <span class="model-row-icon">${icon}</span>
+        <span class="model-row-name">${escHtml(m.name)}</span>
+        <span class="model-row-size">${m.size_gb} GB</span>
+        <span class="model-badge model-badge--${m.type}">${m.type}</span>
+        <span style="color:var(--text-dim);font-size:12px">${escHtml(m.label)}</span>
+        ${action}
+      </div>`;
+    }).join('');
+  } catch (err) {
+    document.getElementById('recommended-models-list').innerHTML =
+      '<p class="empty-state">Chyba: ' + escHtml(err.message) + '</p>';
+  }
+}
+
+async function pullModelByName(name) {
+  if (!name) return;
+  document.getElementById('dl-model-name').textContent = name;
+  document.getElementById('dl-progress-bar').style.width = '0%';
+  document.getElementById('dl-percent').textContent = '0%';
+  document.getElementById('dl-size').textContent = '';
+  document.getElementById('dl-speed').textContent = '';
+  document.getElementById('dl-status').textContent = 'Připravuji stahování...';
+  document.getElementById('download-overlay').classList.remove('hidden');
+
+  try {
+    const controller = new AbortController();
+    _currentModelDownload = controller;
+    const resp = await fetch('/api/models/pull', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name }),
+      signal: controller.signal
+    });
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const data = JSON.parse(line.slice(6));
+          document.getElementById('dl-progress-bar').style.width = (data.percent || 0) + '%';
+          document.getElementById('dl-percent').textContent = (data.percent || 0) + '%';
+          document.getElementById('dl-status').textContent = data.status || '';
+          if (data.total > 0) {
+            document.getElementById('dl-size').textContent =
+              _formatBytes(data.completed) + ' / ' + _formatBytes(data.total);
+          }
+          if (data.speed_mbps > 0) {
+            document.getElementById('dl-speed').textContent = data.speed_mbps + ' MB/s';
+          }
+          if (data.status === 'success' || data.percent >= 100) {
+            document.getElementById('download-overlay').classList.add('hidden');
+            _currentModelDownload = null;
+            showToast('\u{2705} ' + name + ' úspěšně stažen!', 'success');
+            loadInstalledModels();
+            loadModelsDiskUsage();
+            return;
+          }
+          if (data.status === 'error') {
+            document.getElementById('download-overlay').classList.add('hidden');
+            _currentModelDownload = null;
+            showToast('\u{274C} Chyba: ' + (data.message || 'neznámá chyba'), 'error');
+            return;
+          }
+        } catch (e) { /* skip malformed line */ }
+      }
+    }
+    document.getElementById('download-overlay').classList.add('hidden');
+    _currentModelDownload = null;
+    showToast('\u{2705} ' + name + ' stažen!', 'success');
+    loadInstalledModels();
+    loadModelsDiskUsage();
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      showToast('Stahování zrušeno', 'warning');
+    } else {
+      showToast('\u{274C} Chyba stahování: ' + err.message, 'error');
+    }
+    document.getElementById('download-overlay').classList.add('hidden');
+    _currentModelDownload = null;
+  }
+}
+
+function cancelModelDownload() {
+  if (_currentModelDownload) {
+    _currentModelDownload.abort();
+    _currentModelDownload = null;
+  }
+  document.getElementById('download-overlay').classList.add('hidden');
+}
+
+async function deleteOllamaModel(name) {
+  if (!confirm('Smazat model ' + name + '?')) return;
+  try {
+    const resp = await fetch('/api/models/' + encodeURIComponent(name), { method: 'DELETE' });
+    if (resp.ok) {
+      showToast('\u{1F5D1} ' + name + ' smazán', 'success');
+      loadInstalledModels();
+      loadModelsDiskUsage();
+    } else {
+      showToast('\u{274C} Chyba při mazání', 'error');
+    }
+  } catch (err) {
+    showToast('\u{274C} ' + err.message, 'error');
+  }
+}
+
+/* ============================================================
+   LLM SETTINGS TAB
+   ============================================================ */
+
+async function loadLLMSettingsTab() {
+  try {
+    const [settingsResp, modelsResp] = await Promise.all([
+      fetch('/api/llm/settings'),
+      fetch('/api/models/installed')
+    ]);
+    const settings = await settingsResp.json();
+    const modelsData = await modelsResp.json();
+    const models = modelsData.models || [];
+
+    // Populate model selects
+    const roles = ['chat', 'vision', 'code', 'agent'];
+    roles.forEach(role => {
+      const sel = document.getElementById('llm-' + role + '-model');
+      sel.innerHTML = models.map(m =>
+        '<option value="' + escHtml(m.name) + '"' +
+        (m.name === (settings.active_models || {})[role] ? ' selected' : '') +
+        '>' + escHtml(m.name) + '</option>'
+      ).join('');
+    });
+
+    // Set parameter sliders
+    const p = settings.parameters || {};
+    setSliderVal('llm-temperature', 'llm-temp-val', p.temperature ?? 0.3);
+    setSliderVal('llm-max-tokens', 'llm-tokens-val', p.max_tokens ?? 2048);
+    setSliderVal('llm-context-length', 'llm-ctx-val', p.context_length ?? 4096);
+    setSliderVal('llm-top-p', 'llm-topp-val', p.top_p ?? 0.9);
+
+    // Ollama URL
+    document.getElementById('llm-ollama-url').value = settings.ollama_url || 'http://localhost:11434';
+
+    // Auto-test connection
+    testOllamaConnection();
+  } catch (err) {
+    showToast('Chyba načítání LLM nastavení: ' + err.message, 'error');
+  }
+}
+
+function setSliderVal(sliderId, labelId, value) {
+  const slider = document.getElementById(sliderId);
+  const label = document.getElementById(labelId);
+  if (slider) slider.value = value;
+  if (label) label.textContent = value;
+}
+
+async function saveLLMSettings() {
+  const payload = {
+    active_models: {
+      chat: document.getElementById('llm-chat-model').value,
+      vision: document.getElementById('llm-vision-model').value,
+      code: document.getElementById('llm-code-model').value,
+      agent: document.getElementById('llm-agent-model').value
+    },
+    parameters: {
+      temperature: parseFloat(document.getElementById('llm-temp-val').textContent),
+      max_tokens: parseInt(document.getElementById('llm-tokens-val').textContent),
+      context_length: parseInt(document.getElementById('llm-ctx-val').textContent),
+      top_p: parseFloat(document.getElementById('llm-topp-val').textContent)
+    },
+    ollama_url: document.getElementById('llm-ollama-url').value
+  };
+
+  try {
+    const resp = await fetch('/api/llm/settings', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (resp.ok) {
+      showToast('\u{2705} Nastavení uloženo!', 'success');
+    } else {
+      showToast('\u{274C} Chyba při ukládání', 'error');
+    }
+  } catch (err) {
+    showToast('\u{274C} ' + err.message, 'error');
+  }
+}
+
+async function testOllamaConnection() {
+  const statusEl = document.getElementById('llm-server-status');
+  statusEl.innerHTML = 'Status: \u{23F3} Testuji...';
+  try {
+    const resp = await fetch('/api/llm/test', { method: 'POST' });
+    const data = await resp.json();
+    if (data.status === 'ok') {
+      statusEl.innerHTML = 'Status: \u{1F7E2} Online | Verze: ' + escHtml(data.version || '?') +
+        ' | Modelů: ' + (data.model_count || 0);
+      showToast('\u{2705} Ollama online', 'success');
+    } else {
+      statusEl.innerHTML = 'Status: \u{1F534} Offline – ' + escHtml(data.message || '');
+      showToast('\u{274C} Ollama nedostupná', 'error');
+    }
+  } catch (err) {
+    statusEl.innerHTML = 'Status: \u{1F534} Chyba – ' + escHtml(err.message);
+  }
+}
+
+async function restartOllamaServer() {
+  if (!confirm('Restartovat Ollama server?')) return;
+  try {
+    await fetch('/api/llm/restart-ollama', { method: 'POST' });
+    showToast('\u{1F504} Ollama se restartuje...', 'warning');
+    // Re-test after delay
+    setTimeout(testOllamaConnection, 5000);
+  } catch (err) {
+    showToast('\u{274C} Restart selhal: ' + err.message, 'error');
+  }
+}
+
+/* ============================================================
    INIT NEW FEATURES (called from DOMContentLoaded)
    ============================================================ */
 document.addEventListener('DOMContentLoaded', function() {
@@ -7445,4 +7806,10 @@ document.addEventListener('DOMContentLoaded', function() {
   bindJobRunControls();
   initChatDragDrop();
   initActivityBarTooltips();
+
+  // Model search Enter key bindings
+  var ollamaInput = document.getElementById('ollama-search-input');
+  if (ollamaInput) ollamaInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') searchOllamaModels(); });
+  var hfInput = document.getElementById('hf-search-input');
+  if (hfInput) hfInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') searchHuggingFaceModels(); });
 });
