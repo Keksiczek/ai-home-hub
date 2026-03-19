@@ -343,3 +343,23 @@ class PromptGeneratorRequest(BaseModel):
 class PromptGeneratorResponse(BaseModel):
     generated_prompt: str
     example_usage: str
+
+
+# ── Model Manager ─────────────────────────────────────────────
+
+class ModelPullRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+
+
+class ModelDeleteRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+
+
+class ModelSearchRequest(BaseModel):
+    q: str = Field(..., min_length=1, max_length=200)
+
+
+class LLMSettingsUpdate(BaseModel):
+    active_models: Optional[Dict[str, str]] = None
+    parameters: Optional[Dict[str, Any]] = None
+    ollama_url: Optional[str] = None
