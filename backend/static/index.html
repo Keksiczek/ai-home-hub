@@ -108,6 +108,13 @@
       <span class="activity-item" id="activity-ollama" title="Ollama">&#9898; <span id="act-ollama-status">?</span></span>
       <span class="activity-divider">|</span>
       <span class="activity-item" id="activity-ram" title="RAM">&#128190; RAM: <span id="act-ram-usage">?</span></span>
+      <span class="activity-divider">|</span>
+      <span class="activity-item" id="activity-metrics" title="Prometheus metriky">
+        &#128172; <span id="act-chat-total">?</span> req
+        <span class="activity-divider">|</span>&#9889; <span id="act-chat-latency">?</span>s avg
+        <span class="activity-divider">|</span>&#128188; Jobs: <span id="act-active-jobs-m">?</span>
+        <span class="activity-divider">|</span>&#128257; <span id="act-agent-cycles">?</span> cyklů
+      </span>
     </div>
 
     <!-- ======================== CHAT TAB ======================== -->
@@ -300,6 +307,42 @@
 
       <section id="agents-list" class="agents-grid">
         <p class="empty-state">&#381;&aacute;dn&iacute; agenti neb&ecaron;&zcaron;&iacute;.</p>
+      </section>
+
+      <!-- Agent Memory section -->
+      <section class="card agent-memory" style="margin-top:1.5rem">
+        <div class="section-header" style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem">
+          <h3 class="card-title" style="margin:0">&#129504; Agent Pam&#283;&#357;</h3>
+          <span class="memory-count hint-text" id="agent-memory-count"></span>
+          <div style="margin-left:auto;display:flex;gap:0.5rem">
+            <button class="btn btn--ghost btn--small" onclick="loadAgentMemoryTable()">&#8635; Obnovit</button>
+            <button class="btn btn--ghost btn--small" onclick="exportAgentMemory()">&#128196; Export JSON</button>
+            <button class="btn btn--danger btn--small" onclick="clearAllAgentMemory()">&#128465; Vymazat v&#353;e</button>
+          </div>
+        </div>
+
+        <div class="memory-search" style="margin-bottom:0.75rem">
+          <input type="text" class="input" placeholder="&#128269; Hledat v pam&#283;ti..." id="agent-memory-search"
+            oninput="filterAgentMemory(this.value)" style="max-width:340px" />
+        </div>
+
+        <div style="overflow-x:auto">
+          <table class="memory-table" id="agent-memory-table">
+            <thead>
+              <tr><th>#</th><th>&#268;as</th><th>Obsah</th><th>Tagy</th><th></th></tr>
+            </thead>
+            <tbody id="agent-memory-rows">
+              <tr><td colspan="5" class="hint-text" style="text-align:center;padding:1rem">Na&#269;&iacute;t&aacute;m...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Add memory manually -->
+        <div class="memory-add" style="margin-top:0.75rem;display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center">
+          <input type="text" class="input" id="agent-new-memory" placeholder="P&#345;idat pozn&aacute;mku do pam&#283;ti..." style="flex:2;min-width:180px" />
+          <input type="text" class="input" id="agent-new-memory-tags" placeholder="tagy: #lean #ci" style="flex:1;min-width:120px" />
+          <button class="btn btn--primary btn--small" onclick="addAgentMemoryItem()">&#10133; P&#345;idat</button>
+        </div>
       </section>
 
     </div><!-- /tab-agents -->
@@ -1719,6 +1762,66 @@
         <span class="badge" id="kb-doc-count-badge" title="Celkem dokumentů v KB">0 dok.</span>
       </div>
 
+      <!-- KB Manager: Collections + Search -->
+      <section class="card kb-manager">
+        <div class="kb-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
+          <h2 class="card-title" style="margin:0">&#128218; KB Manager – Kolekce</h2>
+          <button class="btn btn--primary btn--small" onclick="showCreateKBModal()">&#10133; Nov&aacute; KB</button>
+        </div>
+
+        <!-- Collections list -->
+        <div class="kb-collections" id="kb-manager-collections">
+          <p class="hint-text empty-state">Na&#269;&iacute;t&aacute;m kolekce...</p>
+        </div>
+
+        <!-- Search panel -->
+        <div class="kb-search" style="margin-top:1rem;display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center">
+          <input type="text" class="input" id="kb-manager-query" placeholder="&#128269; Hledat ve znalostní b&aacute;zi..." style="flex:2;min-width:180px" />
+          <select class="input" id="kb-manager-collection-filter" style="flex:1;min-width:130px">
+            <option value="">V&#353;echny kolekce</option>
+          </select>
+          <select class="input" id="kb-manager-tag-filter" style="flex:1;min-width:120px">
+            <option value="">V&#353;echny tagy</option>
+            <option value="lean">#lean</option>
+            <option value="dax">#dax</option>
+            <option value="ci">#ci</option>
+            <option value="workflow">#workflow</option>
+          </select>
+          <button class="btn btn--secondary btn--small" onclick="searchKBManager()">Hledat</button>
+        </div>
+
+        <!-- Search results -->
+        <div id="kb-manager-results" class="hidden" style="margin-top:0.75rem"></div>
+      </section>
+
+      <!-- Create KB Modal -->
+      <div class="modal-overlay hidden" id="create-kb-modal-overlay" role="dialog" aria-modal="true">
+        <div class="modal" style="max-width:420px">
+          <div class="modal-header">
+            <h3 class="modal-title">&#128218; Nov&aacute; KB kolekce</h3>
+            <button class="modal-close" onclick="closeCreateKBModal()">&#10005;</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-group">
+              <label class="form-label" for="new-kb-name">N&aacute;zev kolekce:</label>
+              <input type="text" class="input" id="new-kb-name" placeholder="nap&#345;. powerbi" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="new-kb-desc">Popis (voliteln&yacute;):</label>
+              <input type="text" class="input" id="new-kb-desc" placeholder="DAX &amp; reporting dokumenty" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="new-kb-tags">Tagy (&#269;&aacute;rkou, nap&#345;. #dax,#lean):</label>
+              <input type="text" class="input" id="new-kb-tags" placeholder="#dax, #lean" />
+            </div>
+          </div>
+          <div class="modal-footer" style="display:flex;gap:0.5rem;justify-content:flex-end;padding:1rem">
+            <button class="btn btn--ghost" onclick="closeCreateKBModal()">Zru&#353;it</button>
+            <button class="btn btn--primary" onclick="createKBCollection()">Vytvo&#345;it</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Upload section -->
       <section class="card">
         <h2 class="card-title">Nahr&aacute;t soubory</h2>
@@ -2004,7 +2107,9 @@
     </div>
   </div>
 
-  <!-- ===== TOAST ===== -->
+  <!-- ===== TOAST CONTAINER (multi-toast) ===== -->
+  <div class="toast-container" id="toast-container" aria-live="assertive" aria-atomic="false"></div>
+  <!-- Legacy single toast (kept for compat) -->
   <div class="toast hidden" id="toast" role="alert" aria-live="assertive"></div>
 
   <!-- ===== MOBILE SIDEBAR TOGGLE ===== -->

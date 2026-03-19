@@ -258,7 +258,7 @@ function switchTab(tabName) {
 
   // Lazy-load tab data
   if (tabName === 'status') loadSystemStatus();
-  if (tabName === 'agents') { refreshAgents(); loadAgentSkillSelect(); loadFsAgentSkillSelect(); }
+  if (tabName === 'agents') { refreshAgents(); loadAgentSkillSelect(); loadFsAgentSkillSelect(); loadAgentMemoryTable(); }
   if (tabName === 'skills') loadSkills();
   if (tabName === 'jobs') loadJobs();
   if (tabName === 'actions') { loadQuickActions(); loadVSCodeProjects(); loadActionHistory(); }
@@ -266,7 +266,7 @@ function switchTab(tabName) {
   if (tabName === 'files-manager') loadFilesManager();
   if (tabName === 'resident') loadResidentDashboard();
   if (tabName === 'overnight') loadOvernightStatus();
-  if (tabName === 'knowledge') { loadKbOverview(); loadKBFiles(); loadRetentionConfig(); }
+  if (tabName === 'knowledge') { loadKbOverview(); loadKBFiles(); loadRetentionConfig(); loadKBManagerCollections(); }
   if (tabName === 'models') loadModelsTab();
   if (tabName === 'llm-settings') loadLLMSettingsTab();
 }
@@ -7940,6 +7940,349 @@ async function restartOllamaServer() {
 }
 
 /* ============================================================
+   KB MANAGER – Collections, Search, Create, Delete
+   ============================================================ */
+
+async function loadKBManagerCollections() {
+  const el = document.getElementById('kb-manager-collections');
+  const filterSel = document.getElementById('kb-manager-collection-filter');
+  if (!el) return;
+  try {
+    const resp = await fetch('/api/kb/collections');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    const cols = data.collections || [];
+
+    // Update collection filter dropdown
+    if (filterSel) {
+      const current = filterSel.value;
+      filterSel.innerHTML = '<option value="">Všechny kolekce</option>';
+      cols.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.name;
+        opt.textContent = c.name;
+        if (c.name === current) opt.selected = true;
+        filterSel.appendChild(opt);
+      });
+    }
+
+    if (!cols.length) {
+      el.innerHTML = '<p class="hint-text empty-state">Žádné kolekce. Vytvořte první pomocí tlačítka výše.</p>';
+      return;
+    }
+
+    el.innerHTML = cols.map(c => {
+      const tags = (c.tags || []).map(t => `<span class="tag">${escHtml(t)}</span>`).join('');
+      const chunks = c.chunk_count !== undefined ? c.chunk_count : (c.chunks || '?');
+      return `
+        <div class="kb-card">
+          <div class="kb-card-header">
+            <span class="kb-icon">&#129504;</span>
+            <span class="kb-name">${escHtml(c.name)}</span>
+            <span class="kb-count">${chunks} chunks</span>
+            <div class="kb-actions">
+              <button class="btn btn--ghost btn--small" onclick="searchKBManager(${JSON.stringify(c.name)})">&#128269;</button>
+              <button class="btn btn--ghost btn--small btn--danger-text" onclick="deleteKBCollection(${JSON.stringify(c.name)})">&#128465;</button>
+            </div>
+          </div>
+          ${tags ? `<div class="kb-tags">${tags}</div>` : ''}
+        </div>`;
+    }).join('');
+  } catch (err) {
+    el.innerHTML = `<p class="hint-text" style="color:var(--danger)">Chyba: ${escHtml(err.message)}</p>`;
+  }
+}
+
+async function createKBCollection() {
+  const name = document.getElementById('new-kb-name')?.value.trim();
+  const desc = document.getElementById('new-kb-desc')?.value.trim() || '';
+  const tagsRaw = document.getElementById('new-kb-tags')?.value.trim() || '';
+  if (!name) { showToast('Zadej název kolekce', 'warning'); return; }
+  const tags = tagsRaw.split(',').map(t => t.trim()).filter(Boolean);
+  try {
+    const resp = await fetch('/api/kb/collections', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, description: desc, tags }),
+    });
+    if (!resp.ok) { const d = await resp.json(); throw new Error(d.detail || `HTTP ${resp.status}`); }
+    showToast(`Kolekce "${name}" vytvořena`, 'success');
+    closeCreateKBModal();
+    loadKBManagerCollections();
+  } catch (err) {
+    showToast(`Chyba: ${err.message}`, 'error');
+  }
+}
+
+async function deleteKBCollection(name) {
+  if (!confirm(`Smazat kolekci "${name}"? Tato akce je nevratná.`)) return;
+  try {
+    const resp = await fetch(`/api/kb/collections/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    if (!resp.ok) { const d = await resp.json(); throw new Error(d.detail || `HTTP ${resp.status}`); }
+    showToast(`Kolekce "${name}" smazána`, 'success');
+    loadKBManagerCollections();
+  } catch (err) {
+    showToast(`Chyba: ${err.message}`, 'error');
+  }
+}
+
+async function searchKBManager(collection) {
+  const q = document.getElementById('kb-manager-query')?.value.trim();
+  const colSel = collection || document.getElementById('kb-manager-collection-filter')?.value || '';
+  const tag = document.getElementById('kb-manager-tag-filter')?.value || '';
+  const resultsEl = document.getElementById('kb-manager-results');
+  if (!q && !colSel) { showToast('Zadej hledaný výraz', 'warning'); return; }
+
+  if (q) {
+    document.getElementById('kb-manager-query').value = q;
+  }
+
+  try {
+    const params = new URLSearchParams({ q: q || '', collection: colSel, tag, top_k: 10 });
+    const resp = await fetch(`/api/kb/search?${params}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    const results = data.results || [];
+
+    if (!resultsEl) return;
+    if (!results.length) {
+      resultsEl.innerHTML = '<p class="hint-text empty-state">Žádné výsledky.</p>';
+      show(resultsEl);
+      return;
+    }
+
+    resultsEl.innerHTML = results.map((r, i) => `
+      <div class="kb-result-card">
+        <div class="kb-result-header">
+          <span class="kb-result-rank">#${i + 1}</span>
+          <span class="kb-result-score" title="Relevance">${r.score !== undefined ? r.score.toFixed(3) : ''}</span>
+          <span class="kb-result-collection">${escHtml(r.collection || '')}</span>
+        </div>
+        <div class="kb-result-body">
+          <div class="kb-result-preview">${escHtml((r.text || r.content || '').slice(0, 300))}</div>
+          ${r.metadata?.file ? `<span class="hint-text" style="font-size:0.75rem">${escHtml(r.metadata.file)}</span>` : ''}
+        </div>
+        <button class="btn btn--ghost btn--small" onclick="navigator.clipboard.writeText(${JSON.stringify(r.text || r.content || '')}).then(()=>showToast('Zkopírováno','success'))">Kopírovat</button>
+      </div>`).join('');
+    show(resultsEl);
+  } catch (err) {
+    showToast(`Chyba hledání: ${err.message}`, 'error');
+  }
+}
+
+function showCreateKBModal() {
+  const overlay = document.getElementById('create-kb-modal-overlay');
+  if (overlay) {
+    overlay.classList.remove('hidden');
+    document.getElementById('new-kb-name')?.focus();
+  }
+}
+
+function closeCreateKBModal() {
+  const overlay = document.getElementById('create-kb-modal-overlay');
+  if (overlay) overlay.classList.add('hidden');
+  ['new-kb-name', 'new-kb-desc', 'new-kb-tags'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+}
+
+/* ============================================================
+   AGENT MEMORY – Table, Add, Delete, Filter, Export
+   ============================================================ */
+
+let _agentMemoryData = [];
+
+async function loadAgentMemoryTable() {
+  const tbody = document.getElementById('agent-memory-rows');
+  const countEl = document.getElementById('agent-memory-count');
+  if (!tbody) return;
+  try {
+    const resp = await fetch('/api/memory/all?limit=200');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    _agentMemoryData = data.memories || [];
+    if (countEl) countEl.textContent = `${_agentMemoryData.length} položek`;
+    renderAgentMemoryRows(_agentMemoryData);
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="5" style="color:var(--danger);padding:1rem">${escHtml(err.message)}</td></tr>`;
+  }
+}
+
+function renderAgentMemoryRows(memories) {
+  const tbody = document.getElementById('agent-memory-rows');
+  if (!tbody) return;
+  if (!memories.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="hint-text" style="text-align:center;padding:1rem">Paměť je prázdná.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = memories.map((m, i) => {
+    const tags = (m.tags || []).map(t => `<span class="tag">${escHtml(t)}</span>`).join(' ');
+    const time = m.created_at ? new Date(m.created_at).toLocaleString('cs-CZ') : '—';
+    return `
+      <tr data-memory-id="${escHtml(m.id || '')}">
+        <td class="hint-text">${i + 1}</td>
+        <td class="hint-text" style="white-space:nowrap;font-size:0.75rem">${time}</td>
+        <td>${escHtml((m.text || '').slice(0, 120))}${(m.text || '').length > 120 ? '…' : ''}</td>
+        <td>${tags}</td>
+        <td><button class="btn btn--ghost btn--small btn--danger-text" onclick="deleteAgentMemoryItem(${JSON.stringify(m.id || '')})">&#128465;</button></td>
+      </tr>`;
+  }).join('');
+}
+
+function filterAgentMemory(query) {
+  const q = query.toLowerCase();
+  const filtered = q
+    ? _agentMemoryData.filter(m => (m.text || '').toLowerCase().includes(q) || (m.tags || []).some(t => t.toLowerCase().includes(q)))
+    : _agentMemoryData;
+  renderAgentMemoryRows(filtered);
+}
+
+async function addAgentMemoryItem() {
+  const text = document.getElementById('agent-new-memory')?.value.trim();
+  const tagsRaw = document.getElementById('agent-new-memory-tags')?.value.trim() || '';
+  if (!text) { showToast('Zadej text poznámky', 'warning'); return; }
+  const tags = tagsRaw.split(/[\s,]+/).map(t => t.replace(/^#/, '')).filter(Boolean).map(t => '#' + t);
+  try {
+    const resp = await fetch('/api/memory/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, tags, source: 'ui', importance: 7 }),
+    });
+    if (!resp.ok) { const d = await resp.json(); throw new Error(d.detail || `HTTP ${resp.status}`); }
+    showToast('Paměť uložena', 'success');
+    document.getElementById('agent-new-memory').value = '';
+    document.getElementById('agent-new-memory-tags').value = '';
+    loadAgentMemoryTable();
+  } catch (err) {
+    showToast(`Chyba: ${err.message}`, 'error');
+  }
+}
+
+async function deleteAgentMemoryItem(memoryId) {
+  if (!memoryId) return;
+  try {
+    const resp = await fetch(`/api/memory/${encodeURIComponent(memoryId)}`, { method: 'DELETE' });
+    if (!resp.ok) { const d = await resp.json(); throw new Error(d.detail || `HTTP ${resp.status}`); }
+    showToast('Paměť smazána', 'success');
+    loadAgentMemoryTable();
+  } catch (err) {
+    showToast(`Chyba: ${err.message}`, 'error');
+  }
+}
+
+async function clearAllAgentMemory() {
+  if (!confirm('Smazat veškerou paměť agenta? Tato akce je nevratná.')) return;
+  const ids = _agentMemoryData.map(m => m.id).filter(Boolean);
+  let deleted = 0;
+  for (const id of ids) {
+    try {
+      await fetch(`/api/memory/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      deleted++;
+    } catch (_) {}
+  }
+  showToast(`Smazáno ${deleted} záznamů`, 'success');
+  loadAgentMemoryTable();
+}
+
+function exportAgentMemory() {
+  if (!_agentMemoryData.length) { showToast('Paměť je prázdná', 'warning'); return; }
+  const blob = new Blob([JSON.stringify(_agentMemoryData, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `agent-memory-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Export stažen', 'success');
+}
+
+/* ============================================================
+   PROMETHEUS METRICS WIDGET
+   ============================================================ */
+
+function parseMetric(text, name) {
+  const lines = text.split('\n');
+  for (const line of lines) {
+    if (line.startsWith('#') || !line.trim()) continue;
+    // Match: metric_name{...} value  OR  metric_name value
+    const re = new RegExp(`^${name}(?:\\{[^}]*\\})?\\s+([\\d.e+\\-]+)`);
+    const m = line.match(re);
+    if (m) return parseFloat(m[1]);
+  }
+  return null;
+}
+
+async function loadMetrics() {
+  try {
+    const text = await fetch('/metrics').then(r => r.text());
+    const chatTotal = parseMetric(text, 'chat_requests_total');
+    const latencySum = parseMetric(text, 'chat_latency_seconds_sum');
+    const latencyCount = parseMetric(text, 'chat_latency_seconds_count');
+    const activeJobs = parseMetric(text, 'active_jobs');
+    const agentCycles = parseMetric(text, 'agent_cycles_total');
+
+    const avgLatency = (latencyCount && latencySum !== null)
+      ? (latencySum / latencyCount).toFixed(1)
+      : '—';
+
+    const setSpan = (id, val) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = val !== null ? val : '—';
+    };
+
+    setSpan('act-chat-total', chatTotal !== null ? chatTotal : '—');
+    setSpan('act-chat-latency', avgLatency);
+    setSpan('act-active-jobs-m', activeJobs !== null ? activeJobs : '—');
+    setSpan('act-agent-cycles', agentCycles !== null ? agentCycles : '—');
+  } catch (_) {
+    // Silently ignore if metrics endpoint not available
+  }
+}
+
+// Poll metrics every 30s
+setInterval(loadMetrics, 30000);
+
+/* ============================================================
+   KEYBOARD SHORTCUTS
+   ============================================================ */
+
+function _closeAllModals() {
+  document.querySelectorAll('.modal-overlay:not(.hidden), .overlay:not(.hidden)').forEach(el => {
+    el.classList.add('hidden');
+  });
+  closeCreateKBModal();
+}
+
+document.addEventListener('keydown', (e) => {
+  // Ctrl+K → focus chat search / KB search
+  if (e.ctrlKey && e.key === 'k') {
+    e.preventDefault();
+    const kbQuery = document.getElementById('kb-manager-query');
+    const chatInput = document.getElementById('chat-input');
+    const activePanel = document.querySelector('.tab-panel:not(.hidden)');
+    if (activePanel && activePanel.id === 'tab-knowledge' && kbQuery) {
+      kbQuery.focus();
+    } else if (chatInput) {
+      chatInput.focus();
+    }
+  }
+  // Ctrl+Enter → send chat message
+  if (e.ctrlKey && e.key === 'Enter') {
+    const chatInput = document.getElementById('chat-input');
+    const activePanel = document.querySelector('.tab-panel:not(.hidden)');
+    if (activePanel && activePanel.id === 'tab-chat' && chatInput && chatInput === document.activeElement) {
+      e.preventDefault();
+      sendMessage();
+    }
+  }
+  // Escape → close modals
+  if (e.key === 'Escape') {
+    _closeAllModals();
+  }
+});
+
+/* ============================================================
    INIT NEW FEATURES (called from DOMContentLoaded)
    ============================================================ */
 document.addEventListener('DOMContentLoaded', function() {
@@ -7948,9 +8291,20 @@ document.addEventListener('DOMContentLoaded', function() {
   initChatDragDrop();
   initActivityBarTooltips();
 
+  // Load metrics immediately on startup
+  loadMetrics();
+
   // Model search Enter key bindings
   var ollamaInput = document.getElementById('ollama-search-input');
   if (ollamaInput) ollamaInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') searchOllamaModels(); });
   var hfInput = document.getElementById('hf-search-input');
   if (hfInput) hfInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') searchHuggingFaceModels(); });
+
+  // KB Manager modal close on overlay click
+  const kbModalOverlay = document.getElementById('create-kb-modal-overlay');
+  if (kbModalOverlay) {
+    kbModalOverlay.addEventListener('click', (e) => {
+      if (e.target === kbModalOverlay) closeCreateKBModal();
+    });
+  }
 });
