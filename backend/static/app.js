@@ -265,7 +265,7 @@ function switchTab(tabName) {
   if (tabName === 'settings') { loadSettings(); loadOllamaModels(); loadRuntimeSkills(); }
   if (tabName === 'files-manager') loadFilesManager();
   if (tabName === 'resident') loadResidentDashboard();
-  if (tabName === 'overnight') loadOvernightStatus();
+  if (tabName === 'overnight') { loadOvernightStatus(); loadNightlyReport(); }
   if (tabName === 'knowledge') { loadKbOverview(); loadKBFiles(); loadRetentionConfig(); loadKBManagerCollections(); }
   if (tabName === 'models') loadModelsTab();
   if (tabName === 'llm-settings') loadLLMSettingsTab();
@@ -8255,17 +8255,10 @@ function _closeAllModals() {
 }
 
 document.addEventListener('keydown', (e) => {
-  // Ctrl+K → focus chat search / KB search
+  // Ctrl+K → Command Palette
   if (e.ctrlKey && e.key === 'k') {
     e.preventDefault();
-    const kbQuery = document.getElementById('kb-manager-query');
-    const chatInput = document.getElementById('chat-input');
-    const activePanel = document.querySelector('.tab-panel:not(.hidden)');
-    if (activePanel && activePanel.id === 'tab-knowledge' && kbQuery) {
-      kbQuery.focus();
-    } else if (chatInput) {
-      chatInput.focus();
-    }
+    openCommandPalette();
   }
   // Ctrl+Enter → send chat message
   if (e.ctrlKey && e.key === 'Enter') {
@@ -8278,6 +8271,8 @@ document.addEventListener('keydown', (e) => {
   }
   // Escape → close modals
   if (e.key === 'Escape') {
+    closeCommandPalette();
+    closeOnboarding();
     _closeAllModals();
   }
 });
@@ -8307,4 +8302,418 @@ document.addEventListener('DOMContentLoaded', function() {
       if (e.target === kbModalOverlay) closeCreateKBModal();
     });
   }
+
+  // Onboarding: start if not done
+  initOnboarding();
+
+  // Command palette init
+  initCommandPalette();
+
+  // Nightly report buttons
+  const regenBtn = document.getElementById('nightly-regenerate-btn');
+  if (regenBtn) regenBtn.addEventListener('click', regenerateNightlyReport);
+  const exportBtn = document.getElementById('nightly-export-btn');
+  if (exportBtn) exportBtn.addEventListener('click', exportNightlyReport);
+
+  // Settings: restart onboarding button
+  const restartBtn = document.getElementById('restart-onboarding-btn');
+  if (restartBtn) restartBtn.addEventListener('click', startOnboarding);
 });
+
+/* ============================================================
+   ONBOARDING WIZARD
+   ============================================================ */
+const ONBOARDING_STEPS = [
+  {
+    title: '👋 Vítej v AI Home Hub!',
+    content: 'Lokální AI centrum pro tvůj Mac. Nakonfigurujeme vše za 2 minuty.',
+    action: null,
+  },
+  {
+    title: '🤖 Kontroluji Ollama...',
+    content: 'Připojuji se na localhost:11434',
+    action: async () => {
+      try {
+        const r = await fetch('/api/llm/test', { method: 'POST' });
+        const d = await r.json();
+        return d.status === 'ok'
+          ? `✅ Ollama online – verze ${d.version || '?'}. Modely: ${(d.models || []).join(', ') || '(žádné)'}`
+          : '❌ Ollama offline. Spusť v terminálu: ollama serve';
+      } catch {
+        return '❌ Chyba spojení. Spusť v terminálu: ollama serve';
+      }
+    },
+  },
+  {
+    title: '📚 Knowledge Base',
+    content: 'V Nastavení → KB Paths přidej složky ke sledování (projekty, dokumenty). Agent je bude průběžně indexovat.',
+    action: () => { switchTab('settings'); return null; },
+  },
+  {
+    title: '⚙️ Vyber výchozí profil',
+    content: 'Každý profil má vlastní system prompt a sadu nástrojů.',
+    action: () => { switchTab('profiles'); return null; },
+    choices: [
+      { label: '📊 Lean/CI Expert', value: 'lean_ci' },
+      { label: '📈 Power BI/DAX Pro', value: 'pbi_dax' },
+      { label: '💻 Mac Admin', value: 'mac_admin' },
+      { label: '🤖 AI Dev', value: 'ai_dev' },
+    ],
+  },
+  {
+    title: '🚀 Vše připraveno!',
+    content: 'Spouštím Resident Agent. Budeš notifikován při prvním cyklu.',
+    action: async () => {
+      try {
+        await fetch('/api/resident/run-now', { method: 'POST' });
+      } catch { /* non-critical */ }
+      localStorage.setItem('onboarding_done', 'true');
+      return '✅ Agent spuštěn! Dobrý den s AI Home Hub 🎉';
+    },
+  },
+];
+
+let _onboardingStep = 0;
+let _onboardingSelectedProfile = null;
+
+function initOnboarding() {
+  if (localStorage.getItem('onboarding_done') !== 'true') {
+    startOnboarding();
+  }
+}
+
+function startOnboarding() {
+  _onboardingStep = 0;
+  _onboardingSelectedProfile = null;
+  renderOnboardingStep();
+  document.getElementById('onboarding-overlay').classList.remove('hidden');
+}
+
+function closeOnboarding() {
+  const overlay = document.getElementById('onboarding-overlay');
+  if (overlay) overlay.classList.add('hidden');
+}
+
+function renderOnboardingStep() {
+  const step = ONBOARDING_STEPS[_onboardingStep];
+  const total = ONBOARDING_STEPS.length;
+
+  document.getElementById('onboarding-step-label').textContent = `Krok ${_onboardingStep + 1} / ${total}`;
+  document.getElementById('onboarding-title').textContent = step.title;
+  document.getElementById('onboarding-content').textContent = step.content;
+
+  const bar = document.getElementById('onboarding-progress-bar');
+  bar.style.width = `${((_onboardingStep + 1) / total) * 100}%`;
+
+  const resultEl = document.getElementById('onboarding-action-result');
+  resultEl.textContent = '';
+  resultEl.classList.remove('visible');
+
+  const choicesEl = document.getElementById('onboarding-choices');
+  if (step.choices) {
+    choicesEl.classList.remove('hidden');
+    choicesEl.innerHTML = step.choices.map(c =>
+      `<button class="onboarding-choice-card${_onboardingSelectedProfile === c.value ? ' selected' : ''}"
+               data-value="${escHtml(c.value)}">${escHtml(c.label)}</button>`
+    ).join('');
+    choicesEl.querySelectorAll('.onboarding-choice-card').forEach(btn => {
+      btn.addEventListener('click', () => {
+        _onboardingSelectedProfile = btn.dataset.value;
+        localStorage.setItem('aih_profile', _onboardingSelectedProfile);
+        choicesEl.querySelectorAll('.onboarding-choice-card').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+      });
+    });
+  } else {
+    choicesEl.classList.add('hidden');
+    choicesEl.innerHTML = '';
+  }
+
+  const backBtn = document.getElementById('onboarding-back-btn');
+  backBtn.style.visibility = _onboardingStep === 0 ? 'hidden' : 'visible';
+
+  const nextBtn = document.getElementById('onboarding-next-btn');
+  nextBtn.textContent = _onboardingStep === total - 1 ? 'Dokončit' : 'Další →';
+}
+
+async function onboardingNext() {
+  const step = ONBOARDING_STEPS[_onboardingStep];
+  const resultEl = document.getElementById('onboarding-action-result');
+
+  if (step.action) {
+    const nextBtn = document.getElementById('onboarding-next-btn');
+    nextBtn.disabled = true;
+    resultEl.textContent = '⏳ Probíhá...';
+    resultEl.classList.add('visible');
+    try {
+      const result = await step.action();
+      if (result) {
+        resultEl.textContent = result;
+      } else {
+        resultEl.classList.remove('visible');
+      }
+    } catch (err) {
+      resultEl.textContent = `❌ Chyba: ${err.message}`;
+    }
+    nextBtn.disabled = false;
+  }
+
+  if (_onboardingStep < ONBOARDING_STEPS.length - 1) {
+    _onboardingStep++;
+    renderOnboardingStep();
+  } else {
+    closeOnboarding();
+  }
+}
+
+function onboardingBack() {
+  if (_onboardingStep > 0) {
+    _onboardingStep--;
+    renderOnboardingStep();
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const nextBtn = document.getElementById('onboarding-next-btn');
+  if (nextBtn) nextBtn.addEventListener('click', onboardingNext);
+  const backBtn = document.getElementById('onboarding-back-btn');
+  if (backBtn) backBtn.addEventListener('click', onboardingBack);
+  const overlay = document.getElementById('onboarding-overlay');
+  if (overlay) overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) { /* don't close on outside click – onboarding must be completed */ }
+  });
+});
+
+/* ============================================================
+   COMMAND PALETTE (Ctrl+K)
+   ============================================================ */
+const STATIC_COMMANDS = [
+  { label: 'Nový chat',          icon: '💬', tag: 'nav',    action: () => { switchTab('chat'); } },
+  { label: 'KB Manager',         icon: '📚', tag: 'nav',    action: () => switchTab('knowledge') },
+  { label: 'Model Manager',      icon: '🧠', tag: 'nav',    action: () => switchTab('models') },
+  { label: 'Agent Dashboard',    icon: '🤖', tag: 'nav',    action: () => switchTab('agents') },
+  { label: 'LLM Settings',       icon: '⚙️', tag: 'nav',    action: () => switchTab('llm-settings') },
+  { label: 'File Manager',       icon: '📁', tag: 'nav',    action: () => switchTab('files-manager') },
+  { label: 'Noční úlohy',        icon: '🌙', tag: 'nav',    action: () => switchTab('overnight') },
+  { label: 'Nastavení',          icon: '🔧', tag: 'nav',    action: () => switchTab('settings') },
+  { label: 'Spustit Job teď',    icon: '▶️', tag: 'action', action: () => switchTab('jobs') },
+  { label: 'Pause Agent',        icon: '⏸️', tag: 'action', action: async () => {
+    try { await fetch('/api/resident/pause', { method: 'POST' }); showToast('Agent pozastaven', 'info'); } catch { showToast('Chyba', 'error'); }
+  }},
+  { label: 'Resume Agent',       icon: '▶️', tag: 'action', action: async () => {
+    try { await fetch('/api/resident/resume', { method: 'POST' }); showToast('Agent obnoven', 'info'); } catch { showToast('Chyba', 'error'); }
+  }},
+  { label: 'Nová KB kolekce',    icon: '➕', tag: 'action', action: () => { switchTab('knowledge'); showCreateKBModal(); } },
+  { label: 'Stáhnout model',     icon: '⬇️', tag: 'action', action: () => switchTab('models') },
+  { label: 'Screenshot',         icon: '📸', tag: 'action', action: () => takeScreenshot() },
+  { label: 'Spustit onboarding', icon: '🔄', tag: 'action', action: () => startOnboarding() },
+];
+
+let _cmdActiveIndex = 0;
+let _cmdCurrentResults = [];
+
+function openCommandPalette() {
+  const overlay = document.getElementById('cmd-palette-overlay');
+  const input = document.getElementById('cmd-palette-input');
+  if (!overlay || !input) return;
+  overlay.classList.remove('hidden');
+  input.value = '';
+  _cmdActiveIndex = 0;
+  renderCommandResults(STATIC_COMMANDS);
+  input.focus();
+}
+
+function closeCommandPalette() {
+  const overlay = document.getElementById('cmd-palette-overlay');
+  if (overlay) overlay.classList.add('hidden');
+}
+
+function renderCommandResults(commands) {
+  _cmdCurrentResults = commands;
+  _cmdActiveIndex = 0;
+  const container = document.getElementById('cmd-palette-results');
+  if (!container) return;
+
+  if (!commands.length) {
+    container.innerHTML = '<div style="padding:1rem;text-align:center;color:#475569">Žádné výsledky</div>';
+    return;
+  }
+
+  // Group by tag
+  const groups = {};
+  commands.forEach(cmd => {
+    const g = cmd.tag || 'other';
+    if (!groups[g]) groups[g] = [];
+    groups[g].push(cmd);
+  });
+
+  const tagLabels = { nav: 'Navigace', action: 'Akce', kb: 'Knowledge Base', other: 'Ostatní' };
+  let html = '';
+  let idx = 0;
+  Object.entries(groups).forEach(([tag, cmds]) => {
+    html += `<div class="cmd-palette-group-label">${escHtml(tagLabels[tag] || tag)}</div>`;
+    cmds.forEach(cmd => {
+      html += `<div class="cmd-palette-item${idx === 0 ? ' active' : ''}" data-idx="${idx}">
+        <span class="cmd-palette-item-icon">${cmd.icon}</span>
+        <span class="cmd-palette-item-label">${escHtml(cmd.label)}</span>
+        <span class="cmd-palette-item-tag">${escHtml(cmd.tag || '')}</span>
+      </div>`;
+      idx++;
+    });
+  });
+  container.innerHTML = html;
+
+  container.querySelectorAll('.cmd-palette-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const i = parseInt(el.dataset.idx, 10);
+      executeCmdPaletteItem(i);
+    });
+    el.addEventListener('mouseenter', () => {
+      _cmdActiveIndex = parseInt(el.dataset.idx, 10);
+      highlightCmdItem();
+    });
+  });
+}
+
+function highlightCmdItem() {
+  document.querySelectorAll('.cmd-palette-item').forEach(el => {
+    el.classList.toggle('active', parseInt(el.dataset.idx, 10) === _cmdActiveIndex);
+  });
+  const active = document.querySelector('.cmd-palette-item.active');
+  if (active) active.scrollIntoView({ block: 'nearest' });
+}
+
+function executeCmdPaletteItem(idx) {
+  const cmd = _cmdCurrentResults[idx];
+  if (cmd && cmd.action) {
+    closeCommandPalette();
+    cmd.action();
+  }
+}
+
+async function searchCommandPalette(query) {
+  const cmds = STATIC_COMMANDS.filter(c =>
+    c.label.toLowerCase().includes(query.toLowerCase()) ||
+    (c.tag || '').toLowerCase().includes(query.toLowerCase())
+  );
+
+  if (query.length > 2) {
+    try {
+      const r = await fetch(`/api/kb/search?q=${encodeURIComponent(query)}&top_k=5`);
+      const kb = await r.json();
+      (kb.results || []).forEach(doc => cmds.push({
+        label: doc.source || doc.content.slice(0, 50),
+        icon: '📄',
+        tag: 'kb',
+        action: () => { navigator.clipboard.writeText(doc.content).catch(() => {}); showToast('Zkopírováno!', 'success'); },
+      }));
+    } catch { /* non-critical */ }
+  }
+
+  renderCommandResults(cmds);
+}
+
+function initCommandPalette() {
+  const overlay = document.getElementById('cmd-palette-overlay');
+  const input = document.getElementById('cmd-palette-input');
+  if (!overlay || !input) return;
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeCommandPalette();
+  });
+
+  input.addEventListener('input', () => {
+    const q = input.value.trim();
+    if (!q) {
+      renderCommandResults(STATIC_COMMANDS);
+    } else {
+      searchCommandPalette(q);
+    }
+  });
+
+  input.addEventListener('keydown', (e) => {
+    const total = _cmdCurrentResults.length;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      _cmdActiveIndex = (_cmdActiveIndex + 1) % total;
+      highlightCmdItem();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      _cmdActiveIndex = (_cmdActiveIndex - 1 + total) % total;
+      highlightCmdItem();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      executeCmdPaletteItem(_cmdActiveIndex);
+    } else if (e.key === 'Escape') {
+      closeCommandPalette();
+    }
+  });
+}
+
+/* ============================================================
+   NIGHTLY REPORT WIDGET
+   ============================================================ */
+async function loadNightlyReport() {
+  const body = document.getElementById('nightly-report-body');
+  if (!body) return;
+  body.innerHTML = '<p class="empty-state">Načítám report...</p>';
+
+  try {
+    const r = await fetch('/api/jobs/nightly-report');
+    const data = await r.json();
+
+    if (!data.available) {
+      body.innerHTML = `<p class="empty-state">${escHtml(data.message || 'Žádný report')}</p>`;
+      return;
+    }
+
+    const dateStr = data.date ? `– ${escHtml(data.date)}` : '';
+    const eventsStr = data.events_processed != null ? `${data.events_processed} zpracovaných eventů` : '';
+    const genStr = data.generated_at ? `Vygenerováno: ${new Date(data.generated_at).toLocaleString('cs-CZ')}` : '';
+
+    body.innerHTML = `
+      <div class="nightly-report-content">${escHtml(data.content || '')}</div>
+      <div class="nightly-report-meta">
+        ${eventsStr ? `<span>📊 ${eventsStr}</span>` : ''}
+        ${genStr ? `<span>⏰ ${genStr}</span>` : ''}
+      </div>`;
+
+    // Store content for export
+    body.dataset.reportContent = data.content || '';
+    body.dataset.reportDate = data.date || '';
+  } catch (err) {
+    body.innerHTML = `<p class="empty-state" style="color:#f87171">Chyba načítání: ${escHtml(err.message)}</p>`;
+  }
+}
+
+async function regenerateNightlyReport() {
+  const btn = document.getElementById('nightly-regenerate-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Spouštím...'; }
+  try {
+    await fetch('/api/jobs/run-now', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'nightly_summary', title: 'Manual Nightly Report' }),
+    });
+    showToast('Nightly report job spuštěn. Výsledek bude k dispozici za chvíli.', 'info', 5000);
+    setTimeout(loadNightlyReport, 3000);
+  } catch (err) {
+    showToast(`Chyba: ${err.message}`, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔄 Regenerovat'; }
+  }
+}
+
+function exportNightlyReport() {
+  const body = document.getElementById('nightly-report-body');
+  const content = body ? body.dataset.reportContent : '';
+  const date = body ? body.dataset.reportDate : new Date().toISOString().slice(0, 10);
+  if (!content) { showToast('Žádný report k exportu', 'warning'); return; }
+  const blob = new Blob([`# Nightly Report – ${date}\n\n${content}`], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `nightly-report-${date}.md`;
+  a.click();
+  URL.revokeObjectURL(url);
+}

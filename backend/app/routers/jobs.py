@@ -230,6 +230,52 @@ async def set_job_priority(job_id: str, req: PriorityRequest) -> Dict[str, Any]:
     return {"id": job.id, "priority": job.priority}
 
 
+@router.get("/jobs/nightly-report", tags=["jobs"])
+async def get_nightly_report() -> Dict[str, Any]:
+    """Return the most recent nightly summary report.
+
+    Checks completed nightly_summary jobs and memory system events.
+    """
+    from app.services.memory_service import get_memory_service
+
+    # 1. Check completed nightly_summary jobs first
+    job_svc = get_job_service()
+    completed_jobs = job_svc.list_jobs(type="nightly_summary", status="succeeded", limit=1)
+    if completed_jobs:
+        j = completed_jobs[0]
+        result = j.meta.get("result", {}) if j.meta else {}
+        if isinstance(result, dict) and result.get("summary"):
+            date_str = (j.finished_at or j.created_at or "")[:10]
+            return {
+                "available": True,
+                "date": date_str,
+                "content": result["summary"],
+                "events_processed": result.get("events_processed", 0),
+                "generated_at": j.finished_at or j.created_at,
+                "preview": result.get("preview", result["summary"][:200]),
+            }
+
+    # 2. Fallback: check memory system events
+    memory_svc = get_memory_service()
+    try:
+        recent = memory_svc.get_recent_events(limit=50)
+        summaries = [e for e in recent if e.get("event_type") == "nightly_summary"]
+        if summaries:
+            latest = summaries[0]
+            return {
+                "available": True,
+                "date": latest.get("timestamp", "")[:10],
+                "content": latest.get("text", ""),
+                "events_processed": None,
+                "generated_at": latest.get("timestamp"),
+                "preview": latest.get("text", "")[:200],
+            }
+    except Exception:
+        pass
+
+    return {"available": False, "message": "Žádný report zatím nevytvořen. Spusť nightly_summary job."}
+
+
 @router.delete("/jobs/{job_id}", tags=["jobs"])
 async def delete_job(job_id: str) -> Dict[str, Any]:
     """Permanently delete a job from the queue."""
