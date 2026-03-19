@@ -19,6 +19,7 @@ from typing import Any, Callable, Dict, List, Optional
 import structlog
 
 from app.services.background_service import BackgroundService
+from app.services.metrics_service import agent_cycles_total
 
 logger = logging.getLogger(__name__)
 log = structlog.get_logger("resident_agent")
@@ -446,6 +447,7 @@ class ResidentAgent(BackgroundService):
                 await self._request_self_healing_restart()
 
         self._add_cycle_record(cycle_record)
+        agent_cycles_total.labels(status=cycle_record.status).inc()
         await self._heartbeat_broadcast()
 
         # Count down next_run_in for the UI
@@ -1350,6 +1352,38 @@ class ResidentAgent(BackgroundService):
             return {"status": "ok", "deleted": deleted}
         except Exception as exc:
             logger.debug("Failed to clear agent memory: %s", exc)
+            return {"status": "error", "error": str(exc)}
+
+    async def delete_agent_memory_by_id(self, memory_id: str) -> dict:
+        """Delete a single agent memory entry by ID."""
+        try:
+            from app.services.memory_service import get_memory_service
+            mem = get_memory_service()
+            deleted = await mem.delete_memory(memory_id)
+            if not deleted:
+                return {"status": "not_found", "memory_id": memory_id}
+            self._add_log("INFO", "memory_item_deleted", memory_id=memory_id)
+            return {"status": "ok", "memory_id": memory_id}
+        except Exception as exc:
+            logger.debug("Failed to delete agent memory %s: %s", memory_id, exc)
+            return {"status": "error", "error": str(exc)}
+
+    async def add_agent_memory_manual(self, content: str, tags: list[str] | None = None) -> dict:
+        """Manually add an entry to agent memory."""
+        try:
+            from app.services.memory_service import get_memory_service
+            mem = get_memory_service()
+            all_tags = list({"resident", "manual", *(tags or [])})
+            memory_id = await mem.add_memory(
+                text=content,
+                tags=all_tags,
+                source="manual",
+                importance=5,
+            )
+            self._add_log("INFO", "memory_item_added_manual", memory_id=memory_id)
+            return {"status": "ok", "memory_id": memory_id}
+        except Exception as exc:
+            logger.debug("Failed to add agent memory: %s", exc)
             return {"status": "error", "error": str(exc)}
 
 

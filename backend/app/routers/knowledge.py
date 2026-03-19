@@ -924,3 +924,155 @@ async def run_retention_job() -> Dict[str, Any]:
     result = await run_kb_retention()
     return result
 
+
+# ── Multi-KB collection management ───────────────────────────────
+
+
+@router.get("/kb/collections", tags=["knowledge"])
+async def list_kb_collections() -> Dict[str, Any]:
+    """List all KB collections with name, chunk count, and metadata."""
+    vector_store = get_vector_store_service()
+    cols = await vector_store.list_collections()
+    return {"collections": cols, "count": len(cols)}
+
+
+@router.post("/kb/collections", tags=["knowledge"])
+async def create_kb_collection(body: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
+    """Create a new KB collection.
+
+    Body (all optional)::
+
+        {"name": "powerbi", "description": "DAX & reporting docs", "tags": ["#dax"]}
+    """
+    name = body.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="'name' is required")
+    description = body.get("description", "")
+    tags: List[str] = body.get("tags", [])
+    vector_store = get_vector_store_service()
+    try:
+        result = await vector_store.create_collection(name=name, description=description, tags=tags)
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.delete("/kb/collections/{name}", tags=["knowledge"],
+               dependencies=[Depends(verify_api_key)])
+async def delete_kb_collection(name: str) -> Dict[str, Any]:
+    """Delete a KB collection by name."""
+    vector_store = get_vector_store_service()
+    try:
+        await vector_store.delete_collection(name)
+        return {"name": name, "deleted": True}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.post("/kb/collections/{name}/tags", tags=["knowledge"])
+async def add_tags_to_kb_document(
+    name: str,
+    body: Dict[str, Any] = Body(...),
+) -> Dict[str, Any]:
+    """Add tags to a specific document in a KB collection.
+
+    Body::
+
+        {"doc_id": "file:/path/to/file.pdf:chunk_0", "tags": ["#lean", "#ci"]}
+    """
+    doc_id = body.get("doc_id", "").strip()
+    tags: List[str] = body.get("tags", [])
+    if not doc_id:
+        raise HTTPException(status_code=400, detail="'doc_id' is required")
+    vector_store = get_vector_store_service()
+    try:
+        await vector_store.add_tags_to_document(collection=name, doc_id=doc_id, tags=tags)
+        return {"collection": name, "doc_id": doc_id, "tags": tags}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/kb/search", tags=["knowledge"])
+async def kb_search_with_filters(
+    q: str = "",
+    collection: Optional[str] = None,
+    tag: Optional[str] = None,
+    top_k: int = 5,
+) -> Dict[str, Any]:
+    """Semantic search with optional collection and tag filtering.
+
+    - ``q``         : search query (required unless filtering by tag only)
+    - ``collection``: name of the collection to search (default: knowledge_base)
+    - ``tag``       : filter results to documents tagged with this value
+    - ``top_k``     : max results
+    """
+    vector_store = get_vector_store_service()
+
+    # Tag-only search (no embedding needed)
+    if tag and not q.strip():
+        col_name = collection or vector_store.COLLECTION_NAME
+        try:
+            results = await vector_store.search_by_tag(collection=col_name, tag=tag)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        items = [
+            {"text": doc, "metadata": meta, "score": None}
+            for doc, meta in zip(results["documents"], results["metadatas"])
+        ][:top_k]
+        return {"results": items, "query": q, "collection": col_name, "tag": tag}
+
+    # Semantic search
+    if not q.strip():
+        raise HTTPException(status_code=400, detail="'q' or 'tag' parameter is required")
+
+    embeddings_svc = get_embeddings_service()
+    query_embedding = await embeddings_svc.generate_embedding(q)
+    if not query_embedding:
+        raise HTTPException(status_code=500, detail="Failed to generate query embedding")
+
+    # Use the target collection's ChromaDB collection object
+    col_name = collection or vector_store.COLLECTION_NAME
+    if col_name == vector_store.COLLECTION_NAME:
+        col_obj = vector_store.collection
+    else:
+        try:
+            import asyncio as _asyncio
+            col_obj = await _asyncio.to_thread(vector_store.client.get_collection, col_name)
+        except Exception:
+            raise HTTPException(status_code=404, detail=f"Collection '{col_name}' not found")
+
+    from app.utils.constants import MIN_KB_SEARCH_SCORE
+    import time as _time
+
+    kwargs: Dict[str, Any] = {
+        "query_embeddings": [query_embedding],
+        "n_results": top_k,
+    }
+    raw = await asyncio.to_thread(col_obj.query, **kwargs)
+    docs = raw["documents"][0] if raw.get("documents") else []
+    metas = raw["metadatas"][0] if raw.get("metadatas") else []
+    dists = raw["distances"][0] if raw.get("distances") else []
+
+    results = []
+    for doc, meta, dist in zip(docs, metas, dists):
+        score = round(1 - dist, 4)
+        if score < MIN_KB_SEARCH_SCORE:
+            continue
+        # Apply tag filter post-hoc if needed
+        if tag:
+            import json as _json
+            doc_tags = _json.loads((meta or {}).get("tags", "[]"))
+            if tag not in doc_tags:
+                continue
+        results.append({
+            "text": doc,
+            "file_name": (meta or {}).get("file_name", ""),
+            "file_path": (meta or {}).get("file_path", ""),
+            "score": score,
+            "metadata": meta,
+        })
+
+    return {"results": results, "query": q, "collection": col_name, "tag": tag}
+

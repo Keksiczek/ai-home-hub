@@ -1,5 +1,6 @@
 """Vector store service – ChromaDB persistence for document embeddings."""
 import asyncio
+import json
 import logging
 import os
 import subprocess
@@ -217,6 +218,94 @@ class VectorStoreService:
                 "Re-index to get exact file counts."
             )
         return base
+
+
+    # ── Multi-KB collection management ──────────────────────────────────────
+
+    async def list_collections(self) -> List[Dict[str, Any]]:
+        """Return all ChromaDB collections with name, count, and metadata."""
+        cols = await asyncio.to_thread(self.client.list_collections)
+        result = []
+        for c in cols:
+            try:
+                count = await asyncio.to_thread(c.count)
+            except Exception:
+                count = 0
+            result.append({
+                "name": c.name,
+                "count": count,
+                "metadata": c.metadata or {},
+            })
+        return result
+
+    async def create_collection(
+        self,
+        name: str,
+        description: str = "",
+        tags: List[str] | None = None,
+    ) -> Dict[str, Any]:
+        """Create a new named KB collection."""
+        tags = tags or []
+        metadata = {
+            "description": description,
+            "tags": json.dumps(tags),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "hnsw:space": "cosine",
+        }
+        col = await asyncio.to_thread(
+            self.client.get_or_create_collection,
+            name,
+            metadata=metadata,
+        )
+        return {"name": col.name, "metadata": col.metadata or {}}
+
+    async def delete_collection(self, name: str) -> None:
+        """Delete a named KB collection (cannot delete the default collection)."""
+        if name == self.COLLECTION_NAME:
+            raise ValueError("Cannot delete the default knowledge_base collection")
+        await asyncio.to_thread(self.client.delete_collection, name)
+
+    async def add_tags_to_document(
+        self,
+        collection: str,
+        doc_id: str,
+        tags: List[str],
+    ) -> None:
+        """Append tags to an existing document's metadata in a collection."""
+        col = await asyncio.to_thread(self.client.get_collection, collection)
+        existing = await asyncio.to_thread(col.get, ids=[doc_id], include=["metadatas"])
+        existing_meta: Dict[str, Any] = {}
+        if existing and existing.get("metadatas"):
+            existing_meta = existing["metadatas"][0] or {}
+        current_tags: List[str] = json.loads(existing_meta.get("tags", "[]"))
+        merged = list({*current_tags, *tags})
+        new_meta = {**existing_meta, "tags": json.dumps(merged)}
+        await self._safe_write(col.update, ids=[doc_id], metadatas=[new_meta])
+
+    async def search_by_tag(
+        self,
+        collection: str,
+        tag: str,
+    ) -> Dict[str, Any]:
+        """Return all documents in *collection* whose tags contain *tag*."""
+        col = await asyncio.to_thread(self.client.get_collection, collection)
+        results = await asyncio.to_thread(
+            col.get,
+            include=["metadatas", "documents"],
+        )
+        ids = results.get("ids") or []
+        metadatas = results.get("metadatas") or []
+        documents = results.get("documents") or []
+
+        matched_ids, matched_docs, matched_meta = [], [], []
+        for doc_id, meta, doc in zip(ids, metadatas, documents):
+            tags_val: List[str] = json.loads((meta or {}).get("tags", "[]"))
+            if tag in tags_val:
+                matched_ids.append(doc_id)
+                matched_docs.append(doc)
+                matched_meta.append(meta)
+
+        return {"ids": matched_ids, "documents": matched_docs, "metadatas": matched_meta}
 
 
 def _sanitize_metadata(meta: Dict[str, Any]) -> Dict[str, Any]:
