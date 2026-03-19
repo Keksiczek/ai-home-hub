@@ -7836,6 +7836,7 @@ async function loadLLMSettingsTab() {
       fetch('/api/llm/settings'),
       fetch('/api/models/installed')
     ]);
+    loadOllamaPerfSettings(); // load performance section in parallel
     const settings = await settingsResp.json();
     const modelsData = await modelsResp.json();
     const models = modelsData.models || [];
@@ -7936,6 +7937,66 @@ async function restartOllamaServer() {
     setTimeout(testOllamaConnection, 5000);
   } catch (err) {
     showToast('\u{274C} Restart selhal: ' + err.message, 'error');
+  }
+}
+
+async function loadOllamaPerfSettings() {
+  try {
+    const resp = await fetch('/api/settings/llm');
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const p = data.performance || {};
+
+    const ctxSel = document.getElementById('perf-context-length');
+    if (ctxSel) ctxSel.value = String(p.context_length ?? 4096);
+
+    const kvSel = document.getElementById('perf-kv-cache-type');
+    if (kvSel) kvSel.value = p.kv_cache_type ?? 'q8_0';
+
+    const fa = document.getElementById('perf-flash-attention');
+    if (fa) fa.checked = p.flash_attention !== false;
+
+    const par = document.getElementById('perf-num-parallel');
+    const parVal = document.getElementById('perf-parallel-val');
+    if (par) { par.value = p.num_parallel ?? 1; }
+    if (parVal) { parVal.textContent = p.num_parallel ?? 1; }
+
+    const kaSel = document.getElementById('perf-keep-alive');
+    if (kaSel) kaSel.value = p.keep_alive ?? '5m';
+  } catch (err) {
+    // non-fatal – silently ignore
+  }
+}
+
+async function saveOllamaPerf(restartOllama) {
+  const payload = {
+    context_length: parseInt(document.getElementById('perf-context-length').value),
+    kv_cache_type: document.getElementById('perf-kv-cache-type').value,
+    flash_attention: document.getElementById('perf-flash-attention').checked,
+    num_parallel: parseInt(document.getElementById('perf-num-parallel').value),
+    keep_alive: document.getElementById('perf-keep-alive').value,
+    restart_ollama: !!restartOllama
+  };
+  try {
+    const resp = await fetch('/api/settings/llm', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      showToast('\u{274C} ' + (err.detail || 'Chyba ukladání'), 'error');
+      return;
+    }
+    const data = await resp.json();
+    if (data.restarted) {
+      showToast('\u{2705} Uloženo + Ollama restartována', 'success');
+      setTimeout(testOllamaConnection, 5000);
+    } else {
+      showToast('\u{2705} Výkon uložen (Ollama restart ne)', 'success');
+    }
+  } catch (err) {
+    showToast('\u{274C} ' + err.message, 'error');
   }
 }
 

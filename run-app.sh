@@ -111,6 +111,15 @@ else
 fi
 ok "Dependencies installed"
 
+# ── Ollama performance tuning ─────────────────────────────────────────────────
+# These can be overridden in .env; here we set safe defaults for an 8 GB Mac.
+export OLLAMA_FLASH_ATTENTION="${OLLAMA_FLASH_ATTENTION:-1}"
+export OLLAMA_KV_CACHE_TYPE="${OLLAMA_KV_CACHE_TYPE:-q8_0}"
+export OLLAMA_NUM_PARALLEL="${OLLAMA_NUM_PARALLEL:-1}"
+export OLLAMA_CONTEXT_LENGTH="${OLLAMA_CONTEXT_LENGTH:-4096}"
+export OLLAMA_KEEP_ALIVE="${OLLAMA_KEEP_ALIVE:-5m}"
+info "Ollama perf: CTX=${OLLAMA_CONTEXT_LENGTH} KV=${OLLAMA_KV_CACHE_TYPE} FA=${OLLAMA_FLASH_ATTENTION} PAR=${OLLAMA_NUM_PARALLEL} ALIVE=${OLLAMA_KEEP_ALIVE}"
+
 # ── Ollama ────────────────────────────────────────────────────────────────────
 info "Checking Ollama…"
 if ! command -v ollama &>/dev/null; then

@@ -1,11 +1,16 @@
 """Settings router – CRUD for application settings and quick actions."""
+import asyncio
+import logging
+import subprocess
 import uuid
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException
 
-from app.models.schemas import SettingsResponse, UpdateSettingsRequest
+from app.models.schemas import OllamaPerformanceUpdate, SettingsResponse, UpdateSettingsRequest
 from app.services.settings_service import get_settings_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -261,6 +266,78 @@ async def delete_quick_action(action_id: str) -> Dict[str, Any]:
     settings["quick_actions"] = actions
     svc.save(settings)
     return {"success": True}
+
+
+## ── Ollama Performance Settings ────────────────────────────────────
+
+_PERF_DEFAULTS: Dict[str, Any] = {
+    "context_length": 4096,
+    "kv_cache_type": "q8_0",
+    "flash_attention": True,
+    "num_parallel": 1,
+    "keep_alive": "5m",
+}
+
+
+@router.get("/settings/llm", tags=["settings"])
+async def get_llm_performance() -> Dict[str, Any]:
+    """Return current Ollama performance settings."""
+    svc = get_settings_service()
+    settings = svc.load()
+    perf = settings.get("llm", {}).get("ollama_performance", _PERF_DEFAULTS)
+    return {"performance": {**_PERF_DEFAULTS, **perf}}
+
+
+@router.patch("/settings/llm", tags=["settings"])
+async def update_llm_performance(body: OllamaPerformanceUpdate) -> Dict[str, Any]:
+    """Save Ollama performance settings and optionally restart Ollama."""
+    svc = get_settings_service()
+    settings = svc.load()
+
+    perf: Dict[str, Any] = settings.get("llm", {}).get("ollama_performance", dict(_PERF_DEFAULTS))
+
+    if body.context_length is not None:
+        perf["context_length"] = body.context_length
+    if body.kv_cache_type is not None:
+        if body.kv_cache_type not in ("f16", "q8_0", "q4_0"):
+            raise HTTPException(400, "kv_cache_type must be one of: f16, q8_0, q4_0")
+        perf["kv_cache_type"] = body.kv_cache_type
+    if body.flash_attention is not None:
+        perf["flash_attention"] = body.flash_attention
+    if body.num_parallel is not None:
+        if not (1 <= body.num_parallel <= 4):
+            raise HTTPException(400, "num_parallel must be between 1 and 4")
+        perf["num_parallel"] = body.num_parallel
+    if body.keep_alive is not None:
+        if body.keep_alive not in ("0", "5m", "30m", "-1"):
+            raise HTTPException(400, "keep_alive must be one of: 0, 5m, 30m, -1")
+        perf["keep_alive"] = body.keep_alive
+
+    svc.update({"llm": {"ollama_performance": perf}})
+    logger.info("Ollama performance settings updated: %s", perf)
+
+    restarted = False
+    if body.restart_ollama:
+        try:
+            subprocess.Popen(["pkill", "-f", "ollama serve"])
+            await asyncio.sleep(2)
+            env_vars = {
+                "OLLAMA_FLASH_ATTENTION": "1" if perf.get("flash_attention", True) else "0",
+                "OLLAMA_KV_CACHE_TYPE": perf.get("kv_cache_type", "q8_0"),
+                "OLLAMA_NUM_PARALLEL": str(perf.get("num_parallel", 1)),
+                "OLLAMA_CONTEXT_LENGTH": str(perf.get("context_length", 4096)),
+                "OLLAMA_KEEP_ALIVE": perf.get("keep_alive", "5m"),
+            }
+            import os
+            env = {**os.environ, **env_vars}
+            subprocess.Popen(["ollama", "serve"], env=env)
+            restarted = True
+            logger.info("Ollama restarted with new performance env vars")
+        except Exception as exc:
+            logger.error("Failed to restart Ollama: %s", exc)
+            raise HTTPException(500, f"Settings saved but Ollama restart failed: {exc}")
+
+    return {"status": "ok", "performance": perf, "restarted": restarted}
 
 
 def _mask_secrets(settings: Dict[str, Any]) -> None:
