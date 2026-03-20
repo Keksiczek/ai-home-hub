@@ -122,6 +122,36 @@ TOOLS_REGISTRY: List[ResidentTool] = [
             )
         },
     ),
+    ResidentTool(
+        name="web_browse",
+        description="Načíst obsah webové stránky a vrátit čistý text (alias pro browse_page)",
+        parameters={
+            "url": ToolParameter(
+                name="url",
+                type="string",
+                description="URL stránky k načtení",
+                required=True,
+            )
+        },
+    ),
+    ResidentTool(
+        name="kb_store",
+        description="Uložit poznatek do Knowledge Base s tagy",
+        parameters={
+            "text": ToolParameter(
+                name="text",
+                type="string",
+                description="Text poznatku k uložení",
+                required=True,
+            ),
+            "tags": ToolParameter(
+                name="tags",
+                type="string",
+                description="Čárkou oddělené tagy (např. 'python,tip')",
+                required=False,
+            ),
+        },
+    ),
 ]
 
 # Map name → definition for O(1) lookup
@@ -392,6 +422,24 @@ async def _get_weather(location: str = "Praha") -> Dict[str, Any]:
     }
 
 
+async def _kb_store(text: str, tags: str = "") -> Dict[str, Any]:
+    """Store a knowledge snippet into the KB via memory service."""
+    try:
+        from app.services.memory_service import get_memory_service
+        mem = get_memory_service()
+        tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else ["agent"]
+        await mem.add_memory(
+            text=text[:2000],
+            tags=tag_list,
+            source="resident_agent",
+            importance=5,
+        )
+        return {"stored": True, "text_length": len(text), "tags": tag_list}
+    except Exception as exc:
+        logger.warning("kb_store failed: %s", exc)
+        return {"stored": False, "error": str(exc)}
+
+
 # ── Tool dispatch ────────────────────────────────────────────────────────────
 
 
@@ -448,6 +496,10 @@ async def execute_tool_call(tool_call: Dict[str, Any], context: Dict[str, Any] =
             )
         elif tool_name == "get_weather":
             data = await _get_weather(args.get("location", "Praha"))
+        elif tool_name == "web_browse":
+            data = await _browse_page(args["url"])
+        elif tool_name == "kb_store":
+            data = await _kb_store(args["text"], args.get("tags", ""))
         else:
             # Should never reach here given the check above, but be safe
             raise ValueError(f"Unhandled tool: {tool_name}")

@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies
         working-directory: backend
         run: |
-          pip install pytest pytest-asyncio httpx anyio
+          pip install pytest pytest-asyncio pytest-timeout httpx anyio
           pip install -r requirements.txt
 
       - name: Run tests

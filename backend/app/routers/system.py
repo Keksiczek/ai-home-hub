@@ -1,17 +1,62 @@
-"""System router – OS-level utilities (screenshot, boost-priority, etc.)."""
+"""System router – OS-level utilities (screenshot, boost-priority, file picker, etc.)."""
 import base64
 import os
 import platform
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 router = APIRouter()
 
+
+class PickPathRequest(BaseModel):
+    type: str = "folder"  # "file" or "folder"
+    extensions: Optional[List[str]] = None  # e.g. ["py", "md"]
+
 # Absolute path to the scripts/ directory (two levels up from this file)
 _SCRIPTS_DIR = Path(__file__).parent.parent.parent.parent / "scripts"
+
+
+@router.post("/system/pick-path", tags=["system"])
+async def pick_path(request: PickPathRequest) -> dict:
+    """Open a native macOS file/folder picker and return the selected path.
+
+    Falls back to a simple path validation on non-macOS systems.
+    """
+    if platform.system() != "Darwin":
+        raise HTTPException(
+            status_code=501,
+            detail="Nativní file picker je podporován pouze na macOS",
+        )
+
+    if request.type == "folder":
+        script = 'choose folder with prompt "Vyber složku"'
+    else:
+        if request.extensions:
+            ext_list = ", ".join(f'"{e}"' for e in request.extensions)
+            script = f'choose file with prompt "Vyber soubor" of type {{{ext_list}}}'
+        else:
+            script = 'choose file with prompt "Vyber soubor"'
+
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", f"POSIX path of ({script})"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=408, detail="Výběr souboru vypršel (timeout)")
+
+    if result.returncode != 0:
+        raise HTTPException(status_code=400, detail="Výběr zrušen nebo selhal")
+
+    path = result.stdout.strip().rstrip("/")
+    return {"path": path}
 
 
 @router.post("/system/screenshot", tags=["system"])
