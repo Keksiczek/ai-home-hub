@@ -2044,6 +2044,23 @@ function bindActionsEvents() {
     });
   }
 
+  // Boost / reset-boost (process priority + swap hint)
+  const boostBtn = document.getElementById('boost-priority-btn');
+  if (boostBtn) {
+    boostBtn.addEventListener('click', async () => {
+      boostBtn.disabled = true;
+      boostBtn.textContent = '⏳ Boost...';
+      await runSystemScript('/api/system/boost', boostBtn, '⚡ Boost prioritu');
+    });
+  }
+  const resetBoostBtn = document.getElementById('reset-boost-btn');
+  if (resetBoostBtn) {
+    resetBoostBtn.addEventListener('click', async () => {
+      resetBoostBtn.disabled = true;
+      await runSystemScript('/api/system/reset-boost', resetBoostBtn, '↩️ Reset priorit');
+    });
+  }
+
   // Git buttons
   document.querySelectorAll('[data-git]').forEach(btn => {
     btn.addEventListener('click', () => handleGitAction(btn.dataset.git));
@@ -2090,6 +2107,27 @@ function showMacResult(data) {
   el.className = `result-box ${statusClass}`;
   el.innerHTML = `<strong>${escHtml(data.status)}</strong> ${escHtml(data.detail || JSON.stringify(data.data || ''))}`;
   show(el);
+}
+
+async function runSystemScript(endpoint, btn, originalLabel) {
+  const resultEl = document.getElementById('boost-result');
+  try {
+    const res = await fetch(endpoint, { method: 'POST' });
+    const data = await res.json();
+    if (resultEl) {
+      const ok = (data.returncode === 0) || !data.returncode;
+      resultEl.className = `result-box ${ok ? 'result-box--ok' : 'result-box--error'}`;
+      const output = [data.output, data.error].filter(Boolean).join('\n').trim();
+      resultEl.textContent = output || (ok ? 'OK' : 'Chyba');
+      show(resultEl);
+    }
+    showToast(data.returncode === 0 ? 'Hotovo' : `Chyba (exit ${data.returncode})`,
+              data.returncode === 0 ? 'success' : 'error');
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
+  }
 }
 
 async function handleGitAction(action) {

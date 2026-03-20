@@ -1,13 +1,17 @@
-"""System router – OS-level utilities (screenshot, etc.)."""
+"""System router – OS-level utilities (screenshot, boost-priority, etc.)."""
 import base64
 import os
 import platform
 import subprocess
 import tempfile
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
 router = APIRouter()
+
+# Absolute path to the scripts/ directory (two levels up from this file)
+_SCRIPTS_DIR = Path(__file__).parent.parent.parent.parent / "scripts"
 
 
 @router.post("/system/screenshot", tags=["system"])
@@ -40,3 +44,49 @@ async def take_screenshot() -> dict:
     finally:
         if os.path.exists(path):
             os.unlink(path)
+
+
+def _run_priority_script(script_name: str) -> dict:
+    """Helper: run a priority-management shell script and return its output.
+
+    NOTE: renice requires sudo and the effect lasts only until the process
+    restarts. vm.swapfilesize is a hint to macOS dynamic_pager, not a hard
+    limit – macOS swap is always managed dynamically by the kernel.
+    """
+    script_path = _SCRIPTS_DIR / script_name
+    if not script_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Skript {script_name} nenalezen v scripts/",
+        )
+    result = subprocess.run(
+        ["sudo", "bash", str(script_path)],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    return {
+        "output": result.stdout,
+        "error": result.stderr,
+        "returncode": result.returncode,
+    }
+
+
+@router.post("/system/boost", tags=["system"])
+async def boost_priority() -> dict:
+    """Zvýšit nice prioritu procesů backendu a Ollamy a nastavit swap hint.
+
+    Spouští scripts/boost_priority.sh s sudo.
+    Vyžaduje, aby server běžel s oprávněními pro sudo bez hesla
+    (nebo sudo bylo povoleno pro daného uživatele).
+    """
+    return _run_priority_script("boost_priority.sh")
+
+
+@router.post("/system/reset-boost", tags=["system"])
+async def reset_boost_priority() -> dict:
+    """Resetovat nice priority procesů a swap hint na výchozí hodnoty.
+
+    Spouští scripts/reset_priority.sh s sudo.
+    """
+    return _run_priority_script("reset_priority.sh")

@@ -1027,8 +1027,14 @@
             <input type="text" class="input" id="finder-path" placeholder="/cesta/ke/slo&#382;ce" style="flex:1" />
             <button class="btn btn--secondary btn--small" id="finder-open-btn">Otev&#345;&iacute;t</button>
           </div>
+          <div class="mac-control-row" style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid #2d3348">
+            <span class="mac-control-label" title="Zv&#253;&#353;&#237; nice prioritu backendu a Ollamy (-10) a nastav&#237; swap hint na 2 GB. Vy&#382;aduje sudo.">&#9889; V&#253;kon</span>
+            <button class="btn btn--primary btn--small" id="boost-priority-btn" title="Zv&#253;&#353;it procesn&#237; prioritu backendu a Ollamy (sudo renice -10)">&#9889; Boost prioritu</button>
+            <button class="btn btn--secondary btn--small" id="reset-boost-btn" title="Resetovat prioritu na v&#253;choz&#237; (renice 0)">&#8617; Reset priorit</button>
+          </div>
         </div>
         <div id="mac-action-result" class="result-box hidden" style="margin-top:0.75rem"></div>
+        <div id="boost-result" class="result-box hidden" style="margin-top:0.5rem;white-space:pre-wrap;font-family:monospace;font-size:0.78rem"></div>
       </section>
 
       <section class="card">
