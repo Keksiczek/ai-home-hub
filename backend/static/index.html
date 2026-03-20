@@ -483,8 +483,8 @@
           <span class="resident-uptime" id="resident-uptime"></span>
           <span class="resident-heartbeat hidden" id="resident-heartbeat"></span>
         </div>
-        <div class="resident-statusbar__right">
-          <div class="resident-mode-switcher">
+        <div class="resident-statusbar__right" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+          <div class="resident-mode-switcher" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
             <span id="resident-mode-icon" class="resident-mode-icon" aria-hidden="true">&#129300;</span>
             <select class="input input--small" id="resident-mode-select" onchange="residentSetMode(this.value)" title="Re&zcaron;im autonomie">
               <option value="observer">Observer</option>
@@ -493,17 +493,19 @@
             </select>
             <span class="resident-mode-hint" id="resident-mode-hint">Navrhuje akce, ty klikne&#353; Spustit</span>
           </div>
-          <div id="resident-autonomous-warning" class="resident-autonomous-warning hidden">
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+            <!-- Panic / toggle autonomy – always visible, prominent -->
+            <button class="btn btn--danger btn--small" id="resident-panic-btn"
+                    onclick="toggleResidentAutonomy()"
+                    title="Okam&#382;it&#283; pozastavit autonomn&iacute; re&#382;im Residenta">
+              &#9208;&#65039; Pozastavit autonomii
+            </button>
+            <button class="btn btn--primary btn--small" id="resident-start-btn">Spustit</button>
+            <button class="btn btn--ghost btn--small" id="resident-stop-btn" disabled>Zastavit</button>
+          </div>
+          <div id="resident-autonomous-warning" class="resident-autonomous-warning hidden" style="width:100%;margin-top:4px">
             &#9888; Bezpe&#269;n&eacute; akce se spou&#353;t&iacute; automaticky, maz&aacute;n&iacute; jen se souhlasem.
           </div>
-          <!-- Panic / toggle autonomy – always visible, prominent -->
-          <button class="btn btn--danger btn--small" id="resident-panic-btn"
-                  onclick="toggleResidentAutonomy()"
-                  title="Okam&#382;it&#283; pozastavit autonomn&iacute; re&#382;im Residenta">
-            &#9208;&#65039; Pozastavit autonomii
-          </button>
-          <button class="btn btn--primary btn--small" id="resident-start-btn">Spustit</button>
-          <button class="btn btn--ghost btn--small" id="resident-stop-btn" disabled>Zastavit</button>
         </div>
       </div>
 
@@ -542,9 +544,13 @@
             <span class="agent-widget-label">Cyklus:</span>
             <span class="agent-widget-value" id="aw-cycle">#0 | Dal&#353;&iacute; za: &mdash;</span>
           </div>
+          <div class="agent-widget-row" style="display:none">
+            <span class="agent-widget-label">Skills:</span>
+            <span class="agent-widget-value" id="aw-skills"></span>
+          </div>
           <div class="agent-widget-actions">
-            <button class="btn btn--ghost btn--small" id="aw-log-btn" onclick="switchTab('resident')">&#128203; Log</button>
-            <button class="btn btn--ghost btn--small" id="aw-settings-btn" onclick="switchTab('settings')">&#9881; Nastaven&iacute;</button>
+            <button class="btn btn--ghost btn--small" id="aw-log-btn" onclick="openResidentLogModal()">&#128203; Log</button>
+            <button class="btn btn--ghost btn--small" id="aw-settings-btn" onclick="openResidentSettingsModal()">&#9881; Nastaven&iacute;</button>
           </div>
         </div>
       </section>
@@ -564,6 +570,9 @@
 
       <!-- Dashboard content -->
       <div id="resident-dashboard-content">
+
+        <!-- KB warning -->
+        <div id="resident-kb-warning" class="hidden" style="background:var(--warning-soft,#7c6a0033);color:var(--warning,#eab308);padding:8px 12px;border-radius:8px;margin-bottom:8px;font-size:0.9em"></div>
 
         <!-- Current task -->
         <section class="card hidden" id="resident-current-task-card">
@@ -2293,6 +2302,83 @@
   <div class="toast-container" id="toast-container" aria-live="assertive" aria-atomic="false"></div>
   <!-- Legacy single toast (kept for compat) -->
   <div class="toast hidden" id="toast" role="alert" aria-live="assertive"></div>
+
+  <!-- ===== RESIDENT LOG MODAL ===== -->
+  <div class="modal-overlay hidden" id="resident-log-modal">
+    <div class="modal" style="max-width:700px;max-height:80vh;display:flex;flex-direction:column">
+      <div class="modal-header" style="display:flex;align-items:center;justify-content:space-between">
+        <h2 class="modal-title">Resident Agent Log</h2>
+        <button class="btn btn--ghost btn--small" onclick="closeResidentLogModal()">&times;</button>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+        <select class="input input--small" id="rl-modal-level-filter" onchange="loadResidentLogModal()">
+          <option value="">ALL</option>
+          <option value="INFO">INFO</option>
+          <option value="WARN">WARN</option>
+          <option value="ERROR">ERROR</option>
+        </select>
+        <button class="btn btn--ghost btn--small btn--danger" onclick="clearResidentLogModal()">Vy&#269;istit log</button>
+      </div>
+      <div id="rl-modal-list" class="resident-log-list" style="flex:1;overflow-y:auto;max-height:55vh">
+        <p class="empty-state">Na&#269;&#237;t&#225;m...</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== RESIDENT SETTINGS MODAL ===== -->
+  <div class="modal-overlay hidden" id="resident-settings-modal">
+    <div class="modal" style="max-width:500px">
+      <div class="modal-header" style="display:flex;align-items:center;justify-content:space-between">
+        <h2 class="modal-title">Nastaven&#237; Resident Agenta</h2>
+        <button class="btn btn--ghost btn--small" onclick="closeResidentSettingsModal()">&times;</button>
+      </div>
+      <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div>
+          <label class="form-label">Interval (s):</label>
+          <input type="range" id="rsm-interval" min="5" max="300" value="30" oninput="document.getElementById('rsm-interval-val').textContent=this.value+'s'" />
+          <span id="rsm-interval-val" class="text-muted" style="font-size:0.85em">30s</span>
+        </div>
+        <div>
+          <label class="form-label">Max cykl&#367;/den:</label>
+          <input type="number" class="input" id="rsm-max-cycles" min="1" max="10000" value="100" />
+        </div>
+      </div>
+      <div class="form-group" style="margin-top:8px">
+        <label style="display:flex;align-items:center;gap:6px">
+          <input type="checkbox" id="rsm-quiet-enabled" />
+          Tich&#253; re&#382;im
+        </label>
+      </div>
+      <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px">
+        <div>
+          <label class="form-label">Od:</label>
+          <input type="time" class="input" id="rsm-quiet-start" value="22:00" />
+        </div>
+        <div>
+          <label class="form-label">Do:</label>
+          <input type="time" class="input" id="rsm-quiet-end" value="07:00" />
+        </div>
+      </div>
+      <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;border-top:1px solid var(--border);padding-top:12px">
+        <div>
+          <label class="form-label">Interval navrhov&#225;n&#237; (min):</label>
+          <input type="number" class="input" id="rsm-proposal-interval" min="15" max="1440" value="60" />
+        </div>
+        <div>
+          <label class="form-label">Max n&#225;vrh&#367;:</label>
+          <input type="number" class="input" id="rsm-max-proposals" min="1" max="5" value="3" />
+        </div>
+      </div>
+      <div class="form-group" style="margin-top:8px">
+        <label class="form-label">T&#233;mata z&#225;jmu:</label>
+        <input type="text" class="input" id="rsm-interest-topics" placeholder="Power BI, Python, novinky v AI" />
+      </div>
+      <div class="form-group form-group--right" style="gap:8px;display:flex;margin-top:12px">
+        <button class="btn btn--primary btn--small" onclick="saveResidentSettingsModal()">Ulo&#382;it</button>
+        <button class="btn btn--ghost btn--small btn--danger" onclick="resetResidentAgentModal()">Reset agenta</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ===== MOBILE SIDEBAR TOGGLE ===== -->
   <button class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Menu">&#9776;</button>
