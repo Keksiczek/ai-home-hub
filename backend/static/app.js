@@ -6960,6 +6960,7 @@ async function loadAgentSettings() {
     const piEl = document.getElementById('agent-setting-proposal-interval');
     const mpEl = document.getElementById('agent-setting-max-proposals');
     const itEl = document.getElementById('agent-setting-interest-topics');
+    const mdEl = document.getElementById('agent-setting-model');
     if (intEl) intEl.value = data.interval_seconds || 30;
     if (maxEl) maxEl.value = data.max_cycles_per_day || 100;
     if (qsEl) qsEl.value = data.quiet_hours_start || '22:00';
@@ -6968,6 +6969,7 @@ async function loadAgentSettings() {
     if (piEl) piEl.value = data.proposal_interval_minutes || 60;
     if (mpEl) mpEl.value = data.max_proposals || 3;
     if (itEl) itEl.value = data.interest_topics || '';
+    if (mdEl) mdEl.value = data.model || '';
   } catch (err) { /* ignore */ }
 }
 
@@ -6981,6 +6983,7 @@ async function saveAgentSettings() {
     proposal_interval_minutes: parseInt(document.getElementById('agent-setting-proposal-interval')?.value) || 60,
     max_proposals: parseInt(document.getElementById('agent-setting-max-proposals')?.value) || 3,
     interest_topics: document.getElementById('agent-setting-interest-topics')?.value || '',
+    model: document.getElementById('agent-setting-model')?.value || '',
   };
   try {
     const res = await fetch('/api/resident/agent-settings', {
@@ -7109,11 +7112,13 @@ async function clearResidentLogModal() {
 async function openResidentSettingsModal() {
   const modal = document.getElementById('resident-settings-modal');
   if (modal) modal.classList.remove('hidden');
-  // Load current settings
+  // Load current settings + available models in parallel
   try {
-    const res = await fetch('/api/resident/agent-settings');
-    if (!res.ok) return;
-    const data = await res.json();
+    const [settingsRes, modelsRes] = await Promise.all([
+      fetch('/api/resident/agent-settings'),
+      fetch('/api/models/installed'),
+    ]);
+    const data = settingsRes.ok ? await settingsRes.json() : {};
     const el = (id) => document.getElementById(id);
     if (el('rsm-interval')) { el('rsm-interval').value = data.interval_seconds || 30; el('rsm-interval-val').textContent = (data.interval_seconds || 30) + 's'; }
     if (el('rsm-max-cycles')) el('rsm-max-cycles').value = data.max_cycles_per_day || 100;
@@ -7123,6 +7128,26 @@ async function openResidentSettingsModal() {
     if (el('rsm-proposal-interval')) el('rsm-proposal-interval').value = data.proposal_interval_minutes || 60;
     if (el('rsm-max-proposals')) el('rsm-max-proposals').value = data.max_proposals || 3;
     if (el('rsm-interest-topics')) el('rsm-interest-topics').value = data.interest_topics || '';
+
+    // Populate model dropdown
+    const modelSelect = el('rsm-model');
+    if (modelSelect) {
+      // Keep the default option, remove the rest
+      modelSelect.innerHTML = '<option value="">-- v\u00fdchoz\u00ed model z LLM konfigurace --</option>';
+      if (modelsRes.ok) {
+        const modelsData = await modelsRes.json();
+        const models = modelsData.models || [];
+        for (const m of models) {
+          const name = typeof m === 'string' ? m : (m.name || m.model || '');
+          if (!name) continue;
+          const opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = name;
+          if (name === (data.model || '')) opt.selected = true;
+          modelSelect.appendChild(opt);
+        }
+      }
+    }
   } catch (err) { /* ignore */ }
 }
 
@@ -7142,6 +7167,7 @@ async function saveResidentSettingsModal() {
     proposal_interval_minutes: parseInt(el('rsm-proposal-interval')?.value) || 60,
     max_proposals: parseInt(el('rsm-max-proposals')?.value) || 3,
     interest_topics: el('rsm-interest-topics')?.value || '',
+    model: el('rsm-model')?.value || '',
   };
   try {
     const res = await fetch('/api/resident/agent-settings', {
