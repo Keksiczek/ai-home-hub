@@ -686,6 +686,9 @@ function bindChatEvents() {
 
   // Load sessions list on init
   loadSessions();
+
+  // BUG #1 fix: Load Ollama models on chat init so the dropdown is populated
+  loadOllamaModels();
 }
 
 // chatAttachedFiles stores raw File objects for the /chat/with-files endpoint
@@ -4797,7 +4800,10 @@ async function loadChatMemoryPanel() {
   listEl.innerHTML = '<span style="color:#64748b;font-size:0.85rem">Načítám...</span>';
 
   try {
-    const res = await fetch('/api/memory/all?limit=50');
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch('/api/memory/all?limit=50', { signal: controller.signal });
+    clearTimeout(timeoutId);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     const memories = data.memories || [];
@@ -4831,7 +4837,9 @@ async function loadChatMemoryPanel() {
       });
     });
   } catch (err) {
-    listEl.innerHTML = `<span style="color:#f87171;font-size:0.85rem">Chyba: ${escHtml(err.message)}</span>`;
+    const msg = err.name === 'AbortError' ? 'Paměť nedostupná (timeout)' : err.message;
+    listEl.innerHTML = `<span style="color:#f87171;font-size:0.85rem">${escHtml(msg)}</span>
+      <button class="btn btn--ghost btn--small" onclick="loadChatMemoryPanel()" style="margin-top:0.5rem">↻ Zkusit znovu</button>`;
   }
 }
 
@@ -6740,8 +6748,8 @@ function bindQoLFeatures() {
       if (!promptText) return;
       const textarea = document.getElementById('chat-input');
       if (textarea) {
-        const existing = textarea.value.trim();
-        textarea.value = existing ? `${promptText}\n\n${existing}` : promptText + '\n\n';
+        // BUG #3 fix: Always REPLACE content, never append
+        textarea.value = promptText + '\n\n';
         textarea.focus();
         // Position cursor at end
         textarea.setSelectionRange(textarea.value.length, textarea.value.length);
@@ -7159,9 +7167,18 @@ function bindFilesManager() {
     if (_filesCurrentPath) loadFileTree(_filesCurrentPath);
   });
 
-  if (pathInput) pathInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); browseBtn && browseBtn.click(); }
-  });
+  // BUG #4 fix: Clear error state on input change
+  if (pathInput) {
+    pathInput.addEventListener('input', () => {
+      const container = document.getElementById('files-tree-container');
+      if (container && container.querySelector('.resident-error-box')) {
+        container.innerHTML = '';
+      }
+    });
+    pathInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); browseBtn && browseBtn.click(); }
+    });
+  }
 
   if (previewClose) previewClose.addEventListener('click', () => {
     const panel = document.getElementById('files-preview-panel');
@@ -7180,7 +7197,20 @@ async function loadFileTree(path) {
 
   try {
     const res = await fetch('/api/files/tree?path=' + encodeURIComponent(path) + '&max_depth=3');
-    if (!res.ok) throw new Error(await res.text());
+    if (!res.ok) {
+      const raw = await res.text();
+      // BUG #4 fix: Parse JSON error and show friendly message
+      let friendlyMsg = raw;
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed.detail && typeof parsed.detail === 'string' && parsed.detail.includes('not in the allowed')) {
+          friendlyMsg = 'Tato složka není povolena. Povolené složky: Downloads, Desktop, Documents.';
+        } else {
+          friendlyMsg = parsed.detail || parsed.message || raw;
+        }
+      } catch (_) { /* not JSON, use raw */ }
+      throw new Error(friendlyMsg);
+    }
     const data = await res.json();
     container.innerHTML = renderFileTree(data.entries, 0);
   } catch (err) {
@@ -7619,6 +7649,10 @@ function bindJobRunControls() {
     runNowBtn.addEventListener('click', async function() {
       const type = (document.getElementById('job-run-type') || {}).value || 'long_llm_task';
       const title = (document.getElementById('job-run-title') || {}).value || ('Manual: ' + type);
+      // ENHANCE #3: Immediate feedback with disabled state
+      const origText = runNowBtn.textContent;
+      runNowBtn.disabled = true;
+      runNowBtn.textContent = 'Probíhá...';
       try {
         const resp = await fetch('/api/jobs/run-now', {
           method: 'POST',
@@ -7627,10 +7661,15 @@ function bindJobRunControls() {
         });
         if (!resp.ok) throw new Error(await resp.text());
         const data = await resp.json();
-        showToast('Job spu\u0161t\u011bn: ' + data.id.substring(0, 8), 'success');
+        showToast('Job spuštěn: ' + (title || data.id.substring(0, 8)), 'success');
         loadJobs();
+        // Poll for job status while running
+        if (data.id) _pollJobStatus(data.id);
       } catch (e) {
         showToast('Chyba: ' + e.message, 'error');
+      } finally {
+        runNowBtn.disabled = false;
+        runNowBtn.textContent = origText;
       }
     });
   }
@@ -7658,6 +7697,29 @@ function bindJobRunControls() {
       }
     });
   }
+}
+
+function _pollJobStatus(jobId) {
+  let attempts = 0;
+  const maxAttempts = 60; // 3 minutes max (every 3s)
+  const interval = setInterval(async () => {
+    attempts++;
+    if (attempts > maxAttempts) { clearInterval(interval); return; }
+    try {
+      const resp = await fetch('/api/jobs/' + encodeURIComponent(jobId));
+      if (!resp.ok) { clearInterval(interval); return; }
+      const job = await resp.json();
+      if (job.status === 'succeeded') {
+        clearInterval(interval);
+        showToast('Job dokončen: ' + (job.title || jobId.substring(0, 8)), 'success');
+        loadJobs();
+      } else if (job.status === 'failed' || job.status === 'cancelled') {
+        clearInterval(interval);
+        showToast('Job selhal: ' + (job.title || jobId.substring(0, 8)), 'error');
+        loadJobs();
+      }
+    } catch (_) { clearInterval(interval); }
+  }, 3000);
 }
 
 async function loadJobQueue() {

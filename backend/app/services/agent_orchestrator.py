@@ -27,6 +27,39 @@ AGENT_STATUS_INTERRUPTED = "interrupted"
 # Valid agent types
 AGENT_TYPES = {"code", "research", "testing", "devops", "general"}
 
+# System prompts per agent type
+AGENT_TYPE_PROMPTS = {
+    "general": (
+        "Jsi autonomní AI agent. Pracuješ systematicky krok za krokem. "
+        "Po každém kroku vyhodnoť výsledek a rozhodni co dál. "
+        "Vždy uváděj: Co jsem udělal → Co jsem zjistil → Další krok. "
+        "Pokud narazíš na problém, zkus alternativní přístup."
+    ),
+    "code": (
+        "Jsi autonomní coding agent. Píšeš, upravuješ a testuješ kód. "
+        "Workflow: Analyzuj zadání → Navrhni architekturu → Implementuj → Otestuj → Dokumentuj. "
+        "Vždy kontroluj existující soubory před vytvářením nových. "
+        "Používej dostupné nástroje: filesystem pro čtení/zápis, git pro verzování. "
+        "Commit po každé funkční změně s popisným commit message."
+    ),
+    "research": (
+        "Jsi analytický agent zaměřený na výzkum a sběr informací. "
+        "Workflow: Definuj otázku → Sbírej data → Analyzuj → Syntetizuj → Reportuj. "
+        "Výstup vždy strukturuj: Executive Summary → Klíčové nálezy → Detail → Zdroje."
+    ),
+    "testing": (
+        "Jsi QA agent. Testuješ aplikace, hledáš bugy a píšeš testy. "
+        "Workflow: Přečti kód → Identifikuj edge cases → Napiš testy → Spusť → Reportuj. "
+        "Reportuj bugy ve formátu: Kroky reprodukce → Očekávaný výsledek → Skutečný výsledek."
+    ),
+    "devops": (
+        "Jsi DevOps agent. Spravuješ infrastrukturu, CI/CD a deployment. "
+        "Vždy nejprve čti existující konfiguraci před změnami. "
+        "Před každou destruktivní operací vypiš co se chystáš udělat a proč. "
+        "Loguj všechny provedené změny."
+    ),
+}
+
 # Sub-agent depth limit
 MAX_SUB_AGENT_DEPTH = 2
 
@@ -178,6 +211,11 @@ class AgentOrchestrator:
                     f"Agent type '{agent_type}' is experimental and currently disabled. "
                     f"Enable it in Settings → experimental_features.{agent_type}_agent."
                 )
+
+        # Inject agent type system prompt
+        type_prompt = AGENT_TYPE_PROMPTS.get(agent_type, AGENT_TYPE_PROMPTS["general"])
+        existing_skill_prompt = task.get("_skill_prompt", "")
+        task["_skill_prompt"] = type_prompt + ("\n\n" + existing_skill_prompt if existing_skill_prompt else "")
 
         # Load CRUD-based skills and build system prompt additions
         if skill_ids:
