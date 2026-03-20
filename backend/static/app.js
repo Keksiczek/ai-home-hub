@@ -5801,6 +5801,17 @@ function renderResidentDashboard(data) {
     if (alertsCard) hide(alertsCard);
   }
 
+  // KB warning
+  const kbWarn = document.getElementById('resident-kb-warning');
+  if (kbWarn) {
+    if (data.kb_chunks === 0) {
+      kbWarn.innerHTML = '\u26a0 Knowledge Base je pr\u00e1zdn\u00e1. Indexuj soubory v sekci Knowledge.';
+      kbWarn.classList.remove('hidden');
+    } else {
+      kbWarn.classList.add('hidden');
+    }
+  }
+
   // Recent tasks table
   renderResidentRecentTasks(data.recent_tasks || []);
 
@@ -7009,6 +7020,159 @@ async function agentReset() {
 }
 
 /* ============================================================
+   RESIDENT LOG MODAL (Fix #2)
+   ============================================================ */
+let _residentLogModalTimer = null;
+
+function openResidentLogModal() {
+  const modal = document.getElementById('resident-log-modal');
+  if (modal) {
+    modal.classList.remove('hidden');
+    loadResidentLogModal();
+    // Auto-refresh every 5s
+    _residentLogModalTimer = setInterval(() => {
+      if (!modal.classList.contains('hidden')) {
+        loadResidentLogModal();
+      } else {
+        clearInterval(_residentLogModalTimer);
+      }
+    }, 5000);
+  }
+}
+
+function closeResidentLogModal() {
+  const modal = document.getElementById('resident-log-modal');
+  if (modal) modal.classList.add('hidden');
+  if (_residentLogModalTimer) {
+    clearInterval(_residentLogModalTimer);
+    _residentLogModalTimer = null;
+  }
+}
+
+async function loadResidentLogModal() {
+  const list = document.getElementById('rl-modal-list');
+  if (!list) return;
+  const level = document.getElementById('rl-modal-level-filter')?.value || '';
+  let url = '/api/resident/logs?limit=200';
+  if (level) url += `&level=${level}`;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    const logs = data.logs || [];
+
+    if (!logs.length) {
+      list.innerHTML = '<p class="empty-state">\u017d\u00e1dn\u00e9 z\u00e1znamy</p>';
+      return;
+    }
+
+    list.innerHTML = logs.map(entry => {
+      const levelColor = entry.level === 'ERROR' ? 'color:var(--danger)'
+        : entry.level === 'WARN' ? 'color:var(--warning)'
+        : 'color:var(--success)';
+      const ts = entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString('cs-CZ') : '';
+      const dataStr = entry.data && Object.keys(entry.data).length
+        ? Object.entries(entry.data).map(([k,v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`).join(' ')
+        : '';
+      return `<div class="log-entry">
+        <span class="log-time">${escHtml(ts)}</span>
+        <span class="log-level" style="${levelColor};font-weight:600">${escHtml(entry.level)}</span>
+        <span class="log-event">${escHtml(entry.event)}</span>
+        ${entry.cycle_id ? `<span class="log-cycle">${escHtml(entry.cycle_id)}</span>` : ''}
+        ${dataStr ? `<span class="log-data">${escHtml(dataStr.substring(0, 120))}</span>` : ''}
+      </div>`;
+    }).join('');
+    list.scrollTop = list.scrollHeight;
+  } catch (err) {
+    list.innerHTML = `<p class="empty-state">Chyba: ${escHtml(err.message)}</p>`;
+  }
+}
+
+async function clearResidentLogModal() {
+  if (!confirm('Smazat v\u0161echny logy agenta?')) return;
+  try {
+    const res = await fetch('/api/resident/logs', { method: 'DELETE' });
+    if (!res.ok) throw new Error(await res.text());
+    showToast('Logy smaz\u00e1ny');
+    loadResidentLogModal();
+    loadAgentLogs(); // refresh inline log too
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
+}
+
+/* ============================================================
+   RESIDENT SETTINGS MODAL (Fix #3)
+   ============================================================ */
+
+async function openResidentSettingsModal() {
+  const modal = document.getElementById('resident-settings-modal');
+  if (modal) modal.classList.remove('hidden');
+  // Load current settings
+  try {
+    const res = await fetch('/api/resident/agent-settings');
+    if (!res.ok) return;
+    const data = await res.json();
+    const el = (id) => document.getElementById(id);
+    if (el('rsm-interval')) { el('rsm-interval').value = data.interval_seconds || 30; el('rsm-interval-val').textContent = (data.interval_seconds || 30) + 's'; }
+    if (el('rsm-max-cycles')) el('rsm-max-cycles').value = data.max_cycles_per_day || 100;
+    if (el('rsm-quiet-enabled')) el('rsm-quiet-enabled').checked = !!data.quiet_hours_enabled;
+    if (el('rsm-quiet-start')) el('rsm-quiet-start').value = data.quiet_hours_start || '22:00';
+    if (el('rsm-quiet-end')) el('rsm-quiet-end').value = data.quiet_hours_end || '07:00';
+    if (el('rsm-proposal-interval')) el('rsm-proposal-interval').value = data.proposal_interval_minutes || 60;
+    if (el('rsm-max-proposals')) el('rsm-max-proposals').value = data.max_proposals || 3;
+    if (el('rsm-interest-topics')) el('rsm-interest-topics').value = data.interest_topics || '';
+  } catch (err) { /* ignore */ }
+}
+
+function closeResidentSettingsModal() {
+  const modal = document.getElementById('resident-settings-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+async function saveResidentSettingsModal() {
+  const el = (id) => document.getElementById(id);
+  const body = {
+    interval_seconds: parseInt(el('rsm-interval')?.value) || 30,
+    max_cycles_per_day: parseInt(el('rsm-max-cycles')?.value) || 100,
+    quiet_hours_enabled: !!el('rsm-quiet-enabled')?.checked,
+    quiet_hours_start: el('rsm-quiet-start')?.value || '22:00',
+    quiet_hours_end: el('rsm-quiet-end')?.value || '07:00',
+    proposal_interval_minutes: parseInt(el('rsm-proposal-interval')?.value) || 60,
+    max_proposals: parseInt(el('rsm-max-proposals')?.value) || 3,
+    interest_topics: el('rsm-interest-topics')?.value || '',
+  };
+  try {
+    const res = await fetch('/api/resident/agent-settings', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    showToast('Nastaven\u00ed ulo\u017eeno');
+    closeResidentSettingsModal();
+    // Sync inline settings form too
+    loadAgentSettings();
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
+}
+
+async function resetResidentAgentModal() {
+  if (!confirm('Resetovat agenta? Sma\u017ee se historie, logy a po\u010d\u00edtadla.')) return;
+  try {
+    const res = await fetch('/api/resident/reset', { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    showToast('Agent resetov\u00e1n');
+    closeResidentSettingsModal();
+    loadResidentDashboard();
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
+}
+
+/* ============================================================
    QoL FEATURES – theme, quick prompts, view density, KB filter
    ============================================================ */
 
@@ -7696,13 +7860,19 @@ function handleAgentStatusUpdate(msg) {
 
   if (!statusEl) return;
 
-  const statusIcons = { idle: '\ud83d\udfe2', thinking: '\ud83d\udfe1', executing: '\ud83d\udfe1', error: '\ud83d\udd34' };
-  const statusTexts = { idle: 'Idle', thinking: 'Thinking...', executing: 'Executing', error: 'Error' };
+  const statusIcons = { idle: '\ud83d\udfe2', thinking: '\ud83d\udfe1', executing: '\ud83d\udfe1', error: '\ud83d\udd34', paused: '\u23f8\ufe0f', quiet: '\ud83c\udf19' };
+  const statusTexts = { idle: 'Idle', thinking: 'P\u0159em\u00fd\u0161l\u00ed...', executing: 'Prov\u00e1d\u00ed', error: 'Chyba', paused: 'Pozastaven', quiet: 'Tich\u00fd re\u017eim' };
   const status = msg.status || 'idle';
   statusEl.textContent = `${statusIcons[status] || '\u26aa'} ${statusTexts[status] || status}`;
 
   if (thoughtEl) {
     thoughtEl.textContent = msg.current_thought || '\u2014';
+    // Pulse animation when thinking
+    if (status === 'thinking') {
+      thoughtEl.classList.add('agent-widget-pulse');
+    } else {
+      thoughtEl.classList.remove('agent-widget-pulse');
+    }
   }
 
   if (lastActionEl) {
@@ -7714,6 +7884,17 @@ function handleAgentStatusUpdate(msg) {
     const mins = Math.floor(nextRun / 60);
     const secs = nextRun % 60;
     cycleEl.textContent = `#${msg.cycle_count || 0} | Dal\u0161\u00ed za: ${mins}:${String(secs).padStart(2, '0')}`;
+  }
+
+  // Display active skills as badges (Fix #6)
+  const skillsEl = document.getElementById('aw-skills');
+  if (skillsEl && msg.active_skills && msg.active_skills.length) {
+    skillsEl.innerHTML = msg.active_skills.map(s =>
+      `<span class="badge badge--info" style="font-size:0.7em;padding:2px 6px">${escHtml(s)}</span>`
+    ).join(' ');
+    skillsEl.parentElement.style.display = '';
+  } else if (skillsEl) {
+    skillsEl.parentElement.style.display = 'none';
   }
 }
 

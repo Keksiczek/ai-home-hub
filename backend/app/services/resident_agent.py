@@ -504,7 +504,17 @@ class ResidentAgent(BackgroundService):
             "uptime_seconds": round(self.get_uptime_seconds(), 1),
             "memory_items": len(self._state.recent_steps),
             "enabled_skills": list(ALLOWED_ACTIONS),
+            "active_skills": self._get_active_skill_names(),
         })
+
+    def _get_active_skill_names(self) -> List[str]:
+        """Return list of active skill names for UI display."""
+        try:
+            from app.services.skills_service import get_skills_service
+            skills = get_skills_service().list()
+            return [s.get("name", "") for s in skills if s.get("name")]
+        except Exception:
+            return []
 
     def _update_heartbeat_status(self) -> None:
         """Determine heartbeat health based on error rate."""
@@ -881,6 +891,15 @@ class ResidentAgent(BackgroundService):
                 "created_at": mj.created_at,
             })
 
+        # KB chunk count for UI warning
+        kb_chunks = 0
+        try:
+            from app.services.vector_store_service import get_vector_store_service
+            vs = get_vector_store_service()
+            kb_chunks = vs.get_stats().get("total_chunks", 0)
+        except Exception:
+            pass
+
         return {
             "status": status,
             "uptime_seconds": round(self.get_uptime_seconds(), 1),
@@ -895,6 +914,7 @@ class ResidentAgent(BackgroundService):
             "missions": missions,
             "reflections_count": len(self._reflections),
             "proposals": [p.to_dict() for p in self._proposals if p.status == "pending"],
+            "kb_chunks": kb_chunks,
         }
 
     # ── Thought stream (SSE) ────────────────────────────────────────────────
@@ -1008,14 +1028,28 @@ class ResidentAgent(BackgroundService):
         except Exception:
             context["memory_snippets"] = []
 
+        # KB status
+        try:
+            from app.services.vector_store_service import get_vector_store_service
+            vs = get_vector_store_service()
+            kb_stats = vs.get_stats()
+            context["kb_chunks"] = kb_stats.get("total_chunks", 0)
+            if context["kb_chunks"] == 0:
+                context["kb_note"] = "KB je prázdná – basuj rozhodnutí na systémovém stavu a paměti."
+        except Exception:
+            context["kb_chunks"] = 0
+            context["kb_note"] = "KB nedostupná."
+
         # Interest topics
         if self._agent_settings.interest_topics:
             context["interest_topics"] = self._agent_settings.interest_topics
 
         max_proposals = self._agent_settings.max_proposals
 
+        from app.services.llm_service import get_date_context
         prompt = (
-            "Jsi Resident Agent. Na základě kontextu navrhni 1-"
+            get_date_context()
+            + "Jsi Resident Agent. Na základě kontextu navrhni 1-"
             f"{max_proposals} užitečné mise.\n"
             "Každá mise musí mít: name, description, type (research/code/analysis), "
             "estimated_minutes, relevance (proč je teď relevantní).\n"
@@ -1026,7 +1060,7 @@ class ResidentAgent(BackgroundService):
         try:
             from app.services.llm_service import get_llm_service
             llm = get_llm_service()
-            raw = await llm.generate(prompt)
+            raw, _meta = await llm.generate(prompt, mode="resident", profile="general")
 
             # Parse JSON from response
             import re
@@ -1223,6 +1257,38 @@ class ResidentAgent(BackgroundService):
         # 2. Sestav allowed_actions list
         allowed_actions_text = "Povolené akce: " + ", ".join(ALLOWED_ACTIONS)
 
+        # 2a. KB empty fallback
+        kb_context = ""
+        try:
+            from app.services.vector_store_service import get_vector_store_service
+            vs = get_vector_store_service()
+            kb_stats = vs.get_stats()
+            total_chunks = kb_stats.get("total_chunks", 0)
+            if total_chunks == 0:
+                kb_context = "\nKB je prázdná – basuj rozhodnutí na systémovém stavu a paměti."
+            else:
+                kb_context = f"\nKB: {total_chunks} chunků k dispozici."
+        except Exception:
+            kb_context = "\nKB nedostupná."
+
+        # 2b. Load active skills and add to context
+        skills_context = ""
+        try:
+            from app.services.skills_service import get_skills_service
+            skills_svc = get_skills_service()
+            active_skills = skills_svc.list()
+            if active_skills:
+                skills_lines = []
+                for skill in active_skills:
+                    skills_lines.append(
+                        f"- {skill.get('name', '?')}: {skill.get('description', '')}"
+                    )
+                    if skill.get("system_prompt_addition"):
+                        skills_lines.append(f"  Instrukce: {skill['system_prompt_addition'][:200]}")
+                skills_context = "\n\nDostupné dovednosti:\n" + "\n".join(skills_lines)
+        except Exception as exc:
+            logger.debug("Failed to load skills for context: %s", exc)
+
         # 3. Zavolej LLM
         from app.services.llm_service import get_llm_service
         from app.services.settings_service import get_settings_service
@@ -1230,9 +1296,13 @@ class ResidentAgent(BackgroundService):
         llm_svc = get_llm_service()
         system_prompt = get_settings_service().get_system_prompt("resident")
 
+        from app.services.llm_service import get_date_context
         user_message = (
-            f"{system_summary}\n\n"
-            f"{allowed_actions_text}\n\n"
+            get_date_context()
+            + f"{system_summary}"
+            f"{kb_context}\n\n"
+            f"{allowed_actions_text}"
+            f"{skills_context}\n\n"
             f"Úkol: {task.get('goal', 'unknown')}\n"
             f"Popis: {task.get('description', 'žádný')}"
         )
@@ -1495,6 +1565,22 @@ class ResidentAgent(BackgroundService):
 
         goal = params.get("goal", "unknown")
         task: Dict[str, Any] = {"goal": goal}
+
+        # Load relevant skill context for the agent type
+        try:
+            from app.services.skills_service import get_skills_service
+            skills_svc = get_skills_service()
+            all_skills = skills_svc.list()
+            # Map agent_type to relevant skill tags
+            tag_map = {"code": ["code", "quality"], "research": ["analytics", "lean", "process"]}
+            relevant_tags = set(tag_map.get(agent_type, []))
+            for skill in all_skills:
+                skill_tags = set(skill.get("tags", []))
+                if skill_tags & relevant_tags and skill.get("system_prompt_addition"):
+                    task.setdefault("skill_context", "")
+                    task["skill_context"] += f"\n{skill['name']}: {skill['system_prompt_addition'][:300]}"
+        except Exception as exc:
+            logger.debug("Failed to load skill for specialist: %s", exc)
 
         # Pokud context_memory_query existuje → přidej memory kontext
         context_query = params.get("context_memory_query")

@@ -3810,6 +3810,15 @@ details[open].reasoning-cycle-item > .reasoning-cycle-summary::before {
   color: #94a3b8;
 }
 
+.agent-widget-pulse {
+  animation: aw-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes aw-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
 .agent-widget-actions {
   display: flex;
   gap: 0.5rem;
