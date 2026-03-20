@@ -132,12 +132,29 @@
       <div class="chat-sidebar-backdrop" id="chat-sidebar-backdrop"></div>
 
       <!-- Chat main area -->
-      <div class="chat-main">
+      <div class="chat-main" style="position:relative;overflow:hidden">
+
+        <!-- Memory slide-in panel -->
+        <div class="chat-memory-panel" id="chat-memory-panel">
+          <div class="chat-memory-panel__header">
+            <span class="chat-memory-panel__title">&#129504; Pam&#283;&#357;</span>
+            <button class="chat-memory-panel__close" id="chat-memory-panel-close" title="Zav&#345;&#237;t">&#10005;</button>
+          </div>
+          <div class="chat-memory-panel__actions">
+            <button class="btn btn--primary btn--small" id="memory-save-session-btn" style="width:100%">
+              &#128190; Ulo&#382;it konverzaci do pam&#283;ti
+            </button>
+          </div>
+          <div class="chat-memory-panel__list" id="chat-memory-list">
+            <span style="color:#64748b;font-size:0.85rem">Na&#269;&iacute;t&aacute;m...</span>
+          </div>
+        </div>
+
         <div class="panel-header">
           <h1 class="panel-title">Chat</h1>
           <div class="chat-session-bar">
             <span class="session-badge" id="session-label">Nov&aacute; relace</span>
-            <button class="btn btn--ghost btn--small" id="summarize-session-btn" title="Ulo&#382;it session do pam&#283;ti">&#128190; Pam&#283;&#357;</button>
+            <button class="btn btn--ghost btn--small" id="summarize-session-btn" title="Zobrazit / ulo&#382;it pam&#283;ti">&#129504; Pam&#283;&#357;</button>
             <button class="btn btn--ghost btn--small" id="chat-sidebar-toggle" title="Historie">&#9776; Historie</button>
           </div>
         </div>
