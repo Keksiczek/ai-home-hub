@@ -7169,6 +7169,7 @@ async function saveResidentSettingsModal() {
     interest_topics: el('rsm-interest-topics')?.value || '',
     model: el('rsm-model')?.value || '',
   };
+  const statusEl = document.getElementById('rsm-status');
   try {
     const res = await fetch('/api/resident/agent-settings', {
       method: 'PATCH',
@@ -7176,12 +7177,13 @@ async function saveResidentSettingsModal() {
       body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error(await res.text());
-    showToast('Nastaven\u00ed ulo\u017eeno');
-    closeResidentSettingsModal();
+    showToast('\u2705 Nastaven\u00ed ulo\u017eeno');
+    if (statusEl) statusEl.textContent = '\u2705 Nastaven\u00ed ulo\u017eeno';
     // Sync inline settings form too
     loadAgentSettings();
   } catch (err) {
-    showToast('Chyba: ' + err.message, 'error');
+    showToast('\u274C Chyba p\u0159i ukl\u00e1d\u00e1n\u00ed: ' + err.message, 'error');
+    if (statusEl) statusEl.textContent = '\u274C Chyba: ' + err.message;
   }
 }
 
@@ -7195,6 +7197,50 @@ async function resetResidentAgentModal() {
     loadResidentDashboard();
   } catch (err) {
     showToast('Chyba: ' + err.message, 'error');
+  }
+}
+
+async function restartResidentAgent() {
+  const statusEl = document.getElementById('rsm-status');
+  if (statusEl) statusEl.textContent = 'Restartuji agenta\u2026';
+  try {
+    const res = await fetch('/api/resident/restart', { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    showToast('\uD83D\uDD04 ' + (data.message || 'Agent restartov\u00e1n'));
+    if (statusEl) statusEl.textContent = data.message || 'Agent restartov\u00e1n';
+    loadResidentDashboard();
+  } catch (err) {
+    showToast('\u274C Restart selhal: ' + err.message, 'error');
+    if (statusEl) statusEl.textContent = 'Chyba: ' + err.message;
+  }
+}
+
+async function shutdownApp() {
+  if (!confirm('Opravdu chce\u0161 vypnout AI Home Hub? Server se ukon\u010d\u00ed.')) return;
+  const statusEl = document.getElementById('rsm-status');
+  if (statusEl) statusEl.textContent = '\uD83D\uDD34 Vyp\u00edn\u00e1m\u2026';
+  try {
+    const res = await fetch('/api/admin/shutdown', { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    showToast('\uD83D\uDD34 AI Home Hub se vyp\u00edn\u00e1\u2026');
+    if (statusEl) statusEl.textContent = 'Server se vyp\u00edn\u00e1\u2026';
+    // Stop all polling – server is going away
+    if (typeof _residentPollTimer !== 'undefined' && _residentPollTimer) {
+      clearInterval(_residentPollTimer);
+    }
+    if (typeof _statusRefreshInterval !== 'undefined' && _statusRefreshInterval) {
+      clearInterval(_statusRefreshInterval);
+    }
+  } catch (err) {
+    // Connection drop is expected during shutdown
+    if (err.message && err.message.includes('Failed to fetch')) {
+      showToast('\uD83D\uDD34 Server se vyp\u00edn\u00e1\u2026');
+      if (statusEl) statusEl.textContent = 'Server zastaven.';
+    } else {
+      showToast('\u274C Chyba: ' + err.message, 'error');
+      if (statusEl) statusEl.textContent = 'Chyba: ' + err.message;
+    }
   }
 }
 

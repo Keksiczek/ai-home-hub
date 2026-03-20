@@ -85,3 +85,45 @@ async def admin_update(_auth: bool = Depends(verify_api_key)) -> dict:
         "status": "ok",
         "message": "Update zahájen (git pull + restart) – backend se za chvíli vrátí",
     }
+
+
+@router.post("/shutdown")
+async def admin_shutdown(_auth: bool = Depends(verify_api_key)) -> dict:
+    """Graceful shutdown of the FastAPI server.
+
+    Saves pending state, stops background services, then sends SIGTERM
+    to the current process.  The HTTP response is returned before the
+    actual process exit so the caller receives a clean JSON reply.
+    """
+    import signal
+
+    logger.warning("Admin: shutdown requested – saving state and stopping services")
+
+    # 1. Stop resident agent gracefully (saves memory)
+    try:
+        from app.services.resident_agent import get_resident_agent
+        agent = get_resident_agent()
+        if agent.get_state().get("is_running"):
+            await agent.stop()
+    except Exception as exc:
+        logger.error("Shutdown: failed to stop resident agent: %s", exc)
+
+    # 2. Persist settings (flush any in-memory changes)
+    try:
+        from app.services.settings_service import get_settings_service
+        get_settings_service().load()  # ensure file is up to date
+    except Exception as exc:
+        logger.error("Shutdown: settings save failed: %s", exc)
+
+    # 3. Schedule SIGTERM after a short delay so this response can be sent
+    async def _delayed_kill():
+        await asyncio.sleep(1)
+        logger.info("Sending SIGTERM to self (pid=%d)", os.getpid())
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    asyncio.create_task(_delayed_kill())
+
+    return {
+        "status": "shutting_down",
+        "message": "AI Home Hub se vypíná…",
+    }

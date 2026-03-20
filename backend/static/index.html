@@ -2379,10 +2379,13 @@
         <label class="form-label">T&#233;mata z&#225;jmu:</label>
         <input type="text" class="input" id="rsm-interest-topics" placeholder="Power BI, Python, novinky v AI" />
       </div>
-      <div class="form-group form-group--right" style="gap:8px;display:flex;margin-top:12px">
-        <button class="btn btn--primary btn--small" onclick="saveResidentSettingsModal()">Ulo&#382;it</button>
-        <button class="btn btn--ghost btn--small btn--danger" onclick="resetResidentAgentModal()">Reset agenta</button>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:12px">
+        <button class="btn btn--primary btn--small" onclick="saveResidentSettingsModal()">&#10004; Ulo&#382;it</button>
+        <button class="btn btn--ghost btn--small" onclick="restartResidentAgent()">&#128260; Restart agenta</button>
+        <div style="flex:1"></div>
+        <button class="btn btn--ghost btn--small btn--danger" onclick="shutdownApp()">&#128308; Vypnout Hub</button>
       </div>
+      <div id="rsm-status" class="hint-text" style="margin-top:6px"></div>
     </div>
   </div>
 
