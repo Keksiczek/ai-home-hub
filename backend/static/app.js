@@ -612,7 +612,9 @@ function bindChatEvents() {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); sendMessage(); }
     if (e.key === 'Escape' && _isStreaming) stopStreaming();
   });
-  document.getElementById('summarize-session-btn').addEventListener('click', summarizeSession);
+  document.getElementById('summarize-session-btn').addEventListener('click', toggleChatMemoryPanel);
+  document.getElementById('chat-memory-panel-close').addEventListener('click', closeChatMemoryPanel);
+  document.getElementById('memory-save-session-btn').addEventListener('click', summarizeSessionFromPanel);
 
   // New chat button (sidebar)
   document.getElementById('new-chat-btn').addEventListener('click', () => {
@@ -1428,6 +1430,12 @@ async function loadSessions() {
         deleteSession(btn.dataset.deleteSession);
       });
     });
+
+    // Scroll the active session into view (e.g. after first message in new chat)
+    const activeItem = list.querySelector('.session-item.active');
+    if (activeItem) {
+      activeItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
   } catch (err) {
     console.error('Failed to load sessions:', err);
   }
@@ -2036,6 +2044,23 @@ function bindActionsEvents() {
     });
   }
 
+  // Boost / reset-boost (process priority + swap hint)
+  const boostBtn = document.getElementById('boost-priority-btn');
+  if (boostBtn) {
+    boostBtn.addEventListener('click', async () => {
+      boostBtn.disabled = true;
+      boostBtn.textContent = '⏳ Boost...';
+      await runSystemScript('/api/system/boost', boostBtn, '⚡ Boost prioritu');
+    });
+  }
+  const resetBoostBtn = document.getElementById('reset-boost-btn');
+  if (resetBoostBtn) {
+    resetBoostBtn.addEventListener('click', async () => {
+      resetBoostBtn.disabled = true;
+      await runSystemScript('/api/system/reset-boost', resetBoostBtn, '↩️ Reset priorit');
+    });
+  }
+
   // Git buttons
   document.querySelectorAll('[data-git]').forEach(btn => {
     btn.addEventListener('click', () => handleGitAction(btn.dataset.git));
@@ -2082,6 +2107,27 @@ function showMacResult(data) {
   el.className = `result-box ${statusClass}`;
   el.innerHTML = `<strong>${escHtml(data.status)}</strong> ${escHtml(data.detail || JSON.stringify(data.data || ''))}`;
   show(el);
+}
+
+async function runSystemScript(endpoint, btn, originalLabel) {
+  const resultEl = document.getElementById('boost-result');
+  try {
+    const res = await fetch(endpoint, { method: 'POST' });
+    const data = await res.json();
+    if (resultEl) {
+      const ok = (data.returncode === 0) || !data.returncode;
+      resultEl.className = `result-box ${ok ? 'result-box--ok' : 'result-box--error'}`;
+      const output = [data.output, data.error].filter(Boolean).join('\n').trim();
+      resultEl.textContent = output || (ok ? 'OK' : 'Chyba');
+      show(resultEl);
+    }
+    showToast(data.returncode === 0 ? 'Hotovo' : `Chyba (exit ${data.returncode})`,
+              data.returncode === 0 ? 'success' : 'error');
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
+  }
 }
 
 async function handleGitAction(action) {
@@ -2721,6 +2767,26 @@ function addExternalPath() {
   renderExternalPaths();
 }
 
+/* ── Unified API message display helper ─────────────────── */
+/**
+ * Show a user-friendly message from backend API response.
+ * @param {string|null} message - message text (supports \n and "• " bullets)
+ * @param {'info'|'warning'|'error'} type
+ * @param {HTMLElement|null} targetEl - inline container; null = toast fallback
+ */
+function showApiMessage(message, type = 'info', targetEl = null) {
+  if (!message) return;
+  const formatted = message
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\n• /g, '<br>• ')
+    .replace(/\n/g, '<br>');
+  if (targetEl) {
+    targetEl.innerHTML = `<div class="api-message api-message--${type}">${formatted}</div>`;
+  } else {
+    showToast(message, type === 'info' ? 'info' : type);
+  }
+}
+
 /* ── Agent Skills (SKILL.md) helpers ───────────────────── */
 
 function renderAgentSkillsDirsList() {
@@ -2763,10 +2829,14 @@ async function rescanAgentSkills() {
   try {
     const res = await fetch('/api/agent-skills/refresh', { method: 'POST' });
     const data = await res.json();
-    renderAgentSkillsCatalogData(data.skills || []);
+    renderAgentSkillsCatalogData(data.skills || [], data.message);
     const countEl = document.getElementById('agent-skills-count');
     if (countEl) countEl.textContent = `Nalezeno: ${data.count || 0}`;
     showToast(`Agent skills refreshed: ${data.count || 0} nalezeno`, 'success');
+    if (data.scanned_directories?.length) {
+      const countEl2 = document.getElementById('agent-skills-count');
+      if (countEl2) countEl2.title = `Složky: ${data.scanned_directories.join(', ')}`;
+    }
   } catch (err) {
     showToast(`Chyba rescan: ${err.message}`, 'error');
   } finally {
@@ -2778,17 +2848,26 @@ async function loadAgentSkillsCatalog() {
   try {
     const res = await fetch('/api/agent-skills');
     const data = await res.json();
-    renderAgentSkillsCatalogData(data.skills || []);
+    renderAgentSkillsCatalogData(data.skills || [], data.message);
     const countEl = document.getElementById('agent-skills-count');
-    if (countEl) countEl.textContent = `Nalezeno: ${data.count || 0}`;
+    if (countEl) {
+      countEl.textContent = `Nalezeno: ${data.count || 0}`;
+      if (data.scanned_directories?.length) {
+        countEl.title = `Složky: ${data.scanned_directories.join(', ')}`;
+      }
+    }
   } catch (err) { /* silent */ }
 }
 
-function renderAgentSkillsCatalogData(skills) {
+function renderAgentSkillsCatalogData(skills, message) {
   const el = document.getElementById('agent-skills-catalog');
   if (!el) return;
   if (!skills.length) {
-    el.innerHTML = '<p class="hint-text">Zadne agent skills nalezeny.</p>';
+    if (message) {
+      showApiMessage(message, 'info', el);
+    } else {
+      el.innerHTML = '<p class="hint-text">Žádné agent skills nalezeny.</p>';
+    }
     return;
   }
   el.innerHTML = skills.map(s => `
@@ -4694,6 +4773,96 @@ function handleJobUpdate(jobData) {
   }
 }
 
+/* ── Chat Memory Panel ─────────────────────────────────── */
+
+function toggleChatMemoryPanel() {
+  const panel = document.getElementById('chat-memory-panel');
+  if (!panel) return;
+  if (panel.classList.contains('open')) {
+    panel.classList.remove('open');
+  } else {
+    panel.classList.add('open');
+    loadChatMemoryPanel();
+  }
+}
+
+function closeChatMemoryPanel() {
+  const panel = document.getElementById('chat-memory-panel');
+  if (panel) panel.classList.remove('open');
+}
+
+async function loadChatMemoryPanel() {
+  const listEl = document.getElementById('chat-memory-list');
+  if (!listEl) return;
+  listEl.innerHTML = '<span style="color:#64748b;font-size:0.85rem">Načítám...</span>';
+
+  try {
+    const res = await fetch('/api/memory/all?limit=50');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const memories = data.memories || [];
+
+    if (!memories.length) {
+      listEl.innerHTML = '<span style="color:#64748b;font-size:0.85rem">Žádné uložené paměti.<br>Klikni „Uložit konverzaci" výše.</span>';
+      return;
+    }
+
+    listEl.innerHTML = memories.map(m => {
+      const ts = m.timestamp ? new Date(m.timestamp).toLocaleString('cs-CZ') : '';
+      const tagsStr = (m.tags || []).join(', ');
+      return `<div class="chat-memory-item" data-mem-text="${escHtml(m.text)}">
+        <div class="chat-memory-item__text">${escHtml(m.text)}</div>
+        <div class="chat-memory-item__meta">${tagsStr ? escHtml(tagsStr) + ' · ' : ''}${ts}</div>
+        <button class="btn btn--ghost btn--small chat-memory-item__insert"
+                data-mem-text="${escHtml(m.text)}">&#128203; Vlo&#382;it do chatu</button>
+      </div>`;
+    }).join('');
+
+    listEl.querySelectorAll('.chat-memory-item__insert').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const text = btn.dataset.memText;
+        const chatInput = document.getElementById('chat-input');
+        if (chatInput) {
+          chatInput.value = (chatInput.value ? chatInput.value + '\n\n' : '') +
+            '[Kontext z paměti]: ' + text;
+          chatInput.focus();
+        }
+        closeChatMemoryPanel();
+      });
+    });
+  } catch (err) {
+    listEl.innerHTML = `<span style="color:#f87171;font-size:0.85rem">Chyba: ${escHtml(err.message)}</span>`;
+  }
+}
+
+async function summarizeSessionFromPanel() {
+  if (!currentSessionId) {
+    showToast('Žádná aktivní konverzace', 'warning');
+    return;
+  }
+  const btn = document.getElementById('memory-save-session-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Ukládám...'; }
+  try {
+    const res = await fetch('/api/memory/summarize-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: currentSessionId }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    if (data.summary_count > 0) {
+      showToast(`Vytvořeno ${data.summary_count} pamětí z konverzace`, 'success');
+      loadChatMemoryPanel(); // refresh list
+    } else {
+      showToast('Žádná relevantní fakta nenalezena', 'info');
+    }
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '&#128190; Uložit konverzaci do paměti'; }
+  }
+}
+
 async function summarizeSession() {
   if (!currentSessionId) {
     showToast('Zadna aktivni session', 'warning');
@@ -5389,7 +5558,12 @@ async function loadKBOverview() {
 
     if (data.total_documents === 0) {
       listEl.innerHTML = '';
-      listEl.appendChild(emptyEl || createEmptyState());
+      if (data.message && emptyEl) {
+        showApiMessage(data.message, 'info', emptyEl);
+        listEl.appendChild(emptyEl);
+      } else {
+        listEl.appendChild(emptyEl || createEmptyState());
+      }
       return;
     }
 

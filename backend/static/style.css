@@ -4817,3 +4817,104 @@ details[open].reasoning-cycle-item > .reasoning-cycle-summary::before {
   margin-top: 0.5rem;
   flex-wrap: wrap;
 }
+
+/* ── API Message (unified empty-state messages from backend) ── */
+.api-message {
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+.api-message--info {
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  color: #a5b4fc;
+}
+.api-message--warning {
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  color: #fbbf24;
+}
+.api-message--error {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: #f87171;
+}
+
+/* ── Chat Memory Panel ──────────────────────────────────────── */
+.chat-memory-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 340px;
+  max-width: 90vw;
+  height: 100%;
+  background: #1a1f2e;
+  border-left: 1px solid #2d3348;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  transition: transform 0.25s ease;
+  overflow: hidden;
+}
+.chat-memory-panel.open {
+  transform: translateX(0);
+}
+.chat-memory-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #2d3348;
+  flex-shrink: 0;
+}
+.chat-memory-panel__title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: #e2e8f0;
+}
+.chat-memory-panel__close {
+  background: none;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 1.1rem;
+  padding: 0.25rem;
+  line-height: 1;
+}
+.chat-memory-panel__close:hover { color: #e2e8f0; }
+.chat-memory-panel__actions {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #2d3348;
+  flex-shrink: 0;
+}
+.chat-memory-panel__list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.75rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.chat-memory-item {
+  border: 1px solid #2d3348;
+  border-radius: 8px;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.82rem;
+}
+.chat-memory-item__text {
+  color: #cbd5e1;
+  margin-bottom: 0.4rem;
+  line-height: 1.4;
+}
+.chat-memory-item__meta {
+  color: #475569;
+  font-size: 0.75rem;
+  margin-bottom: 0.4rem;
+}
+.chat-memory-item__insert {
+  font-size: 0.75rem;
+  padding: 2px 8px;
+}

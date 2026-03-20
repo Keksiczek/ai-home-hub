@@ -1,7 +1,7 @@
 # Makefile – AI Home Hub
 # Usage: make <target>
 
-.PHONY: run-dev run-prod stop logs clean help dev-start dev-stop dev-update dev-status
+.PHONY: run-dev run-prod stop logs clean help dev-start dev-stop dev-update dev-status boost reset-boost
 
 SHELL := /bin/bash
 SCRIPT := ./run-app.sh
@@ -71,3 +71,10 @@ docker-up: ## Start via Docker Compose (fallback)
 
 docker-down: ## Stop Docker Compose stack
 	docker compose down
+
+boost: ## Zvýšit procesní prioritu backendu a Ollamy (vyžaduje sudo)
+	@echo "Nastavuji vysokou prioritu (vyžaduje sudo)..."
+	sudo bash scripts/boost_priority.sh
+
+reset-boost: ## Resetovat procesní priority na výchozí
+	sudo bash scripts/reset_priority.sh
