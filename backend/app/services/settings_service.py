@@ -12,8 +12,8 @@ SETTINGS_FILE = DATA_DIR / "settings.json"
 DEFAULT_SETTINGS: Dict[str, Any] = {
     "llm": {
         "provider": "ollama",
-        "model": "llama3.2",
-        "default_model": "llama3.2",
+        "model": "llama3.2:latest",
+        "default_model": "llama3.2:latest",
         "temperature": 0.3,
         "timeout_seconds": 180,
         "ollama_url": "http://localhost:11434",
@@ -244,7 +244,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     },
     "profiles": {
         "chat": {
-            "model": "llama3.2",
+            "model": "llama3.2:latest",
             "params": {"temperature": 0.3, "top_p": 0.9, "top_k": 40, "max_tokens": 2048},
         },
         "powerbi": {
@@ -252,7 +252,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
             "params": {"temperature": 0.1, "top_p": 0.95, "top_k": 20, "max_tokens": 4096},
         },
         "lean": {
-            "model": "llama3.2",
+            "model": "llama3.2:latest",
             "params": {"temperature": 0.3, "top_p": 0.9, "top_k": 40, "max_tokens": 2048},
         },
         "vision": {

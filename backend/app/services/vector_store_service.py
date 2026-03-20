@@ -103,9 +103,14 @@ class VectorStoreService:
         Returns dict with ids, documents, metadatas, distances.
         """
         try:
+            # Guard: ChromaDB raises if n_results > collection size or collection is empty
+            count = self.collection.count()
+            if count == 0:
+                return {"ids": [], "documents": [], "metadatas": [], "distances": []}
+
             kwargs: Dict[str, Any] = {
                 "query_embeddings": [query_embedding],
-                "n_results": top_k,
+                "n_results": min(top_k, count),
             }
             if filter_metadata:
                 kwargs["where"] = filter_metadata

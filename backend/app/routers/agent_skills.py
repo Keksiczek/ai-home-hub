@@ -13,15 +13,36 @@ async def list_agent_skills() -> Dict[str, Any]:
     """Return the current catalog of discovered agent skills."""
     svc = get_agent_skills_service()
     catalog = svc.build_catalog()
-    return {"skills": catalog, "count": len(catalog)}
+    scanned = svc.get_scanned_directories()
+    message = None
+    if len(catalog) == 0:
+        paths_str = "\n• ".join(scanned) if scanned else "žádné nakonfigurované složky"
+        message = (
+            f"Žádné SKILL.md soubory nenalezeny. Přidej SKILL.md soubory do:\n• {paths_str}"
+        )
+    return {"skills": catalog, "count": len(catalog), "scanned_directories": scanned, "message": message}
 
 
 @router.post("/agent-skills/refresh", tags=["agent-skills"])
 async def refresh_agent_skills() -> Dict[str, Any]:
-    """Re-scan skills directories and return updated catalog."""
+    """Re-scan skills directories and return updated catalog. Creates default dirs if missing."""
     svc = get_agent_skills_service()
     catalog = svc.refresh()
-    return {"skills": catalog, "count": len(catalog), "refreshed": True}
+    scanned = svc.get_scanned_directories()
+    message = None
+    if len(catalog) == 0:
+        paths_str = "\n• ".join(scanned) if scanned else "žádné nakonfigurované složky"
+        message = (
+            f"Žádné SKILL.md soubory nenalezeny. Složky jsou připraveny – "
+            f"přidej SKILL.md soubory do:\n• {paths_str}"
+        )
+    return {
+        "skills": catalog,
+        "count": len(catalog),
+        "refreshed": True,
+        "scanned_directories": scanned,
+        "message": message,
+    }
 
 
 @router.get("/agent-skills/{name}", tags=["agent-skills"])

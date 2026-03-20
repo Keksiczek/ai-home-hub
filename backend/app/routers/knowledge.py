@@ -1046,11 +1046,22 @@ async def kb_search_with_filters(
     from app.utils.constants import MIN_KB_SEARCH_SCORE
     import time as _time
 
+    # Guard: ChromaDB raises if n_results > collection size or collection is empty
+    col_count = await asyncio.to_thread(col_obj.count)
+    if col_count == 0:
+        return {"results": [], "query": q, "collection": col_name, "tag": tag, "total": 0,
+                "message": "Znalostní báze je prázdná – nejprve přidej dokumenty."}
+
     kwargs: Dict[str, Any] = {
         "query_embeddings": [query_embedding],
-        "n_results": top_k,
+        "n_results": min(top_k, col_count),
     }
-    raw = await asyncio.to_thread(col_obj.query, **kwargs)
+    try:
+        raw = await asyncio.to_thread(col_obj.query, **kwargs)
+    except Exception as exc:
+        logger.warning("KB search query failed (collection=%s, count=%d): %s", col_name, col_count, exc)
+        return {"results": [], "query": q, "collection": col_name, "tag": tag, "total": 0}
+
     docs = raw["documents"][0] if raw.get("documents") else []
     metas = raw["metadatas"][0] if raw.get("metadatas") else []
     dists = raw["distances"][0] if raw.get("distances") else []
