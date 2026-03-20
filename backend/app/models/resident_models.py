@@ -56,12 +56,24 @@ class MissionPlan(BaseModel):
     steps: List[MissionStep] = []
     current_step: int = 0
     status: Literal["planned", "in_progress", "done", "error"] = "planned"
+    output: str = ""  # Final mission output / summary
 
 
 class MissionCreateRequest(BaseModel):
     goal: str
     context: str = ""
     collection: str = ""
+
+
+# ── Mission Chat ────────────────────────────────────────────
+
+class MissionChatMessage(BaseModel):
+    """A single chat message in a mission's chat history."""
+    role: Literal["user", "assistant"]
+    content: str
+    timestamp: str = Field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
 
 
 # ── Reflections ──────────────────────────────────────────────

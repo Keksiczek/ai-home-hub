@@ -35,7 +35,7 @@ def get_date_context() -> str:
     now = datetime.now()
     day_name = _DAYS_CS[now.weekday()]
     return (
-        f"Dnešní datum: {now.day}. {_MONTHS_CS[now.month - 1]} {now.year}, "
+        f"Aktuální datum a čas: {now.day}. {_MONTHS_CS[now.month - 1]} {now.year}, "
         f"{day_name}, {now.strftime('%H:%M')}\n"
     )
 
