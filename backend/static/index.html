@@ -996,6 +996,20 @@
         </div>
       </div>
 
+      <!-- // KB INITIALIZATION – Job History with output summaries -->
+      <section class="card" id="job-history-section">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem">
+          <h2 class="card-title" style="margin:0">Job History</h2>
+          <div style="display:flex;gap:0.5rem;align-items:center">
+            <span class="hint-text" id="kb-stats-badge" style="font-size:0.75rem"></span>
+            <button class="btn btn--ghost btn--small" onclick="loadJobHistory()">Obnovit</button>
+          </div>
+        </div>
+        <div id="job-history-list">
+          <p class="empty-state">Na&#269;&iacute;t&aacute;m historii...</p>
+        </div>
+      </section>
+
       <!-- Jobs list -->
       <section class="card">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.75rem">

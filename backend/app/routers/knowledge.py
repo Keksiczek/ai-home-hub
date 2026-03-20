@@ -26,6 +26,61 @@ from app.utils.text_chunker import chunk_text
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+
+# ── KB Initialization from external sources ──────────────────────
+# // KB INITIALIZATION
+
+
+@router.post("/kb/initialize", tags=["knowledge"])
+async def initialize_knowledge_base(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+    """Initialize KB from external sources (GitHub repos, local paths, URLs).
+
+    Input payload::
+
+        {
+          "sources": [
+            {"type": "github_repo", "url": "https://github.com/owner/repo", "paths": ["/README.md"]},
+            {"type": "local_path", "path": "/path/to/docs/", "include": ["*.md"], "exclude": ["temp/"]},
+            {"type": "url", "urls": ["https://example.com/docs/"]}
+          ],
+          "collection": "knowledge_base"  // optional, default knowledge_base
+        }
+    """
+    from app.services.knowledge_service import get_knowledge_service
+
+    sources = body.get("sources", [])
+    if not sources:
+        raise HTTPException(status_code=400, detail="'sources' list is required and must not be empty")
+
+    collection = body.get("collection", "knowledge_base")
+    kb_svc = get_knowledge_service()
+
+    try:
+        result = await kb_svc.initialize(sources=sources, collection=collection)
+        return result
+    except Exception as exc:
+        logger.error("KB initialization failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"KB initialization failed: {exc}")
+
+
+@router.get("/kb/stats", tags=["knowledge"])
+async def get_kb_stats() -> Dict[str, Any]:
+    """Quick KB stats: total chunks, collections, last updated."""
+    vector_store = get_vector_store_service()
+    stats = vector_store.get_stats(detailed=True)
+
+    # Get collections info
+    collections = await vector_store.list_collections()
+
+    return {
+        "chunks": stats.get("total_chunks", 0),
+        "documents": stats.get("total_documents", 0),
+        "collections": len(collections),
+        "collection_names": [c["name"] for c in collections],
+        "file_types": stats.get("file_types", {}),
+        "last_updated": datetime.now(timezone.utc).isoformat(),
+    }
+
 # ── In-memory job store ───────────────────────────────────────────
 # Maps job_id -> IngestJob dict.  Sufficient for single-process deployments;
 # replace with Redis/DB for multi-worker setups.

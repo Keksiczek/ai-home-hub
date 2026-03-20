@@ -284,6 +284,9 @@ class JobWorker(BackgroundService):
                 job.id, job.type, job.status,
             )
 
+            # // KB INITIALIZATION – store job output in KB automatically
+            await self._store_job_result_in_kb(job, time.monotonic() - job_start_mono)
+
             # Broadcast night-job-specific WS events
             if self._broadcast_fn and job.type in night_job_types:
                 try:
@@ -303,6 +306,45 @@ class JobWorker(BackgroundService):
                         })
                 except Exception as exc:
                     logger.debug("Night job broadcast failed: %s", exc)
+
+    async def _store_job_result_in_kb(self, job: Job, duration_s: float) -> None:
+        """Store completed/failed job output in KB for resident agent context.
+
+        // KB INITIALIZATION – automatic job result storage
+        """
+        try:
+            from app.services.knowledge_service import get_knowledge_service
+            kb_svc = get_knowledge_service()
+
+            meta = job.meta or {}
+            result = meta.get("result", {})
+
+            # Build output text
+            if isinstance(result, dict):
+                output = result.get("output", result.get("summary", str(result)))
+            elif isinstance(result, str):
+                output = result
+            else:
+                output = str(result) if result else (job.last_error or "No output")
+
+            action = ""
+            model_used = ""
+            if isinstance(result, dict):
+                action = result.get("action", result.get("action_type", ""))
+                model_used = result.get("model_used", result.get("model", ""))
+
+            await kb_svc.store_job_result(
+                job_id=job.id,
+                job_type=job.type,
+                status=job.status,
+                output=output,
+                execution_time=duration_s,
+                model_used=model_used,
+                action=action,
+            )
+        except Exception as exc:
+            # Non-critical: don't fail the job if KB storage fails
+            logger.debug("Failed to store job result in KB (non-critical): %s", exc)
 
     async def _on_start(self) -> None:
         """Start the night scheduler as a companion daemon."""
