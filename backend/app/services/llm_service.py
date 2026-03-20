@@ -42,12 +42,15 @@ def get_date_context() -> str:
 
 # Model routing table – maps task profile to Ollama model name
 MODEL_ROUTING: dict[str, str] = {
-    "code":       "qwen2.5-coder:3b",   # coding tasks, git, vscode
-    "research":   "llama3.2",            # research, document analysis
-    "general":    "llama3.2",            # general chat
+    "code":       "qwen2.5-coder:3b",    # coding tasks, git, vscode
+    "research":   "llama3.2:latest",     # research, document analysis
+    "general":    "llama3.2:latest",     # general chat
     "powerbi":    "qwen2.5-coder:3b",   # DAX, Power BI
-    "lean":       "llama3.2",            # Lean/CI
-    "summarize":  "llama3.2",            # KB summarization, context compression
+    "pbi":        "llama3.2:latest",     # Power BI chat (non-code)
+    "lean":       "llama3.2:latest",     # Lean/CI
+    "mac":        "llama3.2:latest",     # macOS admin
+    "agent":      "llama3.2:latest",     # agent orchestration
+    "summarize":  "llama3.2:latest",     # KB summarization, context compression
     "vision":     "llava:7b",            # image analysis
     "embed":      "nomic-embed-text",    # embeddings (nezměn stávající logiku)
 }

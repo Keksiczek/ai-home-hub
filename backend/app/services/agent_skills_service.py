@@ -142,8 +142,36 @@ class AgentSkillsService:
             self.discover_skills()
         return [r.to_dict() for r in self._cache]
 
+    def ensure_default_directories(self) -> List[str]:
+        """Create default skill directories if they don't exist. Returns list of created paths."""
+        created: List[str] = []
+        for d in DEFAULT_SKILL_DIRS:
+            p = Path(d).expanduser()
+            if not p.exists():
+                try:
+                    p.mkdir(parents=True, exist_ok=True)
+                    logger.info("Created default skill directory: %s", p)
+                    created.append(str(p))
+                except Exception as exc:
+                    logger.warning("Could not create skill directory %s: %s", p, exc)
+        return created
+
+    def get_scanned_directories(self) -> List[str]:
+        """Return all directories that would be scanned (resolved, may not exist yet)."""
+        settings = self._settings.load()
+        agent_skills_cfg = settings.get("agent_skills", {})
+        use_defaults = agent_skills_cfg.get("use_default_skill_paths", True)
+        custom_dirs = agent_skills_cfg.get("skills_directories", [])
+
+        dirs: List[str] = []
+        if use_defaults:
+            dirs.extend(DEFAULT_SKILL_DIRS)
+        dirs.extend(custom_dirs)
+        return [str(Path(d).expanduser()) for d in dirs]
+
     def refresh(self) -> List[Dict[str, Any]]:
-        """Force re-scan and return updated catalog."""
+        """Force re-scan and return updated catalog. Creates default dirs if missing."""
+        self.ensure_default_directories()
         self._cache = []
         return self.build_catalog()
 
