@@ -6960,6 +6960,7 @@ async function loadAgentSettings() {
     const piEl = document.getElementById('agent-setting-proposal-interval');
     const mpEl = document.getElementById('agent-setting-max-proposals');
     const itEl = document.getElementById('agent-setting-interest-topics');
+    const mdEl = document.getElementById('agent-setting-model');
     if (intEl) intEl.value = data.interval_seconds || 30;
     if (maxEl) maxEl.value = data.max_cycles_per_day || 100;
     if (qsEl) qsEl.value = data.quiet_hours_start || '22:00';
@@ -6968,6 +6969,7 @@ async function loadAgentSettings() {
     if (piEl) piEl.value = data.proposal_interval_minutes || 60;
     if (mpEl) mpEl.value = data.max_proposals || 3;
     if (itEl) itEl.value = data.interest_topics || '';
+    if (mdEl) mdEl.value = data.model || '';
   } catch (err) { /* ignore */ }
 }
 
@@ -6981,6 +6983,7 @@ async function saveAgentSettings() {
     proposal_interval_minutes: parseInt(document.getElementById('agent-setting-proposal-interval')?.value) || 60,
     max_proposals: parseInt(document.getElementById('agent-setting-max-proposals')?.value) || 3,
     interest_topics: document.getElementById('agent-setting-interest-topics')?.value || '',
+    model: document.getElementById('agent-setting-model')?.value || '',
   };
   try {
     const res = await fetch('/api/resident/agent-settings', {
@@ -7109,11 +7112,13 @@ async function clearResidentLogModal() {
 async function openResidentSettingsModal() {
   const modal = document.getElementById('resident-settings-modal');
   if (modal) modal.classList.remove('hidden');
-  // Load current settings
+  // Load current settings + available models in parallel
   try {
-    const res = await fetch('/api/resident/agent-settings');
-    if (!res.ok) return;
-    const data = await res.json();
+    const [settingsRes, modelsRes] = await Promise.all([
+      fetch('/api/resident/agent-settings'),
+      fetch('/api/models/installed'),
+    ]);
+    const data = settingsRes.ok ? await settingsRes.json() : {};
     const el = (id) => document.getElementById(id);
     if (el('rsm-interval')) { el('rsm-interval').value = data.interval_seconds || 30; el('rsm-interval-val').textContent = (data.interval_seconds || 30) + 's'; }
     if (el('rsm-max-cycles')) el('rsm-max-cycles').value = data.max_cycles_per_day || 100;
@@ -7123,6 +7128,26 @@ async function openResidentSettingsModal() {
     if (el('rsm-proposal-interval')) el('rsm-proposal-interval').value = data.proposal_interval_minutes || 60;
     if (el('rsm-max-proposals')) el('rsm-max-proposals').value = data.max_proposals || 3;
     if (el('rsm-interest-topics')) el('rsm-interest-topics').value = data.interest_topics || '';
+
+    // Populate model dropdown
+    const modelSelect = el('rsm-model');
+    if (modelSelect) {
+      // Keep the default option, remove the rest
+      modelSelect.innerHTML = '<option value="">-- v\u00fdchoz\u00ed model z LLM konfigurace --</option>';
+      if (modelsRes.ok) {
+        const modelsData = await modelsRes.json();
+        const models = modelsData.models || [];
+        for (const m of models) {
+          const name = typeof m === 'string' ? m : (m.name || m.model || '');
+          if (!name) continue;
+          const opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = name;
+          if (name === (data.model || '')) opt.selected = true;
+          modelSelect.appendChild(opt);
+        }
+      }
+    }
   } catch (err) { /* ignore */ }
 }
 
@@ -7142,7 +7167,9 @@ async function saveResidentSettingsModal() {
     proposal_interval_minutes: parseInt(el('rsm-proposal-interval')?.value) || 60,
     max_proposals: parseInt(el('rsm-max-proposals')?.value) || 3,
     interest_topics: el('rsm-interest-topics')?.value || '',
+    model: el('rsm-model')?.value || '',
   };
+  const statusEl = document.getElementById('rsm-status');
   try {
     const res = await fetch('/api/resident/agent-settings', {
       method: 'PATCH',
@@ -7150,12 +7177,13 @@ async function saveResidentSettingsModal() {
       body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error(await res.text());
-    showToast('Nastaven\u00ed ulo\u017eeno');
-    closeResidentSettingsModal();
+    showToast('\u2705 Nastaven\u00ed ulo\u017eeno');
+    if (statusEl) statusEl.textContent = '\u2705 Nastaven\u00ed ulo\u017eeno';
     // Sync inline settings form too
     loadAgentSettings();
   } catch (err) {
-    showToast('Chyba: ' + err.message, 'error');
+    showToast('\u274C Chyba p\u0159i ukl\u00e1d\u00e1n\u00ed: ' + err.message, 'error');
+    if (statusEl) statusEl.textContent = '\u274C Chyba: ' + err.message;
   }
 }
 
@@ -7169,6 +7197,50 @@ async function resetResidentAgentModal() {
     loadResidentDashboard();
   } catch (err) {
     showToast('Chyba: ' + err.message, 'error');
+  }
+}
+
+async function restartResidentAgent() {
+  const statusEl = document.getElementById('rsm-status');
+  if (statusEl) statusEl.textContent = 'Restartuji agenta\u2026';
+  try {
+    const res = await fetch('/api/resident/restart', { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    showToast('\uD83D\uDD04 ' + (data.message || 'Agent restartov\u00e1n'));
+    if (statusEl) statusEl.textContent = data.message || 'Agent restartov\u00e1n';
+    loadResidentDashboard();
+  } catch (err) {
+    showToast('\u274C Restart selhal: ' + err.message, 'error');
+    if (statusEl) statusEl.textContent = 'Chyba: ' + err.message;
+  }
+}
+
+async function shutdownApp() {
+  if (!confirm('Opravdu chce\u0161 vypnout AI Home Hub? Server se ukon\u010d\u00ed.')) return;
+  const statusEl = document.getElementById('rsm-status');
+  if (statusEl) statusEl.textContent = '\uD83D\uDD34 Vyp\u00edn\u00e1m\u2026';
+  try {
+    const res = await fetch('/api/admin/shutdown', { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    showToast('\uD83D\uDD34 AI Home Hub se vyp\u00edn\u00e1\u2026');
+    if (statusEl) statusEl.textContent = 'Server se vyp\u00edn\u00e1\u2026';
+    // Stop all polling – server is going away
+    if (typeof _residentPollTimer !== 'undefined' && _residentPollTimer) {
+      clearInterval(_residentPollTimer);
+    }
+    if (typeof _statusRefreshInterval !== 'undefined' && _statusRefreshInterval) {
+      clearInterval(_statusRefreshInterval);
+    }
+  } catch (err) {
+    // Connection drop is expected during shutdown
+    if (err.message && err.message.includes('Failed to fetch')) {
+      showToast('\uD83D\uDD34 Server se vyp\u00edn\u00e1\u2026');
+      if (statusEl) statusEl.textContent = 'Server zastaven.';
+    } else {
+      showToast('\u274C Chyba: ' + err.message, 'error');
+      if (statusEl) statusEl.textContent = 'Chyba: ' + err.message;
+    }
   }
 }
 

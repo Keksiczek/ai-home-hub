@@ -548,6 +548,22 @@ async def agent_reset() -> dict:
     return await agent.reset()
 
 
+@router.post("/restart")
+async def agent_restart() -> dict:
+    """Restart the resident agent: stop → reload config → start."""
+    agent = get_resident_agent()
+    try:
+        if agent.get_state().get("is_running"):
+            await agent.stop()
+            await asyncio.sleep(1)
+        result = await agent.start()
+        logger.info("Resident agent restarted")
+        return {"status": "restarted", "message": "Agent restartován s novým nastavením."}
+    except Exception as exc:
+        logger.error("Resident agent restart failed: %s", exc)
+        raise HTTPException(500, f"Restart selhal: {exc}")
+
+
 # ── Agent Settings ────────────────────────────────────────────
 
 @router.get("/agent-settings")

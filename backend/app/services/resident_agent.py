@@ -358,6 +358,46 @@ class ResidentAgent(BackgroundService):
         except Exception as exc:
             logger.debug("Failed to store resident agent stop in memory: %s", exc)
 
+    async def _warmup_llm(self) -> None:
+        """Warm-up ping: load the model into Ollama RAM before the first cycle.
+
+        Uses a longer timeout (120s) because cold-loading a model from disk
+        can take 30-60s on an 8 GB Mac.
+        """
+        try:
+            from app.services.llm_service import get_llm_service
+            from app.services.settings_service import get_settings_service
+
+            llm_svc = get_llm_service()
+            model_name = self._agent_settings.model or None
+            if not model_name:
+                llm_cfg = get_settings_service().get_llm_config(profile="general")
+                model_name = llm_cfg.get("model") or "llama3.2:latest"
+
+            log.info("Warming up LLM model", model=model_name)
+            self._state.status = "warming_up"
+            self._state.current_thought = f"Načítám model {model_name}..."
+
+            async with asyncio.timeout(120):
+                await llm_svc.generate(
+                    message="Odpověz jedním slovem: OK",
+                    mode="resident",
+                    profile="general",
+                    model_override=model_name,
+                )
+
+            log.info("LLM warm-up completed", model=model_name)
+            self._add_log("INFO", "llm_warmup_ok", model=model_name)
+        except asyncio.TimeoutError:
+            log.warning("LLM warm-up timed out (120s)", model=model_name)
+            self._add_log("WARN", "llm_warmup_timeout", model=model_name)
+        except Exception as exc:
+            log.warning("LLM warm-up failed", error=str(exc))
+            self._add_log("WARN", "llm_warmup_failed", error=str(exc))
+        finally:
+            self._state.status = "idle"
+            self._state.current_thought = ""
+
     async def start(self) -> dict:
         """Spustí async loop jako asyncio.Task, uloží do memory_service záznam o startu."""
         if self._state.is_running:
@@ -375,6 +415,15 @@ class ResidentAgent(BackgroundService):
         self._state.alerts = []
         self._start_time = time.monotonic()
         self._restart_requested = False
+
+        # Log model being used
+        model_name = self._agent_settings.model or "(výchozí z LLM konfigurace)"
+        log.info("Resident agent using model", model=model_name)
+        self._add_log("INFO", "agent_start", model=model_name)
+
+        # Warm-up LLM in background (don't block start)
+        asyncio.create_task(self._warmup_llm())
+
         super().start()  # creates the asyncio.Task (sync, non-awaited)
         return {"status": "started", "message": "Resident agent started successfully."}
 
@@ -1279,6 +1328,19 @@ class ResidentAgent(BackgroundService):
         Jádro resident agenta – sestaví kontext, zavolá LLM, parsuje JSON, exekuuje akci.
         """
         cycle_id = f"cycle-{self._state.tick_count:04d}"
+
+        # Throttle detection: skip LLM call if system is under load
+        try:
+            from app.services.resource_monitor import get_resource_monitor
+            monitor = get_resource_monitor()
+            if monitor.is_throttled():
+                self._add_log("WARN", "throttled_skip", cycle_id=cycle_id,
+                               reason="System under load – skipping LLM call")
+                log.warning("Resident agent throttled_skip – system under load", cycle_id=cycle_id)
+                return {"action": "no_op", "reason": "throttled_skip"}
+        except Exception:
+            pass
+
         self._state.status = "thinking"
         self._state.current_thought = f"Přemýšlím nad úkolem: {task.get('goal', 'unknown')}"
 
@@ -1359,19 +1421,56 @@ class ResidentAgent(BackgroundService):
             f"Popis: {task.get('description', 'žádný')}"
         )
 
-        step_timeout = get_settings_service().get_agent_config("general").get("step_timeout_s", 30)
-        try:
-            async with asyncio.timeout(step_timeout):
-                reply, meta = await llm_svc.generate(
-                    message=user_message,
-                    mode="resident",
-                    profile="general",
+        # Use longer timeout for LLM calls (90s) – small local models need time
+        step_timeout = max(
+            get_settings_service().get_agent_config("general").get("step_timeout_s", 30),
+            90,
+        )
+
+        # Resolve model: agent_settings.model → default from LLM config
+        model_override = self._agent_settings.model or None
+        if not model_override:
+            # Fallback to default model from LLM config
+            llm_cfg = get_settings_service().get_llm_config(profile="general")
+            model_override = llm_cfg.get("model") or None
+
+        # Retry logic: up to 2 retries on timeout before giving up
+        last_error = None
+        for attempt in range(3):
+            try:
+                async with asyncio.timeout(step_timeout):
+                    reply, meta = await llm_svc.generate(
+                        message=user_message,
+                        mode="resident",
+                        profile="general",
+                        model_override=model_override,
+                    )
+                # Check if LLM returned an unavailable response
+                if meta.get("status") == "llm_unavailable":
+                    error_msg = meta.get("message", "LLM nedostupné")
+                    logger.error(
+                        "Resident agent LLM unavailable (tick=%d, model=%s): %s",
+                        self._state.tick_count, model_override or "default", error_msg,
+                    )
+                    self._add_log("ERROR", "llm_unavailable", cycle_id=cycle_id,
+                                   model=model_override or "default", message=error_msg)
+                    return {"error": "llm_unavailable", "action": "no_op", "message": error_msg}
+                last_error = None
+                break  # success
+            except asyncio.TimeoutError:
+                last_error = "timeout"
+                logger.warning(
+                    "Resident agent LLM call timed out (tick=%d, timeout=%ds, attempt=%d/3)",
+                    self._state.tick_count, step_timeout, attempt + 1,
                 )
-        except asyncio.TimeoutError:
-            logger.warning(
-                "Resident agent LLM call timed out (tick=%d, timeout=%ds)",
-                self._state.tick_count, step_timeout,
-            )
+                if attempt < 2:
+                    self._add_log("WARN", "llm_timeout_retry", cycle_id=cycle_id,
+                                   attempt=attempt + 1, timeout_s=step_timeout)
+                    await asyncio.sleep(2)  # brief pause before retry
+
+        if last_error == "timeout":
+            self._add_log("ERROR", "llm_timeout_final", cycle_id=cycle_id,
+                           timeout_s=step_timeout, model=model_override or "default")
             return {"error": "llm_timeout", "action": "no_op"}
 
         # 4. Parsuj JSON response
