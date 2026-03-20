@@ -5848,15 +5848,166 @@ function renderResidentRecentTasks(tasks) {
       </thead>
       <tbody>
         ${tasks.map(t => `
-          <tr class="jobs-row" onclick="showJobDetail('${escHtml(t.id)}')" style="cursor:pointer">
+          <tr class="jobs-row" onclick="toggleTaskDetail('${escHtml(t.id)}', this)" style="cursor:pointer">
             <td>${escHtml(t.title)}</td>
             <td><span class="job-status-badge job-status--${t.status}">${escHtml(t.status)}</span></td>
             <td>${t.duration_s != null ? formatJobDuration(t.started_at, t.finished_at) : '-'}</td>
             <td class="jobs-cell-date">${formatJobDate(t.created_at)}</td>
           </tr>
+          <tr class="task-detail-row" id="task-detail-row-${escHtml(t.id)}" style="display:none">
+            <td colspan="4" style="padding:0">
+              <div class="task-detail-panel" id="task-detail-${escHtml(t.id)}"></div>
+            </td>
+          </tr>
         `).join('')}
       </tbody>
     </table>`;
+}
+
+async function toggleTaskDetail(taskId, rowEl) {
+  const detailRow = document.getElementById('task-detail-row-' + taskId);
+  const panel = document.getElementById('task-detail-' + taskId);
+  if (!detailRow || !panel) return;
+
+  if (detailRow.style.display !== 'none' && panel.innerHTML) {
+    detailRow.style.display = 'none';
+    return;
+  }
+
+  detailRow.style.display = 'table-row';
+  panel.innerHTML = '<div style="padding:12px;color:var(--text-secondary);font-size:0.85em">Načítám detail úkolu...</div>';
+
+  try {
+    const res = await fetch('/api/resident/tasks/' + encodeURIComponent(taskId));
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    renderTaskDetailPanel(panel, data);
+  } catch (err) {
+    panel.innerHTML = '<div style="padding:8px;color:var(--error);font-size:0.85em">Chyba: ' + escHtml(err.message) + '</div>';
+  }
+}
+
+function renderTaskDetailPanel(panel, data) {
+  const created = data.created_at ? new Date(data.created_at).toLocaleString('cs') : '';
+  const finished = data.finished_at ? new Date(data.finished_at).toLocaleString('cs') : '';
+
+  // Output section
+  const outputHtml = data.output
+    ? `<div style="padding:10px;background:var(--bg-secondary);border-radius:6px;border-left:3px solid var(--primary);margin-bottom:10px">
+        <div style="font-size:0.8em;font-weight:600;color:var(--primary);margin-bottom:4px">VÝSTUP ÚKOLU:</div>
+        <div style="font-size:0.88em;white-space:pre-wrap">${escHtml(data.output)}</div>
+      </div>`
+    : `<div style="padding:8px;color:var(--text-secondary);font-size:0.85em;font-style:italic;margin-bottom:8px">
+        Tento úkol nemá textový výstup. Zkus se zeptat v chatu.
+      </div>`;
+
+  // Error
+  const errorHtml = data.last_error
+    ? `<div style="padding:8px;background:rgba(248,113,113,0.1);border-radius:6px;border-left:3px solid var(--error);margin-bottom:10px;font-size:0.85em">
+        <strong>Chyba:</strong> ${escHtml(data.last_error)}
+      </div>`
+    : '';
+
+  // Chat history
+  const chatHistoryHtml = (data.chat_history || []).map(m => {
+    const isUser = m.role === 'user';
+    return `<div style="margin:4px 0;padding:6px 8px;border-radius:6px;font-size:0.85em;
+      background:${isUser ? 'var(--bg-secondary)' : 'rgba(139,92,246,0.1)'};
+      border-left:3px solid ${isUser ? 'var(--text-secondary)' : 'var(--primary)'}">
+      <strong>${isUser ? '👤' : '🤖'}</strong> ${escHtml(m.content)}
+    </div>`;
+  }).join('');
+
+  // Mission link
+  const missionLink = data.mission_id
+    ? `<div style="font-size:0.8em;color:var(--text-secondary);margin-bottom:6px">
+        Součást mise · krok ${(data.step_index || 0) + 1}
+      </div>`
+    : '';
+
+  panel.innerHTML = `
+    <div style="padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div>
+          <div style="font-weight:600;font-size:0.9em">${escHtml(data.title)}</div>
+          ${data.description ? '<div style="font-size:0.82em;color:var(--text-secondary);margin-top:2px">' + escHtml(data.description) + '</div>' : ''}
+          ${missionLink}
+        </div>
+        <button class="btn btn--ghost btn--small" onclick="document.getElementById('task-detail-row-${escHtml(data.id)}').style.display='none'" title="Zavřít">✕</button>
+      </div>
+
+      <div style="font-size:0.8em;color:var(--text-secondary);margin-bottom:8px">
+        ${created ? 'Spuštěno: ' + created : ''}${finished ? ' · Dokončeno: ' + finished : ''}
+      </div>
+
+      ${errorHtml}
+      ${outputHtml}
+
+      <div style="border-top:1px solid var(--border);padding-top:10px">
+        <div style="font-weight:600;font-size:0.85em;margin-bottom:6px">💬 CHAT K TOMUTO ÚKOLU:</div>
+        <div id="task-chat-history-${escHtml(data.id)}">${chatHistoryHtml}</div>
+        <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+          <button class="btn btn--ghost btn--small" onclick="sendTaskChat('${escHtml(data.id)}','Shrň výsledek tohoto úkolu')">Shrň výsledek</button>
+          <button class="btn btn--ghost btn--small" onclick="sendTaskChat('${escHtml(data.id)}','Co bylo nejtěžší?')">Co bylo nejtěžší?</button>
+          <button class="btn btn--ghost btn--small" onclick="sendTaskChat('${escHtml(data.id)}','Navrhni další krok')">Navrhni další krok</button>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <input type="text" class="input" id="task-chat-input-${escHtml(data.id)}"
+                 placeholder="Zeptej se na tento úkol..." style="flex:1;font-size:0.85em"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();sendTaskChat('${escHtml(data.id)}')}" />
+          <button class="btn btn--primary btn--small" onclick="sendTaskChat('${escHtml(data.id)}')">Odeslat</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+async function sendTaskChat(taskId, quickMessage) {
+  const input = document.getElementById('task-chat-input-' + taskId);
+  const message = quickMessage || (input ? input.value.trim() : '');
+  if (!message) return;
+
+  const historyEl = document.getElementById('task-chat-history-' + taskId);
+  if (!historyEl) return;
+
+  // Show user message immediately
+  historyEl.innerHTML += `<div style="margin:4px 0;padding:6px 8px;border-radius:6px;font-size:0.85em;
+    background:var(--bg-secondary);border-left:3px solid var(--text-secondary)">
+    <strong>👤</strong> ${escHtml(message)}
+  </div>`;
+
+  const loadingId = 'tc-loading-' + Date.now();
+  historyEl.innerHTML += `<div id="${loadingId}" style="margin:4px 0;padding:6px 8px;font-size:0.85em;color:var(--text-secondary)">
+    🤖 Přemýšlím...
+  </div>`;
+  historyEl.scrollTop = historyEl.scrollHeight;
+
+  if (input) input.value = '';
+
+  try {
+    const res = await fetch('/api/resident/tasks/' + encodeURIComponent(taskId) + '/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+
+    const loadingEl = document.getElementById(loadingId);
+    if (loadingEl) {
+      loadingEl.outerHTML = `<div style="margin:4px 0;padding:6px 8px;border-radius:6px;font-size:0.85em;
+        background:rgba(139,92,246,0.1);border-left:3px solid var(--primary)">
+        <strong>🤖</strong> ${escHtml(data.reply)}
+      </div>`;
+    }
+    historyEl.scrollTop = historyEl.scrollHeight;
+  } catch (err) {
+    const loadingEl = document.getElementById(loadingId);
+    if (loadingEl) {
+      loadingEl.outerHTML = `<div style="margin:4px 0;padding:6px 8px;font-size:0.85em;color:var(--error)">
+        Chyba: ${escHtml(err.message)}
+      </div>`;
+    }
+  }
 }
 
 function formatUptime(seconds) {
@@ -6059,22 +6210,174 @@ function renderResidentMissions(missions) {
 
   const statusLabels = { planned: 'Naplánováno', in_progress: 'Probíhá', done: 'Hotovo', error: 'Chyba' };
   const statusColors = { planned: 'var(--text-secondary)', in_progress: 'var(--primary)', done: 'var(--success)', error: 'var(--error)' };
+  const statusIcons = { planned: '📋', in_progress: '⏳', done: '✅', error: '❌' };
 
   let html = missions.map(m => `
-    <div class="resident-mission-item" style="padding:8px 0;border-bottom:1px solid var(--border)">
+    <div class="resident-mission-item" style="padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer"
+         onclick="toggleMissionDetail('${escHtml(m.id)}', this)">
       <div style="display:flex;align-items:center;gap:8px">
-        <span style="color:${statusColors[m.status] || 'inherit'};font-weight:600;font-size:0.85em">${statusLabels[m.status] || m.status}</span>
+        <span style="color:${statusColors[m.status] || 'inherit'};font-weight:600;font-size:0.85em">
+          ${statusIcons[m.status] || ''} ${statusLabels[m.status] || m.status}
+        </span>
         <strong style="flex:1">${escHtml(m.goal)}</strong>
         <span class="text-muted" style="font-size:0.8em">${m.current_step}/${m.total_steps} kroků</span>
+        <span class="text-muted" style="font-size:0.75em">▼</span>
       </div>
       <div style="margin-top:4px;background:var(--bg-secondary);border-radius:4px;height:6px;overflow:hidden">
         <div style="background:var(--primary);height:100%;width:${m.progress || 0}%;transition:width 0.3s"></div>
       </div>
+      <div class="mission-detail-panel" id="mission-detail-${escHtml(m.id)}" style="display:none"></div>
     </div>
   `).join('');
 
-  // Keep the empty state element but hidden, prepend missions
   list.innerHTML = html + (empty ? `<p class="empty-state hidden" id="resident-missions-empty">Žádné mise</p>` : '');
+}
+
+async function toggleMissionDetail(missionId, el) {
+  const panel = document.getElementById('mission-detail-' + missionId);
+  if (!panel) return;
+
+  // Toggle visibility
+  if (panel.style.display !== 'none' && panel.innerHTML) {
+    panel.style.display = 'none';
+    return;
+  }
+
+  panel.style.display = 'block';
+  panel.innerHTML = '<div style="padding:12px 0;color:var(--text-secondary);font-size:0.85em">Načítám detail mise...</div>';
+
+  try {
+    const res = await fetch('/api/resident/missions/' + encodeURIComponent(missionId));
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    renderMissionDetailPanel(panel, data);
+  } catch (err) {
+    panel.innerHTML = '<div style="padding:8px;color:var(--error);font-size:0.85em">Chyba: ' + escHtml(err.message) + '</div>';
+  }
+}
+
+function renderMissionDetailPanel(panel, data) {
+  const statusIcons = { pending: '⏸', running: '🔄', succeeded: '✅', failed: '❌', skipped: '⏭', done: '✅', queued: '⏳' };
+
+  // Steps section
+  const stepsHtml = (data.steps || []).map(s => {
+    const icon = statusIcons[s.status] || '⏸';
+    const result = s.result_summary ? `<div style="margin-left:24px;font-size:0.82em;color:var(--text-secondary)">→ ${escHtml(s.result_summary)}</div>` : '';
+    return `
+      <div style="padding:3px 0">
+        <div style="display:flex;align-items:center;gap:6px;font-size:0.9em">
+          <span>${icon}</span>
+          <span>Krok ${s.number}: ${escHtml(s.title)}</span>
+        </div>
+        ${result}
+      </div>`;
+  }).join('');
+
+  // Output section
+  const outputHtml = data.output
+    ? `<div style="margin-top:12px;padding:10px;background:var(--bg-secondary);border-radius:6px;border-left:3px solid var(--primary)">
+        <div style="font-size:0.8em;font-weight:600;color:var(--primary);margin-bottom:4px">VÝSTUP MISE:</div>
+        <div style="font-size:0.88em;white-space:pre-wrap">${escHtml(data.output)}</div>
+      </div>`
+    : `<div style="margin-top:8px;padding:8px;color:var(--text-secondary);font-size:0.85em;font-style:italic">
+        Tento agent nezanechal výstup. Zkus se zeptat v chatu níže.
+      </div>`;
+
+  // Chat history
+  const chatHistoryHtml = (data.chat_history || []).map(m => {
+    const isUser = m.role === 'user';
+    return `<div style="margin:4px 0;padding:6px 8px;border-radius:6px;font-size:0.85em;
+      background:${isUser ? 'var(--bg-secondary)' : 'rgba(139,92,246,0.1)'};
+      border-left:3px solid ${isUser ? 'var(--text-secondary)' : 'var(--primary)'}">
+      <strong>${isUser ? '👤' : '🤖'}</strong> ${escHtml(m.content)}
+    </div>`;
+  }).join('');
+
+  // Timestamps
+  const created = data.created_at ? new Date(data.created_at).toLocaleString('cs') : '';
+  const finished = data.finished_at ? new Date(data.finished_at).toLocaleString('cs') : '';
+
+  panel.innerHTML = `
+    <div style="margin-top:10px;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px" onclick="event.stopPropagation()">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:0.8em;color:var(--text-secondary)">
+          ${created ? 'Spuštěno: ' + created : ''}${finished ? ' · Dokončeno: ' + finished : ''}
+        </span>
+        <button class="btn btn--ghost btn--small" onclick="event.stopPropagation();this.closest('.mission-detail-panel').style.display='none'" title="Zavřít">✕</button>
+      </div>
+
+      <div style="font-weight:600;font-size:0.85em;margin-bottom:6px">KROKY:</div>
+      ${stepsHtml || '<div style="color:var(--text-secondary);font-size:0.85em">Žádné kroky</div>'}
+
+      ${outputHtml}
+
+      <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:10px">
+        <div style="font-weight:600;font-size:0.85em;margin-bottom:6px">💬 CHAT K TÉTO MISI:</div>
+        <div id="mission-chat-history-${escHtml(data.id)}">${chatHistoryHtml}</div>
+        <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+          <button class="btn btn--ghost btn--small" onclick="event.stopPropagation();sendMissionChat('${escHtml(data.id)}','Shrň výsledek této mise')">Shrň výsledek</button>
+          <button class="btn btn--ghost btn--small" onclick="event.stopPropagation();sendMissionChat('${escHtml(data.id)}','Co bylo nejtěžší na této misi?')">Co bylo nejtěžší?</button>
+          <button class="btn btn--ghost btn--small" onclick="event.stopPropagation();sendMissionChat('${escHtml(data.id)}','Navrhni další krok nebo navazující misi')">Navrhni další krok</button>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <input type="text" class="input" id="mission-chat-input-${escHtml(data.id)}"
+                 placeholder="Zeptej se na tuto misi..." style="flex:1;font-size:0.85em"
+                 onkeydown="if(event.key==='Enter'){event.stopPropagation();event.preventDefault();sendMissionChat('${escHtml(data.id)}')}" />
+          <button class="btn btn--primary btn--small" onclick="event.stopPropagation();sendMissionChat('${escHtml(data.id)}')">Odeslat</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+async function sendMissionChat(missionId, quickMessage) {
+  const input = document.getElementById('mission-chat-input-' + missionId);
+  const message = quickMessage || (input ? input.value.trim() : '');
+  if (!message) return;
+
+  const historyEl = document.getElementById('mission-chat-history-' + missionId);
+  if (!historyEl) return;
+
+  // Show user message immediately
+  historyEl.innerHTML += `<div style="margin:4px 0;padding:6px 8px;border-radius:6px;font-size:0.85em;
+    background:var(--bg-secondary);border-left:3px solid var(--text-secondary)">
+    <strong>👤</strong> ${escHtml(message)}
+  </div>`;
+
+  // Show loading
+  const loadingId = 'mc-loading-' + Date.now();
+  historyEl.innerHTML += `<div id="${loadingId}" style="margin:4px 0;padding:6px 8px;font-size:0.85em;color:var(--text-secondary)">
+    🤖 Přemýšlím...
+  </div>`;
+  historyEl.scrollTop = historyEl.scrollHeight;
+
+  if (input) input.value = '';
+
+  try {
+    const res = await fetch('/api/resident/missions/' + encodeURIComponent(missionId) + '/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+
+    // Replace loading with response
+    const loadingEl = document.getElementById(loadingId);
+    if (loadingEl) {
+      loadingEl.outerHTML = `<div style="margin:4px 0;padding:6px 8px;border-radius:6px;font-size:0.85em;
+        background:rgba(139,92,246,0.1);border-left:3px solid var(--primary)">
+        <strong>🤖</strong> ${escHtml(data.reply)}
+      </div>`;
+    }
+    historyEl.scrollTop = historyEl.scrollHeight;
+  } catch (err) {
+    const loadingEl = document.getElementById(loadingId);
+    if (loadingEl) {
+      loadingEl.outerHTML = `<div style="margin:4px 0;padding:6px 8px;font-size:0.85em;color:var(--error)">
+        Chyba: ${escHtml(err.message)}
+      </div>`;
+    }
+  }
 }
 
 async function residentCreateMission() {

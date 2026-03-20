@@ -640,7 +640,19 @@ class ResidentAgent(BackgroundService):
         current_step = plan.get("current_step", 0)
 
         if current_step >= len(steps):
-            # Mission complete
+            # Mission complete – aggregate step results into output
+            output_parts = []
+            for i, s in enumerate(steps):
+                result = s.get("result_summary", "")
+                sub_job_id = s.get("job_id")
+                if sub_job_id:
+                    sub_job = job_svc.get_job(sub_job_id)
+                    if sub_job and sub_job.meta and sub_job.meta.get("result"):
+                        result = str(sub_job.meta["result"])[:1000]
+                if result:
+                    output_parts.append(f"Krok {i+1} ({s.get('title', '')}): {result}")
+            plan["output"] = "\n\n".join(output_parts) if output_parts else ""
+
             mission_job.status = "succeeded"
             mission_job.progress = 100.0
             mission_job.finished_at = _now()

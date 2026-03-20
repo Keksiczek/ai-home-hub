@@ -35,6 +35,10 @@ class MissionCreateRequest(BaseModel):
     context: str = ""
 
 
+class MissionChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=2000)
+
+
 class AgentSettingsPatch(BaseModel):
     interval_seconds: Optional[int] = Field(None, ge=5, le=3600)
     model: Optional[str] = None
@@ -122,6 +126,100 @@ async def resident_steps() -> dict:
     agent = get_resident_agent()
     state = agent.get_state()
     return {"steps": state.get("recent_steps", [])}
+
+
+# ── Task detail & chat ──────────────────────────────────────
+
+@router.get("/tasks/{task_id}")
+async def get_task_detail(task_id: str) -> dict:
+    """Get detailed task info."""
+    job_svc = get_job_service()
+    job = job_svc.get_job(task_id)
+    if not job or job.type != "resident_task":
+        raise HTTPException(404, "Úkol nenalezen")
+
+    output = ""
+    if job.meta and job.meta.get("result"):
+        output = str(job.meta["result"])
+    elif job.meta and job.meta.get("reflection"):
+        r = job.meta["reflection"]
+        points = r.get("points", [])
+        if points:
+            output = "\n".join(f"- {p}" for p in points)
+            if r.get("recommendation"):
+                output += f"\n\nDoporučení: {r['recommendation']}"
+
+    chat_history = job.payload.get("chat_history", [])
+
+    return {
+        "id": job.id,
+        "title": job.title,
+        "description": job.input_summary,
+        "status": job.status,
+        "progress": job.progress,
+        "output": output,
+        "created_at": job.created_at,
+        "started_at": job.started_at,
+        "finished_at": job.finished_at,
+        "last_error": job.last_error,
+        "chat_history": chat_history,
+        "mission_id": job.payload.get("mission_id"),
+        "step_index": job.payload.get("step_index"),
+    }
+
+
+@router.post("/tasks/{task_id}/chat")
+async def task_chat(task_id: str, req: MissionChatRequest) -> dict:
+    """Chat about a specific task with full task context."""
+    from datetime import datetime
+    from app.services.llm_service import get_llm_service, get_date_context
+
+    job_svc = get_job_service()
+    job = job_svc.get_job(task_id)
+    if not job or job.type != "resident_task":
+        raise HTTPException(404, "Úkol nenalezen")
+
+    task_output = ""
+    if job.meta and job.meta.get("result"):
+        task_output = str(job.meta["result"])[:2000]
+
+    system_prompt = (
+        f"{get_date_context()}\n"
+        f"Jsi AI agent který provedl úkol: \"{job.title}\"\n\n"
+        f"Kontext úkolu:\n"
+        f"- Popis: {job.input_summary or 'žádný'}\n"
+        f"- Status: {job.status}\n"
+        f"{'- Výstup: ' + task_output if task_output else '- Úkol nemá textový výstup.'}\n"
+        f"{'- Chyba: ' + job.last_error if job.last_error else ''}\n\n"
+        f"Odpovídej na otázky uživatele o tomto konkrétním úkolu. "
+        f"Buď konkrétní. Odpovídej česky."
+    )
+
+    chat_history = job.payload.get("chat_history", [])
+    history_messages = [
+        {"role": m["role"], "content": m["content"]}
+        for m in chat_history[-20:]
+    ]
+
+    llm_svc = get_llm_service()
+    reply, meta = await llm_svc.generate(
+        message=req.message,
+        mode="general",
+        profile="general",
+        history=[{"role": "system", "content": system_prompt}] + history_messages,
+    )
+
+    now = datetime.now().isoformat()
+    chat_history.append({"role": "user", "content": req.message, "timestamp": now})
+    chat_history.append({"role": "assistant", "content": reply, "timestamp": now})
+    job.payload["chat_history"] = chat_history
+    job_svc.update_job(job)
+
+    return {
+        "reply": reply,
+        "meta": meta,
+        "chat_history": chat_history,
+    }
 
 
 # ── Autonomy mode ────────────────────────────────────────────
@@ -249,23 +347,140 @@ async def list_missions(limit: int = Query(default=10, ge=1, le=50)) -> dict:
 
 @router.get("/missions/{mission_id}")
 async def get_mission_detail(mission_id: str) -> dict:
-    """Get detailed mission info including step statuses."""
+    """Get detailed mission info including step statuses, output, and enriched step results."""
     job_svc = get_job_service()
     job = job_svc.get_job(mission_id)
     if not job or job.type != "resident_mission":
         raise HTTPException(404, "Mise nenalezena")
 
     plan = job.payload.get("plan", {})
+    steps = plan.get("steps", [])
+
+    # Enrich steps with sub-job results if available
+    enriched_steps = []
+    for i, step in enumerate(steps):
+        enriched = {
+            "number": i + 1,
+            "title": step.get("title", ""),
+            "description": step.get("description", ""),
+            "status": step.get("status", "pending"),
+            "result_summary": step.get("result_summary", ""),
+            "job_id": step.get("job_id"),
+        }
+        # Try to get richer result from the sub-job
+        sub_job_id = step.get("job_id")
+        if sub_job_id:
+            sub_job = job_svc.get_job(sub_job_id)
+            if sub_job:
+                enriched["status"] = sub_job.status
+                if sub_job.meta and sub_job.meta.get("result"):
+                    enriched["result_summary"] = str(sub_job.meta["result"])[:500]
+                elif sub_job.last_error:
+                    enriched["result_summary"] = f"Chyba: {sub_job.last_error}"
+        enriched_steps.append(enriched)
+
+    # Build mission output from reflection or aggregated step results
+    output = plan.get("output", "")
+    if not output and job.meta and job.meta.get("reflection"):
+        reflection = job.meta["reflection"]
+        points = reflection.get("points", [])
+        if points:
+            output = "## Reflexe mise\n\n" + "\n".join(f"- {p}" for p in points)
+            if reflection.get("recommendation"):
+                output += f"\n\n**Doporučení:** {reflection['recommendation']}"
+
+    # Get chat history for this mission
+    chat_history = job.payload.get("chat_history", [])
+
     return {
         "id": job.id,
         "goal": plan.get("goal", job.title),
         "status": plan.get("status", job.status),
-        "steps": plan.get("steps", []),
+        "steps": enriched_steps,
         "current_step": plan.get("current_step", 0),
+        "total_steps": len(steps),
         "progress": job.progress,
+        "output": output,
         "created_at": job.created_at,
         "started_at": job.started_at,
         "finished_at": job.finished_at,
+        "chat_history": chat_history,
+    }
+
+
+@router.post("/missions/{mission_id}/chat")
+async def mission_chat(mission_id: str, req: MissionChatRequest) -> dict:
+    """Chat about a specific mission with full mission context."""
+    from datetime import datetime
+    from app.services.llm_service import get_llm_service, get_date_context
+
+    job_svc = get_job_service()
+    job = job_svc.get_job(mission_id)
+    if not job or job.type != "resident_mission":
+        raise HTTPException(404, "Mise nenalezena")
+
+    plan = job.payload.get("plan", {})
+    steps = plan.get("steps", [])
+    mission_output = plan.get("output", "")
+
+    # Build steps summary
+    steps_summary = "\n".join(
+        f"  Krok {i+1}: {s.get('title', '')} — {s.get('status', 'pending')}"
+        + (f" → {s.get('result_summary', '')}" if s.get("result_summary") else "")
+        for i, s in enumerate(steps)
+    )
+
+    # Build reflection context if available
+    reflection_ctx = ""
+    if job.meta and job.meta.get("reflection"):
+        r = job.meta["reflection"]
+        points = r.get("points", [])
+        if points:
+            reflection_ctx = "\nReflexe:\n" + "\n".join(f"- {p}" for p in points)
+            if r.get("recommendation"):
+                reflection_ctx += f"\nDoporučení: {r['recommendation']}"
+
+    system_prompt = (
+        f"{get_date_context()}\n"
+        f"Jsi AI agent který právě dokončil misi: \"{plan.get('goal', job.title)}\"\n\n"
+        f"Kontext mise:\n"
+        f"- Status: {plan.get('status', job.status)}\n"
+        f"- Počet kroků: {len(steps)}\n"
+        f"- Kroky které jsi provedl:\n{steps_summary}\n"
+        f"{reflection_ctx}\n"
+        f"{'- Výstup mise: ' + mission_output if mission_output else '- Mise nemá textový výstup.'}\n\n"
+        f"Odpovídej na otázky uživatele o této konkrétní misi. "
+        f"Vysvětluj své rozhodnutí, metodologii a výsledky. "
+        f"Buď konkrétní a odkazuj se na skutečné kroky které jsi provedl. "
+        f"Odpovídej česky."
+    )
+
+    # Load existing chat history for this mission
+    chat_history = job.payload.get("chat_history", [])
+    history_messages = [
+        {"role": m["role"], "content": m["content"]}
+        for m in chat_history[-20:]  # Last 20 messages
+    ]
+
+    llm_svc = get_llm_service()
+    reply, meta = await llm_svc.generate(
+        message=req.message,
+        mode="general",
+        profile="general",
+        history=[{"role": "system", "content": system_prompt}] + history_messages,
+    )
+
+    # Persist chat messages to job payload
+    now = datetime.now().isoformat()
+    chat_history.append({"role": "user", "content": req.message, "timestamp": now})
+    chat_history.append({"role": "assistant", "content": reply, "timestamp": now})
+    job.payload["chat_history"] = chat_history
+    job_svc.update_job(job)
+
+    return {
+        "reply": reply,
+        "meta": meta,
+        "chat_history": chat_history,
     }
 
 
