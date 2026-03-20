@@ -138,6 +138,11 @@ async def lifespan(app: FastAPI):
     kb_watchdog_task = kb_watchdog.start()
     _supervisor.register("kb_watchdog", kb_watchdog_task)
 
+    # Initialize SQLite jobs database
+    from app.db.jobs_db import get_jobs_db
+    get_jobs_db()
+    logger.info("JobsDB (SQLite) initialized")
+
     logger.info("AI Home Hub started – Mac Control Center ready")
     yield
 

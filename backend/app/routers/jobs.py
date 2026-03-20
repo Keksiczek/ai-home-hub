@@ -1,11 +1,15 @@
 """Jobs router – CRUD for persistent job queue."""
+import asyncio
+import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.services.job_service import get_job_service
+from app.services.ws_manager import get_ws_manager, WS_EVENT_JOB_UPDATE
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -33,6 +37,34 @@ class ScheduleJobRequest(BaseModel):
     payload: Dict[str, Any] = {}
 
 
+def _sync_to_db_and_broadcast(job) -> None:
+    """Persist job to SQLite DB and broadcast update via WebSocket (fire-and-forget)."""
+    try:
+        from app.db.jobs_db import get_jobs_db
+        db = get_jobs_db()
+        db.insert_job({
+            "id": job.id,
+            "type": job.type,
+            "title": job.title,
+            "status": job.status,
+            "input_summary": job.input_summary,
+            "created_at": job.created_at,
+        })
+    except Exception as exc:
+        logger.debug("JobsDB sync failed: %s", exc)
+
+    try:
+        ws = get_ws_manager()
+        asyncio.create_task(ws.broadcast({
+            "type": WS_EVENT_JOB_UPDATE,
+            "job_id": job.id,
+            "status": job.status,
+            "title": job.title,
+        }))
+    except Exception:
+        pass
+
+
 @router.post("/jobs", tags=["jobs"])
 async def create_job(req: CreateJobRequest) -> Dict[str, Any]:
     """Create a new job and add it to the queue."""
@@ -44,6 +76,8 @@ async def create_job(req: CreateJobRequest) -> Dict[str, Any]:
         payload=req.payload,
         priority=req.priority,
     )
+    # Persist to SQLite + broadcast via WebSocket
+    _sync_to_db_and_broadcast(job)
     return job.model_dump()
 
 
@@ -393,3 +427,41 @@ async def run_overnight_job_now(job_name: str) -> Dict[str, Any]:
         priority="high",
     )
     return {"job_id": job.id, "status": "queued"}
+
+
+@router.post("/db/init", tags=["jobs"])
+async def init_jobs_db() -> Dict[str, Any]:
+    """Initialize the SQLite jobs database schema."""
+    from app.db.jobs_db import get_jobs_db
+    db = get_jobs_db()
+    stats = db.count_by_status()
+    return {"status": "ok", "db": "jobs.db", "counts": stats}
+
+
+@router.get("/jobs/mobile-summary", tags=["jobs"])
+async def mobile_jobs_summary(limit: int = 20) -> Dict[str, Any]:
+    """Compact job summary optimized for mobile UI."""
+    from app.db.jobs_db import get_jobs_db
+    db = get_jobs_db()
+    jobs = db.list_jobs(limit=limit)
+    counts = db.count_by_status()
+    total = sum(counts.values())
+    failed = counts.get("failed", 0)
+
+    compact = []
+    for j in jobs:
+        compact.append({
+            "id": j["id"][:8],
+            "full_id": j["id"],
+            "time": (j.get("created_at") or "")[-8:-3],  # HH:MM
+            "status": j["status"],
+            "title": j["title"][:60],
+            "summary": (j.get("output_summary") or j.get("input_summary") or "")[:80],
+            "duration_ms": j.get("execution_time", 0),
+        })
+
+    return {
+        "total": total,
+        "failed": failed,
+        "jobs": compact,
+    }

@@ -18,6 +18,9 @@ WS_EVENT_KB_FILTERED = "kb_context_filtered"
 WS_EVENT_NIGHT_JOB_STARTED = "night_job_started"
 WS_EVENT_NIGHT_JOB_DONE = "night_job_done"
 WS_EVENT_NIGHTLY_SUMMARY = "nightly_summary_ready"
+WS_EVENT_JOB_UPDATE = "job_update"
+WS_EVENT_JOB_COMPLETED = "job_completed"
+WS_EVENT_JOB_FAILED = "job_failed"
 
 
 class ConnectionManager:
