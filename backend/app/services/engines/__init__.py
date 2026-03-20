@@ -12,6 +12,7 @@ from app.services.engines.overnight_engine import (
     run_git_sweep,
     run_nightly_summary,
 )
+from app.services.engines.resident_engine import run_resident_task, run_resident_mission
 
 __all__ = [
     "ProgressCallback",
@@ -24,4 +25,6 @@ __all__ = [
     "run_kb_reindex",
     "run_git_sweep",
     "run_nightly_summary",
+    "run_resident_task",
+    "run_resident_mission",
 ]
