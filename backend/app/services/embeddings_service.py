@@ -64,7 +64,7 @@ class EmbeddingsService:
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 resp = await client.post(
-                    f"{ollama_url}/api/embeddings",
+                    f"{ollama_url}/api/embed",
                     json={"model": model, "prompt": text},
                 )
                 resp.raise_for_status()
