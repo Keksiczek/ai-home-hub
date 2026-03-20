@@ -910,7 +910,27 @@ async function _takeScreenshotFallback() {
     console.warn('Clipboard read failed:', err);
   }
 
-  showToast('Screenshot: povol přístup ke schránce nebo zkus znovu', 'warning');
+  // Layer 3: macOS backend screencapture (most reliable on macOS, no browser permissions needed)
+  try {
+    const resp = await fetch('/api/system/screenshot', { method: 'POST' });
+    if (resp.ok) {
+      const json = await resp.json();
+      const previewUrl = `data:${json.mime};base64,${json.image}`;
+      attachedImages.push({
+        filename: 'screenshot.png',
+        data: json.image,
+        mime_type: json.mime,
+        previewUrl,
+      });
+      renderImagePreviews();
+      showToast('Screenshot (macOS) prilozen', 'success');
+      return;
+    }
+  } catch (err) {
+    console.warn('Backend screenshot failed:', err);
+  }
+
+  showToast('Screenshot: nelze pořídit snímek', 'warning');
 }
 
 async function sendMessage() {
