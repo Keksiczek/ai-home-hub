@@ -22,6 +22,8 @@ from app.services.engines import (  # noqa: F401  (re-exported for backward comp
     run_kb_reindex,
     run_git_sweep,
     run_nightly_summary,
+    run_resident_task,
+    run_resident_mission,
 )
 from app.services.job_service import Job
 
@@ -38,6 +40,8 @@ _ENGINES = {
     "kb_reindex": run_kb_reindex,
     "git_sweep": run_git_sweep,
     "nightly_summary": run_nightly_summary,
+    "resident_task": run_resident_task,
+    "resident_mission": run_resident_mission,
 }
 
 

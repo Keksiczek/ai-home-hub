@@ -415,6 +415,16 @@ def _register_skills():
 
 _register_skills()
 
+# Registry mapping action names to skill classes for dynamic dispatch from resident agent
+SKILL_REGISTRY = {
+    "web_search": WebSearchSkill,
+    "code_exec": CodeExecutionSkill,
+    "weather": WeatherSkill,
+    "calculator": CalculatorSkill,
+    "http_fetch": HTTPSkill,
+    "shell": ShellSkill,
+}
+
 
 def get_all_skills() -> Dict[str, BaseSkill]:
     """Return all registered runtime skills."""

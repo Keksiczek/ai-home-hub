@@ -39,6 +39,7 @@ ALLOWED_ACTIONS = [
     "send_notification",
     "system_status",
     "spawn_specialist",
+    "web_search",
     "no_op",
 ]
 
@@ -446,6 +447,7 @@ class ResidentAgent(BackgroundService):
             await self._thought_tick()
             await self._periodic_check()
             await self._proactive_alerts()
+            await self._summarize_old_memories()
             # Successful tick resets consecutive error counter
             self._state.consecutive_errors = 0
 
@@ -1199,28 +1201,78 @@ class ResidentAgent(BackgroundService):
                 except Exception as exc:
                     logger.debug("Failed to store resource warning: %s", exc)
 
-            # Ulož výsledek do memory jako entry typu "system_check"
-            try:
-                from app.services.memory_service import get_memory_service
-                mem = get_memory_service()
-                check_summary = (
-                    f"System check: RAM {snapshot.get('ram_used_percent', '?')}%, "
-                    f"CPU {snapshot.get('cpu_percent', '?')}%, "
-                    f"projects checked: {len(git_statuses)}"
-                )
-                await mem.add_memory(
-                    text=check_summary,
-                    tags=["resident", "system_check"],
-                    source="resident_agent",
-                    importance=2,
-                )
-            except Exception as exc:
-                logger.debug("Failed to store system check: %s", exc)
+            # Ulož výsledek do memory jen pokud je throttled nebo jsou git změny
+            # Importance guide:
+            # importance=1-2: system checks, routine logs (auto-summarized after 50 ticks)
+            # importance=3-4: completed actions, task results (keep 7 days)
+            # importance=5-6: errors, anomalies, decisions (keep 30 days)
+            # importance=7-8: self-healing events, high-risk blocks (keep permanently)
+            # importance=9-10: critical failures, security events (keep permanently)
+            if monitor.is_throttled() or git_statuses:
+                try:
+                    from app.services.memory_service import get_memory_service
+                    mem = get_memory_service()
+                    check_summary = (
+                        f"System check: RAM {snapshot.get('ram_used_percent', '?')}%, "
+                        f"CPU {snapshot.get('cpu_percent', '?')}%, "
+                        f"projects checked: {len(git_statuses)}"
+                    )
+                    await mem.add_memory(
+                        text=check_summary,
+                        tags=["resident", "system_check"],
+                        source="resident_agent",
+                        importance=4 if monitor.is_throttled() else 2,
+                    )
+                except Exception as exc:
+                    logger.debug("Failed to store system check: %s", exc)
 
             logger.info("Resident periodic check completed (tick %d)", self._state.tick_count)
 
         except Exception as exc:
             logger.error("Resident periodic check error: %s", exc)
+
+    async def _summarize_old_memories(self) -> None:
+        """Every 50 ticks, summarize old low-importance records into one summary."""
+        if self._state.tick_count % 50 != 0:
+            return
+        try:
+            from app.services.memory_service import get_memory_service
+            from app.services.llm_service import get_llm_service
+            mem = get_memory_service()
+            llm = get_llm_service()
+
+            # Find low-importance records
+            old_records = await mem.search_memory("system check", top_k=30)
+            low_importance = [r for r in old_records if r.importance < 4]
+
+            if len(low_importance) < 10:
+                return  # Not worth summarizing
+
+            texts = "\n".join([f"- {r.text[:200]}" for r in low_importance[:20]])
+            prompt = (
+                f"Shrň tyto záznamy z paměti agenta do 2-3 vět. "
+                f"Zachovej jen důležité vzory a anomálie:\n\n{texts}"
+            )
+            summary, _ = await llm.generate(message=prompt, mode="resident", profile="general")
+
+            # Store summary
+            await mem.add_memory(
+                text=f"[SUMMARY] {summary[:500]}",
+                tags=["resident", "summary", "auto_generated"],
+                source="resident_agent",
+                importance=6,
+            )
+
+            # Delete original records
+            for r in low_importance[:20]:
+                try:
+                    await mem.delete_memory(r.id)
+                except Exception:
+                    pass
+
+            logger.info("Memory summarized: %d records -> 1 summary", len(low_importance[:20]))
+        except Exception as exc:
+            logger.debug("Memory summarization failed: %s", exc)
 
     async def _execute_with_llm(self, task: dict) -> dict:
         """
@@ -1541,7 +1593,30 @@ class ResidentAgent(BackgroundService):
             logger.info("Resident agent no_op: %s", payload.get("reasoning_summary", ""))
             return {"action": "no_op", "reasoning": payload.get("reasoning_summary", "")}
 
+        elif action == "web_search":
+            try:
+                from app.services.skills_runtime_service import WebSearchSkill
+                skill = WebSearchSkill()
+                query = params.get("query", task.get("goal", ""))
+                max_results = params.get("max_results", 5)
+                results = await skill.run(query=query, max_results=max_results)
+                return {"action": "web_search", "query": query, "results": results}
+            except Exception as exc:
+                logger.error("web_search skill failed: %s", exc)
+                return {"action": "web_search", "error": str(exc), "results": []}
+
         else:
+            # Dynamic skill dispatch fallback
+            try:
+                from app.services.skills_runtime_service import SKILL_REGISTRY
+                if action in SKILL_REGISTRY:
+                    skill_cls = SKILL_REGISTRY[action]
+                    skill_instance = skill_cls()
+                    result = await skill_instance.run(**params)
+                    return {"action": action, "result": result}
+            except Exception as exc:
+                logger.debug("Dynamic skill dispatch failed for %s: %s", action, exc)
+
             logger.warning("Resident agent action_not_allowed: %s", action)
             return {"error": "action_not_allowed", "action": action}
 
