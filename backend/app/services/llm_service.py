@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import time
+from datetime import datetime
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 import httpx
@@ -21,6 +22,23 @@ from app.utils.circuit_breaker import (
 )
 
 logger = logging.getLogger(__name__)
+
+_DAYS_CS = ["pondělí", "úterý", "středa", "čtvrtek", "pátek", "sobota", "neděle"]
+_MONTHS_CS = [
+    "ledna", "února", "března", "dubna", "května", "června",
+    "července", "srpna", "září", "října", "listopadu", "prosince",
+]
+
+
+def get_date_context() -> str:
+    """Return current date/time as a Czech-language string for injection into system prompts."""
+    now = datetime.now()
+    day_name = _DAYS_CS[now.weekday()]
+    return (
+        f"Dnešní datum: {now.day}. {_MONTHS_CS[now.month - 1]} {now.year}, "
+        f"{day_name}, {now.strftime('%H:%M')}\n"
+    )
+
 
 # Model routing table – maps task profile to Ollama model name
 MODEL_ROUTING: dict[str, str] = {
@@ -170,7 +188,7 @@ class LLMService:
                 retry_after_s=int(cb.recovery_timeout),
             )
 
-        system_prompt = self._settings.get_system_prompt(mode)
+        system_prompt = get_date_context() + "\n" + self._settings.get_system_prompt(mode)
 
         # 5H-3: Add structured output hints based on message content
         system_prompt = self._add_structured_hints(system_prompt, message)
@@ -398,7 +416,7 @@ class LLMService:
         cfg = self._settings.get_llm_config(profile=profile)
         ollama_url = cfg.get("ollama_url", "http://localhost:11434").rstrip("/")
         model = resolve_model(profile or "general", model_override or cfg.get("model"))
-        system_prompt = self._settings.get_system_prompt(mode)
+        system_prompt = get_date_context() + "\n" + self._settings.get_system_prompt(mode)
         cb = get_ollama_circuit_breaker()
 
         # Circuit breaker: fast-fail if Ollama has been failing repeatedly

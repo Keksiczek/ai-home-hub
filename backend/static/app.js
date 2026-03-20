@@ -857,11 +857,11 @@ async function _takeScreenshotFallback() {
     showToast(`Max ${MAX_IMAGES} obrazku na zpravu`, 'warning');
     return;
   }
-  // Use canvas capture of the main content area
+
+  // Layer 1: html2canvas (works in any browser)
   const target = document.getElementById('main-content') || document.body;
-  try {
-    // Try html2canvas if available (loaded dynamically)
-    if (typeof html2canvas !== 'undefined') {
+  if (typeof html2canvas !== 'undefined') {
+    try {
       const canvas = await html2canvas(target, { scale: 1, useCORS: true });
       const dataUrl = canvas.toDataURL('image/png');
       const base64 = dataUrl.split(',')[1];
@@ -872,13 +872,65 @@ async function _takeScreenshotFallback() {
         previewUrl: dataUrl,
       });
       renderImagePreviews();
-      showToast('Screenshot (fallback) prilozen', 'success');
-    } else {
-      showToast('Screenshot vyzaduje macOS nebo html2canvas knihovnu', 'warning');
+      showToast('Screenshot prilozen', 'success');
+      return;
+    } catch (err) {
+      console.warn('html2canvas failed:', err);
+    }
+  }
+
+  // Layer 2: clipboard image (if user has a screenshot copied)
+  try {
+    if (navigator.clipboard && navigator.clipboard.read) {
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        const imageType = item.types.find(t => t.startsWith('image/'));
+        if (imageType) {
+          const blob = await item.getType(imageType);
+          const reader = new FileReader();
+          const base64 = await new Promise((resolve, reject) => {
+            reader.onload = () => resolve(reader.result.split(',')[1]);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+          const previewUrl = URL.createObjectURL(blob);
+          attachedImages.push({
+            filename: 'clipboard.png',
+            data: base64,
+            mime_type: imageType,
+            previewUrl,
+          });
+          renderImagePreviews();
+          showToast('Obrázek ze schránky prilozen', 'success');
+          return;
+        }
+      }
     }
   } catch (err) {
-    showToast('Screenshot fallback selhal: ' + err.message, 'error');
+    console.warn('Clipboard read failed:', err);
   }
+
+  // Layer 3: macOS backend screencapture (most reliable on macOS, no browser permissions needed)
+  try {
+    const resp = await fetch('/api/system/screenshot', { method: 'POST' });
+    if (resp.ok) {
+      const json = await resp.json();
+      const previewUrl = `data:${json.mime};base64,${json.image}`;
+      attachedImages.push({
+        filename: 'screenshot.png',
+        data: json.image,
+        mime_type: json.mime,
+        previewUrl,
+      });
+      renderImagePreviews();
+      showToast('Screenshot (macOS) prilozen', 'success');
+      return;
+    }
+  } catch (err) {
+    console.warn('Backend screenshot failed:', err);
+  }
+
+  showToast('Screenshot: nelze pořídit snímek', 'warning');
 }
 
 async function sendMessage() {
