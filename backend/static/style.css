@@ -4918,3 +4918,124 @@ details[open].reasoning-cycle-item > .reasoning-cycle-summary::before {
   font-size: 0.75rem;
   padding: 2px 8px;
 }
+
+/* ============================================================
+   RESIDENT – Live Thought Stream Panel
+   ============================================================ */
+.resident-thought-log {
+  max-height: 300px;
+  overflow-y: auto;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.82em;
+  background: #0d1117;
+  border-radius: 6px;
+  padding: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.thought-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  line-height: 1.4;
+}
+
+.thought-line:last-child {
+  border-bottom: none;
+}
+
+.thought-time {
+  color: #64748b;
+  flex-shrink: 0;
+  font-size: 0.9em;
+}
+
+.thought-icon {
+  flex-shrink: 0;
+  font-size: 1em;
+}
+
+.thought-text {
+  color: #e2e8f0;
+  word-break: break-word;
+}
+
+.thought-line--thinking .thought-text {
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.thought-line--tool_call .thought-text {
+  color: #60a5fa;
+}
+
+.thought-line--tool_result .thought-text {
+  color: #4ade80;
+}
+
+.thought-line--error .thought-text {
+  color: #f87171;
+}
+
+/* ============================================================
+   RESIDENT – Mission Proposal Cards
+   ============================================================ */
+.proposal-card {
+  background: #1a1d27;
+  border: 1px solid #2d3348;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.5rem;
+  transition: border-color 0.2s;
+}
+
+.proposal-card:hover {
+  border-color: #4f46e5;
+}
+
+.proposal-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.25rem;
+}
+
+.proposal-card__type {
+  font-size: 0.8em;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(79, 70, 229, 0.15);
+  color: #818cf8;
+}
+
+.proposal-card__time {
+  font-size: 0.8em;
+  color: #64748b;
+}
+
+.proposal-card__name {
+  font-weight: 600;
+  font-size: 0.95em;
+  color: #e2e8f0;
+  margin-bottom: 0.25rem;
+}
+
+.proposal-card__desc {
+  font-size: 0.85em;
+  color: #94a3b8;
+  margin-bottom: 0.25rem;
+}
+
+.proposal-card__relevance {
+  font-size: 0.8em;
+  color: #64748b;
+  font-style: italic;
+  margin-bottom: 0.5rem;
+}
+
+.proposal-card__actions {
+  display: flex;
+  gap: 0.5rem;
+}

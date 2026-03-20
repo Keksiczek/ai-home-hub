@@ -245,6 +245,7 @@
       <section class="card">
         <div class="form-group" style="display:flex;gap:0.5rem;align-items:center">
           <input class="input" id="files-path-input" placeholder="Cesta k adres&aacute;&#345;i, nap&#345;. /Users/keks/projects" style="flex:1" />
+          <button class="btn btn--ghost btn--small browse-picker-btn" data-target="files-path-input" data-type="directory" title="Vybrat slo&#382;ku">&#128193;</button>
           <button class="btn btn--primary btn--small" id="files-browse-btn">Proch&aacute;zet</button>
         </div>
       </section>
@@ -506,6 +507,18 @@
         </div>
       </div>
 
+      <!-- Live Agent Thoughts Panel (SSE) -->
+      <section class="card hidden" id="resident-thought-panel">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <h2 class="card-title" id="resident-thought-panel-title">&#129504; Co agent d&#283;l&#225;</h2>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn--ghost btn--small" id="resident-thought-copy-btn" onclick="copyThoughtLog()" title="Kop&iacute;rovat log">&#128203; Kop&iacute;rovat log</button>
+            <button class="btn btn--ghost btn--small" id="resident-thought-toggle-btn" onclick="toggleThoughtPanel()">Minimalizovat</button>
+          </div>
+        </div>
+        <div id="resident-thought-log" class="resident-thought-log"></div>
+      </section>
+
       <!-- Live Agent Widget -->
       <section class="card agent-widget" id="agent-live-widget">
         <div class="agent-widget-header">
@@ -606,6 +619,20 @@
           <div id="resident-auto-logbook-list"></div>
         </section>
 
+        <!-- Mission Proposals -->
+        <section class="card" id="resident-proposals-card">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <h2 class="card-title">Navr&#382;en&#233; mise</h2>
+            <button class="btn btn--secondary btn--small" id="resident-generate-proposals-btn" onclick="residentGenerateProposals()">
+              Navrhnout mise
+              <span class="spinner spinner--small hidden" id="resident-proposals-spinner"></span>
+            </button>
+          </div>
+          <div id="resident-proposals-list">
+            <p class="empty-state" id="resident-proposals-empty">&#381;&aacute;dn&eacute; n&aacute;vrhy – klikni &quot;Navrhnout mise&quot;</p>
+          </div>
+        </section>
+
         <!-- Missions -->
         <section class="card" id="resident-missions-card">
           <h2 class="card-title">Mise</h2>
@@ -681,6 +708,26 @@
           </div>
           <div class="form-group" style="display:flex;align-items:center;gap:8px;margin-top:8px">
             <label><input type="checkbox" id="agent-setting-quiet-enabled" /> Tich&#253; re&#382;im aktivn&#237;</label>
+          </div>
+          <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;border-top:1px solid #2d3348;padding-top:12px">
+            <div>
+              <label class="form-label">Interval navrhov&aacute;n&iacute;:</label>
+              <select class="input" id="agent-setting-proposal-interval">
+                <option value="15">15 min</option>
+                <option value="30">30 min</option>
+                <option value="60" selected>1 hod</option>
+                <option value="240">4 hod</option>
+                <option value="0">Manu&aacute;ln&#283;</option>
+              </select>
+            </div>
+            <div>
+              <label class="form-label">Max n&aacute;vrh&#367;:</label>
+              <input type="number" class="input" id="agent-setting-max-proposals" min="1" max="5" value="3" />
+            </div>
+          </div>
+          <div class="form-group" style="margin-top:8px">
+            <label class="form-label">T&eacute;mata z&aacute;jmu:</label>
+            <input type="text" class="input" id="agent-setting-interest-topics" placeholder="Power BI, Python, novinky v AI" />
           </div>
           <div class="form-group form-group--right" style="gap:8px;display:flex;margin-top:8px">
             <button class="btn btn--primary btn--small" onclick="saveAgentSettings()">Ulo&#382;it</button>
@@ -1041,7 +1088,10 @@
         <h2 class="card-title">Git Controls</h2>
         <div class="form-group">
           <label class="form-label">Repo:</label>
-          <input type="text" class="input" id="git-repo-path" placeholder="/cesta/k/repo" style="flex:1" />
+          <div style="display:flex;gap:0.5rem;flex:1">
+            <input type="text" class="input" id="git-repo-path" placeholder="/cesta/k/repo" style="flex:1" />
+            <button class="btn btn--ghost btn--small browse-picker-btn" data-target="git-repo-path" data-type="directory" title="Vybrat slo&#382;ku">&#128193; Browse</button>
+          </div>
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:0.75rem">
           <button class="btn btn--secondary btn--small" data-git="status">Status</button>
@@ -1771,6 +1821,7 @@
         <div style="display:flex;gap:0.5rem;margin-top:1rem;flex-wrap:wrap">
           <input type="text" class="input" id="new-project-key" placeholder="kl&iacute;&#269; (nap&#345;. lean-rpg)" style="flex:1;min-width:120px" />
           <input type="text" class="input" id="new-project-path" placeholder="/cesta/k/projektu" style="flex:2;min-width:180px" />
+          <button class="btn btn--ghost btn--small browse-picker-btn" data-target="new-project-path" data-type="directory" title="Vybrat slo&#382;ku">&#128193; Browse</button>
           <button class="btn btn--secondary btn--small" id="add-project-btn">+ P&#345;idat</button>
         </div>
       </section>

@@ -1,9 +1,12 @@
 """Resident agent API endpoints – includes brain orchestrator features."""
 
+import asyncio
+import json
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.services.resident_agent import get_resident_agent
@@ -39,6 +42,9 @@ class AgentSettingsPatch(BaseModel):
     quiet_hours_start: Optional[str] = None
     quiet_hours_end: Optional[str] = None
     quiet_hours_enabled: Optional[bool] = None
+    proposal_interval_minutes: Optional[int] = Field(None, ge=15, le=1440)
+    max_proposals: Optional[int] = Field(None, ge=1, le=5)
+    interest_topics: Optional[str] = None
 
 
 # ── Core endpoints (unchanged) ───────────────────────────────
@@ -405,3 +411,76 @@ async def trigger_reasoning_cycle() -> dict:
         del _reasoning_cycles[: len(_reasoning_cycles) - _MAX_REASONING_HISTORY]
 
     return cycle.model_dump()
+
+
+# ── Mission proposals ────────────────────────────────────────
+
+@router.get("/proposals")
+async def get_proposals(status: Optional[str] = Query(default=None)) -> dict:
+    """Get mission proposals (optionally filtered by status)."""
+    agent = get_resident_agent()
+    proposals = agent.get_proposals(status=status)
+    return {"proposals": proposals, "count": len(proposals)}
+
+
+@router.post("/proposals/generate")
+async def generate_proposals() -> dict:
+    """Trigger the agent to generate new mission proposals."""
+    agent = get_resident_agent()
+    try:
+        proposals = await agent.propose_missions()
+        return {"proposals": proposals, "count": len(proposals)}
+    except Exception as exc:
+        logger.error("Proposal generation failed: %s", exc)
+        raise HTTPException(500, f"Generování návrhů selhalo: {exc}")
+
+
+@router.post("/proposals/{proposal_id}/approve")
+async def approve_proposal(proposal_id: str) -> dict:
+    """Approve a proposed mission and queue it for execution."""
+    agent = get_resident_agent()
+    job_id = await agent.approve_proposal(proposal_id)
+    if job_id is None:
+        raise HTTPException(404, "Návrh nenalezen nebo již zpracován")
+    return {"status": "approved", "job_id": job_id, "message": "Mise schválena a zařazena do fronty"}
+
+
+@router.post("/proposals/{proposal_id}/reject")
+async def reject_proposal(proposal_id: str) -> dict:
+    """Reject a proposed mission."""
+    agent = get_resident_agent()
+    ok = agent.reject_proposal(proposal_id)
+    if not ok:
+        raise HTTPException(404, "Návrh nenalezen nebo již zpracován")
+    return {"status": "rejected", "message": "Návrh zamítnut"}
+
+
+# ── SSE stream for live agent thoughts ───────────────────────
+
+@router.get("/stream")
+async def resident_stream(request: Request):
+    """SSE stream – sends live thoughts and actions of the Resident agent."""
+    agent = get_resident_agent()
+
+    async def event_generator():
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                thought = await asyncio.wait_for(agent.thought_queue.get(), timeout=30.0)
+                event_type = thought.get("type", "thinking")
+                data = json.dumps(thought, ensure_ascii=False)
+                yield f"event: {event_type}\ndata: {data}\n\n"
+            except asyncio.TimeoutError:
+                # Send keepalive comment
+                yield ": keepalive\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

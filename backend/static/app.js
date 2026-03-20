@@ -5802,9 +5802,18 @@ function renderResidentDashboard(data) {
 
   // Brain orchestrator sections
   renderResidentSuggestions(data);
+  renderResidentProposals();
   renderResidentMissions(data.missions || []);
   renderResidentReflections();
   loadResidentReasoningHistory();
+
+  // Connect SSE stream when agent is running
+  if (data.status === 'running' && !_residentEventSource) {
+    connectResidentStream();
+  } else if (data.status === 'stopped' && _residentEventSource) {
+    _residentEventSource.close();
+    _residentEventSource = null;
+  }
 }
 
 function renderResidentRecentTasks(tasks) {
@@ -6199,6 +6208,158 @@ async function loadResidentReasoningHistory() {
 }
 
 /* ============================================================
+   RESIDENT – Mission proposals
+   ============================================================ */
+
+async function residentGenerateProposals() {
+  const btn = document.getElementById('resident-generate-proposals-btn');
+  const spinner = document.getElementById('resident-proposals-spinner');
+  setLoading(btn, spinner, true);
+  try {
+    const res = await fetch('/api/resident/proposals/generate', { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    showToast(`Navrženo ${data.count} misí`, 'success');
+    await renderResidentProposals();
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  } finally {
+    setLoading(btn, spinner, false);
+  }
+}
+
+async function renderResidentProposals() {
+  const list = document.getElementById('resident-proposals-list');
+  const empty = document.getElementById('resident-proposals-empty');
+  if (!list) return;
+
+  try {
+    const res = await fetch('/api/resident/proposals?status=pending');
+    if (!res.ok) return;
+    const data = await res.json();
+    const proposals = data.proposals || [];
+
+    if (!proposals.length) {
+      list.innerHTML = '';
+      if (empty) { list.appendChild(empty); show(empty); }
+      return;
+    }
+    if (empty) hide(empty);
+
+    const typeIcons = { research: '\uD83D\uDD0D', code: '\uD83D\uDCBB', analysis: '\uD83D\uDCCA' };
+    list.innerHTML = proposals.map(p => `
+      <div class="proposal-card" data-proposal-id="${escHtml(p.id)}">
+        <div class="proposal-card__header">
+          <span class="proposal-card__type">${typeIcons[p.type] || '\uD83D\uDCCB'} ${escHtml(p.type)}</span>
+          <span class="proposal-card__time">${escHtml(p.estimated_minutes || '?')} min</span>
+        </div>
+        <div class="proposal-card__name">${escHtml(p.name)}</div>
+        <div class="proposal-card__desc">${escHtml(p.description)}</div>
+        <div class="proposal-card__relevance">${escHtml(p.relevance)}</div>
+        <div class="proposal-card__actions">
+          <button class="btn btn--primary btn--small" onclick="residentApproveProposal('${escHtml(p.id)}')">Schválit</button>
+          <button class="btn btn--ghost btn--small btn--danger" onclick="residentRejectProposal('${escHtml(p.id)}')">Odmítnout</button>
+        </div>
+      </div>
+    `).join('');
+  } catch (err) {
+    console.error('Failed to load proposals:', err);
+  }
+}
+
+async function residentApproveProposal(id) {
+  try {
+    const res = await fetch(`/api/resident/proposals/${id}/approve`, { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    showToast('Mise schválena', 'success');
+    await renderResidentProposals();
+    await loadResidentDashboard();
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
+}
+
+async function residentRejectProposal(id) {
+  try {
+    const res = await fetch(`/api/resident/proposals/${id}/reject`, { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    showToast('Návrh zamítnut');
+    await renderResidentProposals();
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
+}
+
+/* ============================================================
+   RESIDENT – Live thought stream (SSE)
+   ============================================================ */
+
+let _residentEventSource = null;
+const _MAX_THOUGHT_LINES = 100;
+
+function connectResidentStream() {
+  if (_residentEventSource) {
+    _residentEventSource.close();
+  }
+  const es = new EventSource('/api/resident/stream');
+  const log = document.getElementById('resident-thought-log');
+  const panel = document.getElementById('resident-thought-panel');
+
+  const icons = { thinking: '\uD83D\uDCAD', tool_call: '\uD83D\uDD27', tool_result: '\u2705', error: '\u274C' };
+
+  ['thinking', 'tool_call', 'tool_result', 'error'].forEach(type => {
+    es.addEventListener(type, (e) => {
+      if (!log) return;
+      // Show panel when events come in
+      if (panel) show(panel);
+
+      const data = JSON.parse(e.data);
+      const line = document.createElement('div');
+      line.className = `thought-line thought-line--${type}`;
+      const ts = data.timestamp ? data.timestamp.slice(11, 19) : '';
+      const text = data.content || (data.tool ? data.tool + '(' + JSON.stringify(data.params || {}) + ')' : data.result_preview || '');
+      line.innerHTML = `<span class="thought-time">${escHtml(ts)}</span><span class="thought-icon">${icons[type]}</span><span class="thought-text">${escHtml(text)}</span>`;
+      log.appendChild(line);
+      // Trim old lines
+      while (log.children.length > _MAX_THOUGHT_LINES) {
+        log.removeChild(log.firstChild);
+      }
+      log.scrollTop = log.scrollHeight;
+    });
+  });
+
+  es.onerror = () => {
+    // Reconnect after 5s on error
+    es.close();
+    _residentEventSource = null;
+    setTimeout(connectResidentStream, 5000);
+  };
+
+  _residentEventSource = es;
+  return es;
+}
+
+function toggleThoughtPanel() {
+  const log = document.getElementById('resident-thought-log');
+  const btn = document.getElementById('resident-thought-toggle-btn');
+  if (!log) return;
+  if (log.style.display === 'none') {
+    log.style.display = '';
+    if (btn) btn.textContent = 'Minimalizovat';
+  } else {
+    log.style.display = 'none';
+    if (btn) btn.textContent = 'Rozbalit';
+  }
+}
+
+function copyThoughtLog() {
+  const log = document.getElementById('resident-thought-log');
+  if (!log) return;
+  const lines = Array.from(log.querySelectorAll('.thought-line')).map(el => el.textContent).join('\n');
+  navigator.clipboard.writeText(lines).then(() => showToast('Log zkopírován'));
+}
+
+/* ============================================================
    RESIDENT – Mode hints + autonomous logbook
    ============================================================ */
 
@@ -6474,11 +6635,17 @@ async function loadAgentSettings() {
     const qsEl = document.getElementById('agent-setting-quiet-start');
     const qeEl = document.getElementById('agent-setting-quiet-end');
     const qenEl = document.getElementById('agent-setting-quiet-enabled');
+    const piEl = document.getElementById('agent-setting-proposal-interval');
+    const mpEl = document.getElementById('agent-setting-max-proposals');
+    const itEl = document.getElementById('agent-setting-interest-topics');
     if (intEl) intEl.value = data.interval_seconds || 30;
     if (maxEl) maxEl.value = data.max_cycles_per_day || 100;
     if (qsEl) qsEl.value = data.quiet_hours_start || '22:00';
     if (qeEl) qeEl.value = data.quiet_hours_end || '07:00';
     if (qenEl) qenEl.checked = !!data.quiet_hours_enabled;
+    if (piEl) piEl.value = data.proposal_interval_minutes || 60;
+    if (mpEl) mpEl.value = data.max_proposals || 3;
+    if (itEl) itEl.value = data.interest_topics || '';
   } catch (err) { /* ignore */ }
 }
 
@@ -6489,6 +6656,9 @@ async function saveAgentSettings() {
     quiet_hours_start: document.getElementById('agent-setting-quiet-start')?.value || '22:00',
     quiet_hours_end: document.getElementById('agent-setting-quiet-end')?.value || '07:00',
     quiet_hours_enabled: !!document.getElementById('agent-setting-quiet-enabled')?.checked,
+    proposal_interval_minutes: parseInt(document.getElementById('agent-setting-proposal-interval')?.value) || 60,
+    max_proposals: parseInt(document.getElementById('agent-setting-max-proposals')?.value) || 3,
+    interest_topics: document.getElementById('agent-setting-interest-topics')?.value || '',
   };
   try {
     const res = await fetch('/api/resident/agent-settings', {
@@ -7215,6 +7385,24 @@ function handleAgentStatusUpdate(msg) {
 }
 
 /* ============================================================
+   NATIVE FILE PICKER – macOS osascript picker via backend
+   ============================================================ */
+async function pickPath(type = 'folder', extensions = null) {
+  try {
+    const resp = await fetch('/api/system/pick-path', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, extensions }),
+    });
+    if (!resp.ok) return null;  // user cancelled
+    const data = await resp.json();
+    return data.path;
+  } catch {
+    return null;
+  }
+}
+
+/* ============================================================
    FILE PICKER – Server-side directory browser
    ============================================================ */
 let _dirBrowserTargetInput = null;
@@ -7223,13 +7411,22 @@ let _dirBrowserCurrentPath = '~';
 
 function bindFilePickers() {
   document.querySelectorAll('.browse-picker-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const targetId = btn.dataset.target;
       _dirBrowserPickerType = btn.dataset.type || 'directory';
       _dirBrowserTargetInput = document.getElementById(targetId);
       if (!_dirBrowserTargetInput) return;
 
-      // Start browsing from current input value or home
+      // Try native macOS picker first
+      const pickerType = _dirBrowserPickerType === 'directory' ? 'folder' : 'file';
+      const nativePath = await pickPath(pickerType);
+      if (nativePath) {
+        _dirBrowserTargetInput.value = nativePath;
+        showToast('Cesta vybrána: ' + nativePath, 'success');
+        return;
+      }
+
+      // Fallback to server-side directory browser
       const startPath = _dirBrowserTargetInput.value.trim() || '~';
       openDirBrowser(startPath);
     });

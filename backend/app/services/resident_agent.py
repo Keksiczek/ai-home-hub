@@ -119,6 +119,22 @@ class LogEntry:
 
 
 @dataclass
+class MissionProposal:
+    """A proposed mission awaiting user approval."""
+    id: str
+    name: str
+    description: str
+    type: str  # research / code / analysis
+    estimated_minutes: int
+    relevance: str  # why now
+    status: str = "pending"  # pending / approved / rejected
+    created_at: str = ""
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass
 class AgentSettings:
     """Runtime-configurable agent settings."""
     interval_seconds: int = 30
@@ -127,6 +143,10 @@ class AgentSettings:
     quiet_hours_start: str = "22:00"  # HH:MM
     quiet_hours_end: str = "07:00"    # HH:MM
     quiet_hours_enabled: bool = False
+    # Mission proposal settings
+    proposal_interval_minutes: int = 60  # how often to propose missions
+    max_proposals: int = 3  # max proposals per round
+    interest_topics: str = ""  # comma-separated topics of interest
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -149,6 +169,11 @@ class ResidentAgent(BackgroundService):
         self._agent_settings = AgentSettings()
         self._daily_cycle_count: int = 0
         self._daily_reset_date: str = ""
+        # Mission proposals
+        self._proposals: List[MissionProposal] = []
+        self._last_proposal_time: Optional[float] = None
+        # Live thought stream (SSE consumers read from here)
+        self._thought_queue: asyncio.Queue = asyncio.Queue(maxsize=500)
 
     def set_broadcast(self, fn: Callable) -> None:
         """Register a coroutine for broadcasting WebSocket messages."""
@@ -857,7 +882,177 @@ class ResidentAgent(BackgroundService):
             "suggestions_count": len(latest_suggestion.actions) if latest_suggestion else 0,
             "missions": missions,
             "reflections_count": len(self._reflections),
+            "proposals": [p.to_dict() for p in self._proposals if p.status == "pending"],
         }
+
+    # ── Thought stream (SSE) ────────────────────────────────────────────────
+
+    async def emit_thought(self, thought_type: str, **kwargs) -> None:
+        """Emit a thought event for live SSE streaming."""
+        event = {
+            "type": thought_type,
+            "timestamp": _now(),
+            **kwargs,
+        }
+        try:
+            self._thought_queue.put_nowait(event)
+        except asyncio.QueueFull:
+            # Drop oldest to make room
+            try:
+                self._thought_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                pass
+            self._thought_queue.put_nowait(event)
+
+    @property
+    def thought_queue(self) -> asyncio.Queue:
+        return self._thought_queue
+
+    # ── Mission proposals ─────────────────────────────────────────────────
+
+    def get_proposals(self, status: Optional[str] = None) -> List[dict]:
+        """Return proposals, optionally filtered by status."""
+        proposals = self._proposals
+        if status:
+            proposals = [p for p in proposals if p.status == status]
+        return [p.to_dict() for p in proposals]
+
+    def get_proposal(self, proposal_id: str) -> Optional[MissionProposal]:
+        for p in self._proposals:
+            if p.id == proposal_id:
+                return p
+        return None
+
+    async def approve_proposal(self, proposal_id: str) -> Optional[str]:
+        """Approve a proposal and create a mission job. Returns job_id."""
+        proposal = self.get_proposal(proposal_id)
+        if not proposal or proposal.status != "pending":
+            return None
+        proposal.status = "approved"
+        self._add_log("INFO", "proposal_approved", proposal_id=proposal_id, name=proposal.name)
+
+        # Create a mission job
+        from app.services.job_service import get_job_service
+        job_svc = get_job_service()
+        plan = {
+            "goal": proposal.name,
+            "steps": [{"description": proposal.description, "status": "pending"}],
+            "current_step": 0,
+            "status": "planned",
+            "source": "proposal",
+        }
+        job = job_svc.create_job(
+            type="resident_mission",
+            title=proposal.name,
+            input_summary=proposal.description,
+            payload={"plan": plan},
+            priority="normal",
+        )
+        await self.emit_thought("thinking", content=f"Mise schválena: {proposal.name}")
+        return job.id
+
+    def reject_proposal(self, proposal_id: str) -> bool:
+        proposal = self.get_proposal(proposal_id)
+        if not proposal or proposal.status != "pending":
+            return False
+        proposal.status = "rejected"
+        self._add_log("INFO", "proposal_rejected", proposal_id=proposal_id, name=proposal.name)
+        return True
+
+    async def propose_missions(self) -> List[dict]:
+        """Agent autonomously proposes missions based on context.
+
+        Calls LLM with current context (time, recent jobs, memory, KB).
+        Returns list of proposed missions awaiting user approval.
+        """
+        import uuid
+
+        await self.emit_thought("thinking", content="Přemýšlím nad novými misemi...")
+
+        # Build context
+        context: Dict[str, Any] = {
+            "datetime": _now(),
+            "weekday": datetime.now().strftime("%A"),
+        }
+
+        # Recent jobs
+        try:
+            from app.services.job_service import get_job_service
+            job_svc = get_job_service()
+            recent = job_svc.list_jobs(limit=5)
+            context["recent_jobs"] = [
+                {"title": j.title, "status": j.status, "type": j.type}
+                for j in recent
+            ]
+        except Exception:
+            context["recent_jobs"] = []
+
+        # Memory snippets
+        try:
+            from app.services.memory_service import get_memory_service
+            mem = get_memory_service()
+            snippets = await mem.search_memory("recent activity", limit=3)
+            context["memory_snippets"] = [s.get("text", "")[:200] for s in snippets]
+        except Exception:
+            context["memory_snippets"] = []
+
+        # Interest topics
+        if self._agent_settings.interest_topics:
+            context["interest_topics"] = self._agent_settings.interest_topics
+
+        max_proposals = self._agent_settings.max_proposals
+
+        prompt = (
+            "Jsi Resident Agent. Na základě kontextu navrhni 1-"
+            f"{max_proposals} užitečné mise.\n"
+            "Každá mise musí mít: name, description, type (research/code/analysis), "
+            "estimated_minutes, relevance (proč je teď relevantní).\n"
+            "Odpověz POUZE jako JSON pole objektů. Žádný markdown, žádný komentář.\n\n"
+            f"Kontext: {json.dumps(context, ensure_ascii=False)}"
+        )
+
+        try:
+            from app.services.llm_service import get_llm_service
+            llm = get_llm_service()
+            raw = await llm.generate(prompt)
+
+            # Parse JSON from response
+            import re
+            json_match = re.search(r'\[.*\]', raw, re.DOTALL)
+            if not json_match:
+                self._add_log("WARN", "proposal_parse_failed", raw=raw[:200])
+                return []
+
+            proposals_data = json.loads(json_match.group())
+            new_proposals = []
+            for item in proposals_data[:max_proposals]:
+                proposal = MissionProposal(
+                    id=str(uuid.uuid4())[:8],
+                    name=item.get("name", "Bez názvu"),
+                    description=item.get("description", ""),
+                    type=item.get("type", "research"),
+                    estimated_minutes=int(item.get("estimated_minutes", 15)),
+                    relevance=item.get("relevance", ""),
+                    created_at=_now(),
+                )
+                new_proposals.append(proposal)
+                self._proposals.append(proposal)
+
+            self._last_proposal_time = time.monotonic()
+            self._add_log("INFO", "proposals_generated", count=len(new_proposals))
+            await self.emit_thought("tool_result", tool="propose_missions",
+                                     result_preview=f"Navrhl {len(new_proposals)} misí")
+
+            # Keep max 20 proposals total
+            if len(self._proposals) > 20:
+                self._proposals = self._proposals[-20:]
+
+            return [p.to_dict() for p in new_proposals]
+
+        except Exception as exc:
+            self._add_log("ERROR", "proposal_generation_failed", error=str(exc))
+            await self.emit_thought("error", content=f"Chyba při navrhování misí: {exc}")
+            return []
 
     async def _process_task_queue(self) -> None:
         """Načte pending tasky z job_service kde job_type == 'resident_task'."""
@@ -870,6 +1065,7 @@ class ResidentAgent(BackgroundService):
                 self._state.current_task = job.title
                 self._state.status = "thinking"
                 self._state.current_thought = f"Analyzuji úkol: {job.title}"
+                await self.emit_thought("thinking", content=f"Analyzuji úkol: {job.title}")
 
                 task = {
                     "job_id": job.id,
@@ -884,17 +1080,21 @@ class ResidentAgent(BackgroundService):
                 job_svc.update_job(job)
 
                 try:
+                    await self.emit_thought("thinking", content=f"Spouštím úkol: {job.title}")
                     result = await self._execute_with_llm(task)
                     job.status = "succeeded"
                     job.progress = 100.0
                     job.finished_at = _now()
                     job.meta["result"] = str(result)[:500]
+                    await self.emit_thought("tool_result", tool="task",
+                                             result_preview=f"Úkol dokončen: {job.title}")
                 except Exception as exc:
                     job.status = "failed"
                     job.last_error = str(exc)
                     job.finished_at = _now()
                     self._state.errors_since_start += 1
                     logger.error("Resident task %s failed: %s", job.id, exc)
+                    await self.emit_thought("error", content=f"Úkol selhal: {exc}")
                 finally:
                     job_svc.update_job(job)
                     # Generate reflection for completed task
