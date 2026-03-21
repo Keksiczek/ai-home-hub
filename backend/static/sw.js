@@ -1,11 +1,18 @@
 /* Service Worker for AI Home Hub PWA – offline cache + push notifications */
 
-const CACHE_NAME = 'ai-home-hub-v1';
+const CACHE_NAME = 'ai-home-hub-v2';
 const STATIC_ASSETS = [
   '/',
   '/style.css',
   '/app.js',
   '/manifest.json',
+];
+
+// API endpoints to cache for offline dashboard access
+const CACHEABLE_API = [
+  '/api/health',
+  '/api/agent/status',
+  '/api/health/setup',
 ];
 
 /* Install: pre-cache static assets */
@@ -26,15 +33,37 @@ self.addEventListener('activate', event => {
   self.clients.claim();
 });
 
-/* Fetch: network-first for API, cache-first for static */
+/* Fetch: network-first for API (with offline fallback), cache-first for static */
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
-  // API calls and WebSocket – always network
-  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/ws')) {
+  // WebSocket – always skip
+  if (url.pathname.startsWith('/ws')) {
     return;
   }
 
+  // Cacheable API endpoints: network-first with cache fallback
+  if (CACHEABLE_API.some(path => url.pathname === path)) {
+    event.respondWith(
+      fetch(event.request)
+        .then(response => {
+          if (response && response.status === 200) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request))
+    );
+    return;
+  }
+
+  // Other API calls – always network
+  if (url.pathname.startsWith('/api/')) {
+    return;
+  }
+
+  // Static assets – stale-while-revalidate
   event.respondWith(
     caches.match(event.request).then(cached => {
       const networkFetch = fetch(event.request).then(response => {

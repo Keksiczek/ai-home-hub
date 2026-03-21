@@ -24,8 +24,8 @@ backend/data/jobs/
 backend/data/settings.json
 backend/data/*.db
 backend/data/chroma/
+backend/data/archive/
 backend/data/*.db
-data/*.db
 data/uploads/
 data/artifacts/
 data/jobs/

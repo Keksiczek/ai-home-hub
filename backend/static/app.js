@@ -9917,253 +9917,90 @@ function exportNightlyReport() {
   URL.revokeObjectURL(url);
 }
 
+/* ============================================================
+   GLOBAL ERROR BOUNDARY
+   Catches unhandled JS errors, promise rejections, network
+   failures. Shows recovery UI and persists to localStorage.
+   ============================================================ */
+const _errorLog = [];
+const MAX_ERROR_LOG = 50;
 
-// ============================================================
-//  CONTROL ROOM
-// ============================================================
-
-let _crWs = null;
-let _crWsReconnectTimer = null;
-let _crRefreshTimer = null;
-
-function loadControlRoom() {
-  crFetchResident();
-  crFetchJobs();
-  crFetchStats();
-  crFetchTemplates();
-  crConnectWs();
-
-  clearInterval(_crRefreshTimer);
-  _crRefreshTimer = setInterval(() => {
-    crFetchResident();
-    crFetchJobs();
-    crFetchStats();
-  }, 10000);
+function _recordError(err) {
+  const entry = {
+    ts: new Date().toISOString(),
+    message: err.message || String(err),
+    stack: (err.stack || '').slice(0, 500),
+    url: window.location.hash,
+  };
+  _errorLog.push(entry);
+  if (_errorLog.length > MAX_ERROR_LOG) _errorLog.shift();
+  try {
+    localStorage.setItem('aih_error_log', JSON.stringify(_errorLog.slice(-20)));
+  } catch (_) { /* storage full */ }
 }
 
-// ── Resident status ────────────────────────────────────────
-
-function crFetchResident() {
-  fetch('/api/resident/dashboard')
-    .then(r => r.json())
-    .then(d => {
-      const dot = document.getElementById('cr-status-dot');
-      const txt = document.getElementById('cr-resident-status-text');
-      const uptime = document.getElementById('cr-resident-uptime');
-      const last = document.getElementById('cr-resident-last');
-
-      const isRunning = d.is_running || d.status === 'running';
-      const status = d.status || 'idle';
-
-      if (dot) {
-        dot.className = 'cr-status-dot ' + (isRunning ? 'cr-status-dot--running' : 'cr-status-dot--stopped');
-      }
-      if (txt) txt.textContent = isRunning ? `Běží (${status})` : 'Zastaven';
-      if (uptime && d.uptime) uptime.textContent = `Uptime: ${d.uptime}`;
-      if (last) {
-        const proposal = d.last_proposal || d.recent_tasks?.[0]?.title || '';
-        last.textContent = proposal ? `Poslední: ${proposal}` : '';
-      }
-    })
-    .catch(() => {
-      const txt = document.getElementById('cr-resident-status-text');
-      if (txt) txt.textContent = 'Chyba načítání';
-    });
+function _showErrorBanner(message) {
+  let banner = document.getElementById('error-boundary-banner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'error-boundary-banner';
+    banner.className = 'error-boundary-banner';
+    document.body.prepend(banner);
+  }
+  banner.innerHTML = `
+    <span class="error-boundary-msg">Oops, nastala chyba: ${escHtml(message)}</span>
+    <div class="error-boundary-actions">
+      <button class="btn btn-sm btn--ghost" onclick="exportErrorLog()">Export logs</button>
+      <button class="btn btn-sm btn-primary" onclick="location.reload()">Reload</button>
+      <button class="btn btn-sm btn--ghost" onclick="this.closest('.error-boundary-banner').remove()">✕</button>
+    </div>`;
+  banner.classList.remove('hidden');
 }
 
-function crResidentStart() {
-  fetch('/api/resident/start', { method: 'POST' })
-    .then(r => r.json())
-    .then(() => { crShowToast('Agent spuštěn', 'success'); crFetchResident(); })
-    .catch(() => crShowToast('Chyba při startu', 'error'));
+function exportErrorLog() {
+  const stored = localStorage.getItem('aih_error_log') || '[]';
+  const blob = new Blob([stored], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `aih-error-log-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
-function crResidentStop() {
-  fetch('/api/resident/stop', { method: 'POST' })
-    .then(r => r.json())
-    .then(() => { crShowToast('Agent zastaven', 'info'); crFetchResident(); })
-    .catch(() => crShowToast('Chyba při zastavení', 'error'));
-}
+window.addEventListener('error', (event) => {
+  _recordError(event.error || new Error(event.message));
+  _showErrorBanner(event.message || 'Neznámá chyba');
+});
 
-// ── Jobs list ─────────────────────────────────────────────
+window.addEventListener('unhandledrejection', (event) => {
+  const err = event.reason || new Error('Unhandled promise rejection');
+  _recordError(err);
+  _showErrorBanner(err.message || 'Async chyba');
+});
 
-function crFetchJobs() {
-  fetch('/api/jobs?limit=5')
-    .then(r => r.json())
-    .then(data => {
-      const el = document.getElementById('cr-jobs-list');
-      if (!el) return;
-      const jobs = Array.isArray(data) ? data : (data.jobs || []);
-      if (!jobs.length) {
-        el.innerHTML = '<p class="empty-state">Žádné aktivní joby</p>';
-        return;
-      }
-      el.innerHTML = jobs.map(j => {
-        const prog = j.progress != null ? j.progress : null;
-        const statusIcon = j.status === 'running' ? '🔄' : j.status === 'done' ? '✅' : j.status === 'failed' ? '❌' : '⏳';
-        return `<div class="cr-job-row">
-          <span class="cr-job-icon">${statusIcon}</span>
-          <span class="cr-job-title" title="${j.title || ''}">${(j.title || j.type || '').substring(0, 40)}</span>
-          ${prog != null ? `<div class="cr-job-progress"><div class="cr-job-progress-bar" style="width:${prog}%"></div></div>` : ''}
-        </div>`;
-      }).join('');
-    })
-    .catch(() => {
-      const el = document.getElementById('cr-jobs-list');
-      if (el) el.innerHTML = '<p class="empty-state">Chyba načítání jobů</p>';
-    });
-}
+/* ============================================================
+   TOOLTIPS – hover tooltips for key UI elements
+   ============================================================ */
+const TOOLTIPS = {
+  'nav-chat': 'Hlavní chat s AI asistentem',
+  'nav-agents': 'Dashboard běžících agentů',
+  'nav-resident': 'Vše na jednom místě – status, jobs, logs',
+  'nav-knowledge': 'Knowledge Base – sémantické vyhledávání',
+  'nav-jobs': 'Fronta úloh a historie',
+  'nav-overnight': 'Noční automatické úlohy',
+  'nav-settings': 'Nastavení aplikace',
+  'resident-safe-mode-label': 'Bezpečný mód – žádné destruktivní akce',
+};
 
-// ── Quick stats ───────────────────────────────────────────
-
-function crFetchStats() {
-  Promise.all([
-    fetch('/api/metrics/summary').then(r => r.json()).catch(() => ({})),
-    fetch('/api/system/disk').then(r => r.json()).catch(() => ({})),
-  ]).then(([metrics, disk]) => {
-    const cycles = document.getElementById('cr-cycles-today');
-    const ollama = document.getElementById('cr-ollama-status');
-    const diskKb = document.getElementById('cr-disk-kb');
-    const diskJobs = document.getElementById('cr-disk-jobs');
-    const rate = document.getElementById('cr-success-rate');
-
-    if (cycles) cycles.textContent = metrics.cycles_24h ?? '-';
-    if (ollama) ollama.textContent = metrics.ollama_status ?? 'unknown';
-    if (diskKb) diskKb.textContent = disk.kb_dir_mb != null ? `${disk.kb_dir_mb} MB` : '-';
-    if (diskJobs) diskJobs.textContent = disk.jobs_dir_mb != null ? `${disk.jobs_dir_mb} MB` : '-';
-    if (rate) rate.textContent = metrics.jobs_success_rate != null
-      ? `${Math.round(metrics.jobs_success_rate * 100)}%` : '-';
+function initTooltips() {
+  Object.entries(TOOLTIPS).forEach(([id, text]) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.setAttribute('title', text);
+      el.setAttribute('data-tooltip', text);
+    }
   });
 }
 
-// ── Mission Templates ─────────────────────────────────────
-
-function crFetchTemplates() {
-  fetch('/api/resident/templates')
-    .then(r => r.json())
-    .then(templates => {
-      const el = document.getElementById('cr-templates-grid');
-      if (!el) return;
-      if (!templates.length) {
-        el.innerHTML = '<p class="empty-state">Žádné šablony</p>';
-        return;
-      }
-      el.innerHTML = templates.map(t => `
-        <div class="cr-template-card" onclick="crRunTemplate('${t.id}')">
-          <div class="cr-template-title">${t.title}</div>
-          <div class="cr-template-desc">${t.desc || ''}</div>
-          <button class="btn btn--primary btn--small" style="margin-top:0.5rem">&#9654; Spustit</button>
-        </div>
-      `).join('');
-    })
-    .catch(() => {
-      const el = document.getElementById('cr-templates-grid');
-      if (el) el.innerHTML = '<p class="empty-state">Chyba načítání šablon</p>';
-    });
-}
-
-function crRunTemplate(templateId) {
-  fetch(`/api/resident/run-template/${templateId}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({}),
-  })
-    .then(r => r.json())
-    .then(d => {
-      crShowToast(`Mise spuštěna: ${d.template_id} (job ${d.job_id})`, 'success');
-      setTimeout(crFetchJobs, 1500);
-    })
-    .catch(() => crShowToast('Chyba spuštění šablony', 'error'));
-}
-
-// ── Debug export ─────────────────────────────────────────
-
-function crExportDebug() {
-  fetch('/api/resident/export-debug', { method: 'POST' })
-    .then(r => r.json())
-    .then(data => {
-      const content = JSON.stringify(data, null, 2);
-      const blob = new Blob([content], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `debug-${new Date().toISOString().slice(0, 16).replace('T', '_')}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-      crShowToast('Debug export stažen', 'success');
-    })
-    .catch(() => crShowToast('Chyba exportu', 'error'));
-}
-
-// ── Live Logs WebSocket ───────────────────────────────────
-
-function crConnectWs() {
-  if (_crWs && (_crWs.readyState === WebSocket.OPEN || _crWs.readyState === WebSocket.CONNECTING)) return;
-
-  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  _crWs = new WebSocket(`${proto}://${location.host}/ws/activity`);
-
-  const dot = document.getElementById('cr-ws-dot');
-
-  _crWs.onopen = () => {
-    if (dot) dot.className = 'cr-ws-dot cr-ws-dot--connected';
-  };
-
-  _crWs.onmessage = (evt) => {
-    try {
-      const msg = JSON.parse(evt.data);
-      crAppendLog(msg);
-    } catch (_) {}
-  };
-
-  _crWs.onclose = () => {
-    if (dot) dot.className = 'cr-ws-dot cr-ws-dot--disconnected';
-    clearTimeout(_crWsReconnectTimer);
-    _crWsReconnectTimer = setTimeout(crConnectWs, 5000);
-  };
-
-  _crWs.onerror = () => {
-    _crWs.close();
-  };
-}
-
-function crAppendLog(msg) {
-  const feed = document.getElementById('cr-logs-feed');
-  if (!feed) return;
-
-  const empty = feed.querySelector('.empty-state');
-  if (empty) empty.remove();
-
-  const type = msg.type || 'event';
-  const text = msg.message || msg.text || JSON.stringify(msg);
-  const time = new Date().toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-
-  const div = document.createElement('div');
-  div.className = 'cr-log-entry';
-  div.innerHTML = `<span class="cr-log-time">${time}</span><span class="cr-log-type cr-log-type--${type}">${type}</span><span class="cr-log-msg">${text}</span>`;
-
-  feed.prepend(div);
-
-  // Keep max 50 entries
-  const entries = feed.querySelectorAll('.cr-log-entry');
-  if (entries.length > 50) {
-    entries[entries.length - 1].remove();
-  }
-}
-
-function crClearLogs() {
-  const feed = document.getElementById('cr-logs-feed');
-  if (feed) feed.innerHTML = '<p class="empty-state">Log vymazán</p>';
-}
-
-// ── Toast helper ──────────────────────────────────────────
-
-function crShowToast(message, type = 'info') {
-  const el = document.getElementById('cr-toast');
-  if (!el) return;
-  el.textContent = message;
-  el.className = `cr-toast cr-toast--${type}`;
-  el.classList.remove('hidden');
-  clearTimeout(el._hideTimer);
-  el._hideTimer = setTimeout(() => el.classList.add('hidden'), 4000);
-}
+document.addEventListener('DOMContentLoaded', initTooltips);
