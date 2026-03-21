@@ -41,7 +41,21 @@ ALLOWED_ACTIONS = [
     "spawn_specialist",
     "web_search",
     "no_op",
+    "system_health",
+    "github_ci_status",
+    "lean_metrics",
 ]
+
+# Mode-based guardrails: which actions each mode can execute
+MODE_ALLOWED_ACTIONS = {
+    "observer": {"system_health", "github_ci_status", "system_status", "no_op"},
+    "advisor": {
+        "system_health", "github_ci_status", "system_status", "no_op",
+        "read_file", "list_directory", "git_status", "git_log",
+        "kb_search", "memory_search",
+    },
+    "autonomous": set(ALLOWED_ACTIONS),  # all actions
+}
 
 # Heartbeat / self-healing constants
 HEARTBEAT_INTERVAL_S = 30
@@ -1607,6 +1621,19 @@ class ResidentAgent(BackgroundService):
         """
         action = payload.get("action", "")
         params = payload.get("params", {})
+
+        # ── Mode guardrails ────────────────────────────────────────
+        mode = self._get_resident_mode()
+        allowed_for_mode = MODE_ALLOWED_ACTIONS.get(mode, MODE_ALLOWED_ACTIONS["advisor"])
+
+        if mode == "observer" and action not in allowed_for_mode:
+            log.info("Observer mode: proposed action blocked", action=action, mode=mode)
+            self._add_log("INFO", f"proposed: {action}", mode="observer")
+            return {"action": action, "blocked": True, "reason": f"observer mode – proposed: {action}"}
+
+        if action not in allowed_for_mode and action not in ALLOWED_ACTIONS:
+            log.warning("Action not allowed for mode", action=action, mode=mode)
+            return {"error": "action_not_allowed_for_mode", "action": action, "mode": mode}
 
         if action == "read_file":
             from app.services.filesystem_service import get_filesystem_service

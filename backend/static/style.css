@@ -5172,3 +5172,124 @@ details[open].reasoning-cycle-item > .reasoning-cycle-summary::before {
   display: flex;
   gap: 0.5rem;
 }
+
+/* ── Mobile Jobs UI ─────────────────────────────────────── */
+.mobile-jobs-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0;
+  margin-bottom: 0.5rem;
+  font-size: 14px;
+  color: var(--text-secondary, #94a3b8);
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.mobile-jobs-header span {
+  font-weight: 600;
+  color: var(--text-primary, #e2e8f0);
+}
+
+.mobile-jobs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.job-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border, #333);
+  font-size: 14px;
+  transition: background 0.15s;
+}
+
+.job-item:hover {
+  background: var(--bg-surface, #1a1d27);
+}
+
+.job-item:last-child {
+  border-bottom: none;
+}
+
+.job-item-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.job-id {
+  color: var(--accent, #6366f1);
+  font-weight: 600;
+  font-family: monospace;
+  font-size: 13px;
+  min-width: 60px;
+}
+
+.job-time {
+  color: var(--text-secondary, #64748b);
+  font-size: 12px;
+  font-family: monospace;
+}
+
+.job-status {
+  font-size: 14px;
+}
+
+.job-dur {
+  color: var(--text-secondary, #64748b);
+  font-size: 12px;
+  font-family: monospace;
+  margin-left: auto;
+}
+
+.job-summary {
+  color: var(--text-secondary, #94a3b8);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* Mobile mode select */
+#mobile-jobs-mode-select {
+  font-size: 13px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--bg-input, #0f1423);
+  color: var(--text-primary, #e2e8f0);
+  border: 1px solid var(--border, #1f2937);
+}
+
+/* Responsive: tablet+ */
+@media (min-width: 768px) {
+  .job-item {
+    font-size: 16px;
+    padding: 12px 16px;
+  }
+  .job-summary {
+    font-size: 14px;
+  }
+  .job-id {
+    font-size: 14px;
+  }
+  .mobile-jobs-header {
+    font-size: 16px;
+  }
+}
+
+/* Responsive: very small screens */
+@media (max-width: 380px) {
+  .job-item {
+    padding: 8px 8px;
+    font-size: 13px;
+  }
+  .job-dur {
+    display: none;
+  }
+}

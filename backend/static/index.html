@@ -3,8 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#6366f1" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>AI Home Hub – Mac Control Center</title>
   <link rel="stylesheet" href="/style.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="apple-touch-icon" href="/icon-192.png" />
 </head>
 <body>
 
@@ -889,6 +894,22 @@
             <button class="btn btn--ghost btn--small" id="job-queue-btn" onclick="loadJobQueue()">&#128202; Fronta</button>
           </div>
         </div>
+      </section>
+
+      <!-- Mobile Job History (real-time via WebSocket) -->
+      <section class="card" id="mobile-jobs-section">
+        <div class="mobile-jobs-header">
+          <span id="mobile-jobs-stats"></span>
+          <div style="display:flex;gap:0.5rem">
+            <select class="input input--small" id="mobile-jobs-mode-select" style="max-width:160px">
+              <option value="observer">Observer</option>
+              <option value="advisor">Advisor</option>
+              <option value="autonomous">Autonomous</option>
+            </select>
+            <button class="btn btn--ghost btn--small" id="mobile-jobs-refresh">&#8635;</button>
+          </div>
+        </div>
+        <div id="mobile-jobs-list" class="mobile-jobs-list"></div>
       </section>
 
       <!-- Job Queue (real-time) -->
@@ -2410,5 +2431,88 @@
           integrity="sha512-BNaRQnYJYiPx9ybCxHi2DqFKOCLAVncewFvTQtU5MHd/1KTHM4QaUwFxOEEBuXraGTF5GFEX3S2QR9aLNGqw=="
           crossorigin="anonymous"></script>
   <script src="/app.js" defer></script>
+  <script>
+  /* ── Service Worker registration ─── */
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').then(reg => {
+      console.log('[PWA] SW registered:', reg.scope);
+    }).catch(err => console.warn('[PWA] SW failed:', err));
+  }
+
+  /* ── Mobile Jobs WebSocket + UI ─── */
+  (function() {
+    let jobsWs = null;
+    const STATUS_ICONS = {
+      queued: '&#9203;', running: '&#9654;&#65039;', succeeded: '&#9989;',
+      failed: '&#10060;', cancelled: '&#9940;', paused: '&#9208;&#65039;'
+    };
+
+    function connectJobsWs() {
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      jobsWs = new WebSocket(`${proto}//${location.host}/ws/jobs`);
+      jobsWs.onmessage = function(e) {
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.type === 'job_update' || msg.type === 'job_completed' || msg.type === 'job_failed') {
+            refreshMobileJobs();
+          }
+        } catch(err) {}
+      };
+      jobsWs.onclose = function() { setTimeout(connectJobsWs, 5000); };
+      jobsWs.onerror = function() {};
+      // Keep alive
+      setInterval(function() {
+        if (jobsWs && jobsWs.readyState === 1) jobsWs.send(JSON.stringify({type:'ping'}));
+      }, 25000);
+    }
+
+    function refreshMobileJobs() {
+      fetch('/api/jobs/mobile-summary?limit=30').then(r => r.json()).then(data => {
+        const statsEl = document.getElementById('mobile-jobs-stats');
+        const listEl = document.getElementById('mobile-jobs-list');
+        if (!statsEl || !listEl) return;
+        statsEl.innerHTML = `&#128260; ${data.total} jobs | ${data.failed} failed`;
+        listEl.innerHTML = data.jobs.map(j => {
+          const icon = STATUS_ICONS[j.status] || '&#10067;';
+          const dur = j.duration_ms > 0 ? `${(j.duration_ms/1000).toFixed(0)}s` : '';
+          return `<div class="job-item" id="job-${j.full_id}">
+            <div class="job-item-top">
+              <span class="job-id">#${j.id}</span>
+              <span class="job-time">${j.time}</span>
+              <span class="job-status status">${icon}</span>
+              <span class="job-dur">${dur}</span>
+            </div>
+            <div class="job-summary">${j.title}${j.summary ? ' — ' + j.summary : ''}</div>
+          </div>`;
+        }).join('');
+      }).catch(() => {});
+    }
+
+    // Mode toggle
+    function initModeSelect() {
+      const sel = document.getElementById('mobile-jobs-mode-select');
+      if (!sel) return;
+      fetch('/api/resident/mode').then(r => r.json()).then(d => {
+        sel.value = d.mode || 'advisor';
+      }).catch(() => {});
+      sel.addEventListener('change', function() {
+        fetch('/api/resident/mode', {
+          method: 'PATCH', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({mode: sel.value})
+        }).catch(() => {});
+      });
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+      connectJobsWs();
+      refreshMobileJobs();
+      initModeSelect();
+      const btn = document.getElementById('mobile-jobs-refresh');
+      if (btn) btn.addEventListener('click', refreshMobileJobs);
+      // Auto-refresh every 10s
+      setInterval(refreshMobileJobs, 10000);
+    });
+  })();
+  </script>
 </body>
 </html>

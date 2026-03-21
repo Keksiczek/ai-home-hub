@@ -226,9 +226,14 @@ async def task_chat(task_id: str, req: MissionChatRequest) -> dict:
 
 @router.get("/mode")
 async def get_resident_mode() -> dict:
-    """Get current resident autonomy mode."""
+    """Get current resident autonomy mode with allowed actions."""
+    from app.services.resident_agent import MODE_ALLOWED_ACTIONS
     settings = get_settings_service().load()
-    return {"mode": settings.get("resident_mode", "advisor")}
+    mode = settings.get("resident_mode", "advisor")
+    return {
+        "mode": mode,
+        "allowed_actions": sorted(MODE_ALLOWED_ACTIONS.get(mode, [])),
+    }
 
 
 @router.patch("/mode")

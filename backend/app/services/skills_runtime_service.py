@@ -9,10 +9,11 @@ import logging
 import math
 import re
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
 import httpx
+import psutil
 
 from app.services.settings_service import get_settings_service
 
@@ -391,6 +392,152 @@ class CalculatorSkill(BaseSkill):
             return {"error": f"Calculation failed: {exc}"}
 
 
+class SystemHealthSkill(BaseSkill):
+    """Collect system health metrics via psutil."""
+    name = "system_health"
+    description = "CPU, RAM, disk usage, top processes – systémový health check"
+    icon = "🖥️"
+
+    async def run(self, **kwargs) -> Dict[str, Any]:
+        try:
+            snap = await asyncio.to_thread(self._collect)
+            return snap
+        except Exception as exc:
+            return {"error": str(exc)}
+
+    def _collect(self) -> Dict[str, Any]:
+        cpu = psutil.cpu_percent(interval=1)
+        vm = psutil.virtual_memory()
+        disk = psutil.disk_usage("/")
+        top_procs = []
+        for p in sorted(psutil.process_iter(attrs=["pid", "name", "cpu_percent"]),
+                        key=lambda x: x.info.get("cpu_percent") or 0, reverse=True)[:5]:
+            try:
+                top_procs.append({
+                    "pid": p.info["pid"],
+                    "name": p.info["name"],
+                    "cpu": round(p.info.get("cpu_percent") or 0, 1),
+                })
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        return {
+            "cpu_percent": cpu,
+            "memory": {
+                "used": round(vm.used / 1024**3, 1),
+                "total": round(vm.total / 1024**3, 1),
+                "pct": vm.percent,
+            },
+            "disk": {
+                "used": round(disk.used / 1024**3, 0),
+                "total": round(disk.total / 1024**3, 0),
+                "pct": disk.percent,
+            },
+            "top_processes": top_procs,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+
+class GitHubCIStatusSkill(BaseSkill):
+    """Check GitHub Actions CI status for a repository."""
+    name = "github_ci_status"
+    description = "Zkontroluje GitHub Actions CI/CD status pro repozitář"
+    icon = "🔄"
+
+    async def run(self, repo: str = "keksiczek/ai-home-hub", **kwargs) -> Dict[str, Any]:
+        url = f"https://api.github.com/repos/{repo}/actions/runs?per_page=5"
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(url, headers={"Accept": "application/vnd.github.v3+json"})
+                if resp.status_code == 404:
+                    return {"repo": repo, "error": "Repository not found or private"}
+                resp.raise_for_status()
+                data = resp.json()
+
+            runs = data.get("workflow_runs", [])
+            if not runs:
+                return {"repo": repo, "status": "no_runs", "runs": 0}
+
+            latest = runs[0]
+            conclusion = latest.get("conclusion") or latest.get("status", "unknown")
+            duration = ""
+            if latest.get("created_at") and latest.get("updated_at"):
+                try:
+                    created = datetime.fromisoformat(latest["created_at"].replace("Z", "+00:00"))
+                    updated = datetime.fromisoformat(latest["updated_at"].replace("Z", "+00:00"))
+                    secs = int((updated - created).total_seconds())
+                    duration = f"{secs // 60}m {secs % 60}s"
+                except (ValueError, TypeError):
+                    pass
+
+            # Find when failures started
+            failing_since = None
+            if conclusion == "failure":
+                for r in runs:
+                    if r.get("conclusion") == "failure":
+                        failing_since = (r.get("created_at") or "")[:10]
+                    else:
+                        break
+
+            return {
+                "repo": repo,
+                "last_workflow": latest.get("name", "unknown"),
+                "status": conclusion,
+                "duration": duration,
+                "runs": data.get("total_count", len(runs)),
+                "failing_since": failing_since,
+            }
+        except Exception as exc:
+            return {"repo": repo, "error": str(exc)}
+
+
+class LeanMetricsSkill(BaseSkill):
+    """Compute lean/operational metrics from the job queue."""
+    name = "lean_metrics"
+    description = "Jobs total, fail rate, avg time, timeout rate, RAM – lean metriky"
+    icon = "📈"
+
+    async def run(self, period: str = "24h", **kwargs) -> Dict[str, Any]:
+        try:
+            from app.services.job_service import get_job_service
+            job_svc = get_job_service()
+
+            hours = int(period.replace("h", "")) if "h" in period else 24
+            since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+
+            all_jobs = job_svc.list_jobs(limit=1000)
+            recent = [j for j in all_jobs if j.created_at >= since]
+
+            total = len(recent)
+            failed = sum(1 for j in recent if j.status == "failed")
+
+            durations = []
+            for j in recent:
+                if j.started_at and j.finished_at:
+                    try:
+                        s = datetime.fromisoformat(j.started_at)
+                        f = datetime.fromisoformat(j.finished_at)
+                        durations.append((f - s).total_seconds())
+                    except (ValueError, TypeError):
+                        pass
+
+            avg_time = round(sum(durations) / len(durations), 0) if durations else 0
+            timeout_count = sum(1 for j in recent if j.last_error and "timeout" in (j.last_error or "").lower())
+
+            vm = psutil.virtual_memory()
+
+            return {
+                "jobs_total": total,
+                "jobs_failed": failed,
+                "avg_job_time": f"{int(avg_time)}s",
+                "timeout_rate": round(timeout_count / total, 2) if total > 0 else 0.0,
+                "ram_avg": round(vm.used / 1024**3, 1),
+                "cycle_efficiency": round((total - failed) / total, 2) if total > 0 else 1.0,
+                "period": period,
+            }
+        except Exception as exc:
+            return {"error": str(exc)}
+
+
 # ── Skills Registry ─────────────────────────────────────────────
 
 ALL_SKILLS: Dict[str, BaseSkill] = {}
@@ -410,6 +557,9 @@ def _register_skills():
         VisionSkill(),
         TimerSkill(),
         CalculatorSkill(),
+        SystemHealthSkill(),
+        GitHubCIStatusSkill(),
+        LeanMetricsSkill(),
     ]
     ALL_SKILLS = {s.name: s for s in skills}
 
@@ -423,6 +573,9 @@ SKILL_REGISTRY = {
     "calculator": CalculatorSkill,
     "http_fetch": HTTPSkill,
     "shell": ShellSkill,
+    "system_health": SystemHealthSkill,
+    "github_ci_status": GitHubCIStatusSkill,
+    "lean_metrics": LeanMetricsSkill,
 }
 
 

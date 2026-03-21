@@ -70,6 +70,36 @@ async def ws_activity_endpoint(websocket: WebSocket) -> None:
         logger.debug("Activity WS error: %s", exc)
 
 
+@router.websocket("/ws/jobs")
+async def ws_jobs_endpoint(websocket: WebSocket) -> None:
+    """WebSocket for real-time job lifecycle updates.
+
+    Pushes job_update, job_completed, job_failed events.
+    Also pushes periodic job queue snapshots every 5s.
+    """
+    ws_manager = get_ws_manager()
+    await ws_manager.connect(websocket)
+    try:
+        await ws_manager.send_to(
+            websocket,
+            {"type": "connected", "channel": "jobs"},
+        )
+        while True:
+            raw = await asyncio.wait_for(websocket.receive_text(), timeout=30)
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if data.get("type") == "ping":
+                await ws_manager.send_to(websocket, {"type": "pong"})
+    except (WebSocketDisconnect, asyncio.TimeoutError):
+        pass
+    except Exception as exc:
+        logger.debug("Jobs WS error: %s", exc)
+    finally:
+        ws_manager.disconnect(websocket)
+
+
 @router.websocket("/ws/agent-status")
 async def ws_agent_status_endpoint(websocket: WebSocket) -> None:
     """Dedicated WebSocket for resident agent live status (pushed every 5s)."""
