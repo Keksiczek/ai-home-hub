@@ -1,0 +1,19 @@
+notifiers:
+  - name: Slack Home Hub
+    type: slack
+    uid: slack-home-hub
+    org_id: 1
+    is_default: true
+    send_reminder: false
+    disable_resolve_message: false
+    settings:
+      url: ${SLACK_WEBHOOK_URL}
+      channel: '#ai-home-hub'
+      iconEmoji: ':robot_face:'
+      username: 'AI Home Hub'
+      text: |
+        {{ range .Alerts }}
+        🔔 {{ .Annotations.summary }}: {{ .Annotations.description }}
+        📊 {{ .Labels.instance }}: {{ .Values | first }}
+        🔗 {{ .GeneratorURL }}
+        {{ end }}

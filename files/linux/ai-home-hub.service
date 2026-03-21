@@ -1,0 +1,37 @@
+# systemd service for AI Home Hub (Docker Compose production)
+#
+# Install:
+#   sudo cp ai-home-hub.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now ai-home-hub
+#
+# The service runs docker compose in /opt/ai-home-hub.
+# Adjust WorkingDirectory and User if your install path differs.
+
+[Unit]
+Description=AI Home Hub – Docker Compose Production
+Documentation=https://github.com/Keksiczek/ai-home-hub
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/ai-home-hub
+
+# Start
+ExecStart=/usr/bin/docker compose -f docker-compose.prod.yml up -d --remove-orphans
+
+# Stop
+ExecStop=/usr/bin/docker compose -f docker-compose.prod.yml down
+
+# Restart on failure
+Restart=on-failure
+RestartSec=30
+
+# Timeout for pulling images on first start
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

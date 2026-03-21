@@ -1,0 +1,13 @@
+# Grafana dashboard provisioning config
+apiVersion: 1
+
+providers:
+  - name: AI Home Hub
+    orgId: 1
+    folder: AI Home Hub
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false
