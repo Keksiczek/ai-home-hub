@@ -265,6 +265,7 @@ function switchTab(tabName) {
   if (tabName === 'settings') { loadSettings(); loadOllamaModels(); loadRuntimeSkills(); }
   if (tabName === 'files-manager') loadFilesManager();
   if (tabName === 'resident') loadResidentDashboard();
+  if (tabName === 'control-room') loadControlRoom();
   if (tabName === 'overnight') { loadOvernightStatus(); loadNightlyReport(); }
   if (tabName === 'knowledge') { loadKbOverview(); loadKBFiles(); loadRetentionConfig(); loadKBManagerCollections(); }
   if (tabName === 'models') loadModelsTab();

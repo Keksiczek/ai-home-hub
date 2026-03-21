@@ -129,7 +129,8 @@ backend/
 | GET /api/llm/settings | LLM konfigurace |
 | PATCH /api/llm/settings | Změna nastavení (hot-reload) |
 | GET /metrics | Prometheus metriky |
-| GET /api/health | Health check |
+| GET /api/health | Health check (komponenty + background tasky) |
+| GET /api/system/health | Startup component health (Ollama, KB, Jobs DB) |
 | WS /ws | WebSocket (activity, agent status) |
 
 Kompletní API: http://localhost:8000/docs

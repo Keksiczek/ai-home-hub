@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+from fastapi import HTTPException
+
 from app.services.settings_service import get_settings_service
 from app.services.skills_service import get_skills_service
 from app.services.agent_skills_service import get_agent_skills_service
@@ -62,6 +64,17 @@ AGENT_TYPE_PROMPTS = {
 
 # Sub-agent depth limit
 MAX_SUB_AGENT_DEPTH = 2
+
+
+class AgentSpawnError(HTTPException):
+    """Structured error raised when an agent spawn is blocked."""
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(
+            status_code=429,
+            detail={"error": "spawn_blocked", "reason": reason},
+        )
 
 
 @dataclass
@@ -182,23 +195,26 @@ class AgentOrchestrator:
         cfg = self._settings.load().get("agents", {})
         max_concurrent = cfg.get("max_concurrent", 5)
 
+        from app.services.metrics_service import agent_spawn_blocked_total
+
         active_count = sum(
             1 for a in self._agents.values()
             if a.status in (AGENT_STATUS_PENDING, AGENT_STATUS_RUNNING)
         )
         if active_count >= max_concurrent:
-            raise RuntimeError(
-                f"Maximum concurrent agents ({max_concurrent}) reached. "
-                "Interrupt or wait for existing agents to finish."
+            agent_spawn_blocked_total.labels(reason="concurrent_limit").inc()
+            logger.debug(
+                "Agent spawn blocked: concurrent_limit (%d/%d)",
+                active_count, max_concurrent,
             )
+            raise AgentSpawnError("concurrent_limit")
 
         from app.services.resource_monitor import get_resource_monitor
         monitor = get_resource_monitor()
         if monitor.is_blocked():
-            raise RuntimeError(
-                "System resources critical – new agents blocked. "
-                "Check RAM/CPU usage in System Status."
-            )
+            agent_spawn_blocked_total.labels(reason="resource").inc()
+            logger.debug("Agent spawn blocked: resource constraints")
+            raise AgentSpawnError("resource")
 
         if agent_type not in AGENT_TYPES:
             agent_type = "general"
@@ -207,10 +223,9 @@ class AgentOrchestrator:
         experimental_agent_types = {"testing", "devops"}
         if agent_type in experimental_agent_types:
             if not self._settings.is_feature_enabled(f"{agent_type}_agent"):
-                raise RuntimeError(
-                    f"Agent type '{agent_type}' is experimental and currently disabled. "
-                    f"Enable it in Settings → experimental_features.{agent_type}_agent."
-                )
+                agent_spawn_blocked_total.labels(reason="experimental").inc()
+                logger.debug("Agent spawn blocked: experimental type %s", agent_type)
+                raise AgentSpawnError("experimental")
 
         # Inject agent type system prompt
         type_prompt = AGENT_TYPE_PROMPTS.get(agent_type, AGENT_TYPE_PROMPTS["general"])

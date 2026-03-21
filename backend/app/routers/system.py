@@ -135,3 +135,55 @@ async def reset_boost_priority() -> dict:
     Spouští scripts/reset_priority.sh s sudo.
     """
     return _run_priority_script("reset_priority.sh")
+
+
+# ── Control Room supporting endpoints ─────────────────────────
+
+def _get_dir_size_mb(path: str) -> float:
+    """Return directory size in MB, or -1 if not accessible."""
+    base = Path(path)
+    if not base.exists():
+        return -1.0
+    total = sum(f.stat().st_size for f in base.rglob("*") if f.is_file())
+    return round(total / (1024 * 1024), 2)
+
+
+@router.get("/system/disk", tags=["system"])
+async def disk_usage() -> dict:
+    """Return disk usage for key data directories (Control Room)."""
+    return {
+        "kb_dir_mb": _get_dir_size_mb("data/kb"),
+        "jobs_dir_mb": _get_dir_size_mb("data/jobs"),
+        "uploads_dir_mb": _get_dir_size_mb("data/uploads"),
+        "artifacts_dir_mb": _get_dir_size_mb("data/artifacts"),
+    }
+
+
+@router.get("/metrics/summary", tags=["system"])
+async def metrics_summary() -> dict:
+    """Metrics summary stub – forward-compatible with future health/metrics subsystems."""
+    from app.services.resident_agent import get_resident_agent
+    from app.services.job_service import get_job_service
+
+    agent = get_resident_agent()
+    try:
+        state = agent.get_state()
+        cycles_24h = state.get("tick_count", 0)
+    except Exception:
+        cycles_24h = 0
+
+    try:
+        job_svc = get_job_service()
+        jobs = job_svc.list_jobs(limit=100)
+        done = [j for j in jobs if j.status in ("done", "completed", "success")]
+        failed = [j for j in jobs if j.status in ("failed", "error")]
+        total = len(done) + len(failed)
+        success_rate = round(len(done) / total, 2) if total > 0 else 1.0
+    except Exception:
+        success_rate = 1.0
+
+    return {
+        "cycles_24h": cycles_24h,
+        "jobs_success_rate": success_rate,
+        "ollama_status": "unknown",  # stub – forward compatible
+    }

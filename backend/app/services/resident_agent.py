@@ -18,8 +18,9 @@ from typing import Any, Callable, Dict, List, Optional
 
 import structlog
 
+from app.core.settings import ActionBlockedError  # noqa: F401 – re-exported for convenience
 from app.services.background_service import BackgroundService
-from app.services.metrics_service import agent_cycles_total
+from app.services.metrics_service import agent_cycles_total, resident_cycles_total, resident_queue_depth
 
 logger = logging.getLogger(__name__)
 log = structlog.get_logger("resident_agent")
@@ -46,6 +47,35 @@ ALLOWED_ACTIONS = [
     "lean_metrics",
 ]
 
+# ── Action tiers (Hardening v2) ───────────────────────────────────────────────
+
+ACTION_TIERS: dict[str, list[str]] = {
+    "safe": [
+        "observe_status", "check_logs", "read_kb", "propose_mission",
+        "system_health", "github_ci_status", "system_status", "no_op",
+    ],
+    "medium": [
+        "read_file", "list_directory", "git_status", "git_log",
+        "kb_search", "memory_search", "memory_store", "web_search",
+        "send_notification", "lean_metrics",
+        "spawn_general_agent", "queue_job", "update_settings",
+        "spawn_specialist",
+    ],
+    "dangerous": [
+        "spawn_devops_agent", "git_operations", "system_commands",
+        "delete_files", "write_file",
+    ],
+}
+
+# Cooldown per action in seconds – prevents rapid repeated execution
+ACTION_COOLDOWNS: dict[str, int] = {
+    "git_operations":    3_600,    # 1 hour
+    "system_commands":   7_200,    # 2 hours
+    "spawn_devops_agent": 86_400,  # 24 hours
+    "write_file":          300,    # 5 minutes
+    "delete_files":       3_600,   # 1 hour
+}
+
 # Mode-based guardrails: which actions each mode can execute
 MODE_ALLOWED_ACTIONS = {
     "observer": {"system_health", "github_ci_status", "system_status", "no_op"},
@@ -56,6 +86,8 @@ MODE_ALLOWED_ACTIONS = {
     },
     "autonomous": set(ALLOWED_ACTIONS),  # all actions
 }
+
+
 
 # Heartbeat / self-healing constants
 HEARTBEAT_INTERVAL_S = 30
@@ -387,6 +419,115 @@ class ResidentAgent(BackgroundService):
             self._daily_cycle_count = 0
         return self._daily_cycle_count < self._agent_settings.max_cycles_per_day
 
+    # ── Guardrail helpers (Hardening v2) ────────────────────────────────────────
+
+    def _get_action_tier(self, action: str) -> str:
+        """Return the tier ('safe'|'medium'|'dangerous') for an action."""
+        for tier, actions in ACTION_TIERS.items():
+            if action in actions:
+                return tier
+        return "medium"  # unknown actions default to medium
+
+    def check_action_allowed(self, action: str) -> None:
+        """Raise ActionBlockedError if action is blocked by current guardrails.
+
+        Checks (in order):
+        1. Autonomy level (mode tier gate)
+        2. Cooldown
+        3. Daily budget
+        """
+        from app.core.settings import get_guardrail_settings
+        gs = get_guardrail_settings()
+        autonomy = gs.effective_resident_autonomy()
+        tier = self._get_action_tier(action)
+
+        # Mode gate
+        if autonomy == "observer" and tier in ("medium", "dangerous"):
+            raise ActionBlockedError(
+                f"Action '{action}' (tier={tier}) blocked – observer mode only allows safe actions"
+            )
+        if autonomy == "advisor" and tier == "dangerous":
+            raise ActionBlockedError(
+                f"Action '{action}' (tier=dangerous) blocked – requires autonomous mode"
+            )
+
+        # Cooldown gate
+        cooldown = ACTION_COOLDOWNS.get(action)
+        if cooldown:
+            last: Optional[float] = self._action_last_executed.get(action)
+            if last is not None:
+                elapsed = time.monotonic() - last
+            else:
+                elapsed = cooldown + 1  # never executed → no cooldown
+            if elapsed < cooldown:
+                remaining = int(cooldown - elapsed)
+                raise ActionBlockedError(
+                    f"Action '{action}' is on cooldown for {remaining}s more"
+                )
+
+        # Daily budget gate
+        self._refresh_daily_action_counts()
+        budget = gs.resident.max_daily_actions.get(action)
+        if budget is not None:
+            used = self._daily_action_counts.get(action, 0)
+            if used >= budget:
+                raise ActionBlockedError(
+                    f"Action '{action}' daily budget exhausted ({used}/{budget})"
+                )
+
+    def record_action_executed(self, action: str) -> None:
+        """Update cooldown timestamp and daily counter after successful execution."""
+        self._action_last_executed[action] = time.monotonic()  # type: ignore[assignment]
+        self._refresh_daily_action_counts()
+        self._daily_action_counts[action] = self._daily_action_counts.get(action, 0) + 1
+
+        # Emit metric
+        try:
+            from app.services.metrics_service import (
+                resident_action_budget_daily,
+                resident_action_budget_remaining,
+            )
+            from app.core.settings import get_guardrail_settings
+            gs = get_guardrail_settings()
+            budget = gs.resident.max_daily_actions.get(action, 0)
+            used = self._daily_action_counts.get(action, 1)
+            resident_action_budget_daily.labels(action=action).set(used)
+            if budget:
+                resident_action_budget_remaining.labels(action=action).set(max(0, budget - used))
+        except Exception:
+            pass
+
+        # Log dangerous actions
+        tier = self._get_action_tier(action)
+        if tier == "dangerous":
+            self._add_log("WARN", "dangerous_action_executed", action=action)
+
+    def _refresh_daily_action_counts(self) -> None:
+        """Reset daily counters at midnight UTC."""
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if self._daily_action_reset_date != today:
+            self._daily_action_reset_date = today
+            self._daily_action_counts.clear()
+
+    def get_guardrail_status(self) -> dict:
+        """Return current guardrail state for API/UI."""
+        from app.core.settings import get_guardrail_settings
+        gs = get_guardrail_settings()
+        self._refresh_daily_action_counts()
+        now = time.monotonic()
+        cooldown_status = {}
+        for action, cooldown in ACTION_COOLDOWNS.items():
+            last = self._action_last_executed.get(action)
+            remaining = max(0, int(cooldown - (now - last))) if last is not None else 0
+            cooldown_status[action] = {"cooldown_s": cooldown, "remaining_s": remaining}
+        return {
+            "safe_mode": gs.safe_mode,
+            "autonomy_level": gs.effective_resident_autonomy(),
+            "daily_action_counts": dict(self._daily_action_counts),
+            "daily_action_budgets": gs.resident.max_daily_actions,
+            "cooldowns": cooldown_status,
+        }
+
     def get_state(self) -> dict:
         d = self._state.to_dict()
         d["paused"] = self._paused
@@ -592,6 +733,13 @@ class ResidentAgent(BackgroundService):
 
         self._add_cycle_record(cycle_record)
         agent_cycles_total.labels(status=cycle_record.status).inc()
+
+        # Map cycle status to resident_cycles_total labels
+        _status_map = {"success": "success", "error": "fail", "aborted": "aborted"}
+        _final_status = _status_map.get(cycle_record.status, "fail")
+        resident_cycles_total.labels(status=_final_status).inc()
+        logger.debug("resident_cycles_total incremented: status=%s", _final_status)
+
         await self._heartbeat_broadcast()
 
         # Count down next_run_in for the UI
@@ -1225,6 +1373,8 @@ class ResidentAgent(BackgroundService):
             from app.services.job_service import get_job_service
             job_svc = get_job_service()
             pending_jobs = job_svc.list_jobs(status="queued", type="resident_task")
+            resident_queue_depth.set(len(pending_jobs))
+            logger.debug("resident_queue_depth updated: %d", len(pending_jobs))
 
             for job in pending_jobs:
                 self._state.current_task = job.title

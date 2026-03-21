@@ -65,12 +65,10 @@ async def lifespan(app: FastAPI):
     settings = get_settings_service().load()
     ollama_url = settings.get("llm", {}).get("ollama_url", "http://localhost:11434").rstrip("/")
 
-    try:
-        startup_result = await run_startup_checks(ollama_url)
-        logger.info("Startup checks passed: %s", startup_result)
-    except RuntimeError as exc:
-        logger.critical("Startup check FAILED: %s", exc)
-        raise
+    health = await run_startup_checks(ollama_url)
+    settings_service = get_settings_service()
+    settings_service.global_health = health
+    logger.info("Startup health: %s", health)
 
     # Start KB stats cache background task (4D)
     from app.services.kb_stats_cache import start_kb_stats_refresh_loop
@@ -499,6 +497,18 @@ async def health_ready():
         return {"status": "ok"}
     except (asyncio.TimeoutError, Exception):
         return JSONResponse(status_code=503, content={"status": "unavailable"})
+
+
+@app.get("/api/system/health", tags=["health"])
+async def system_health() -> dict:
+    """Return startup component health state.
+
+    Reflects the health dict computed at startup (and updated on each restart).
+    Possible values per component: ``"ok"``, ``"degraded"``, ``"unavailable"``,
+    ``"error"``.  ``overall`` is one of ``"healthy"``, ``"degraded"``,
+    ``"critical"``.
+    """
+    return get_settings_service().global_health
 
 
 @app.get("/metrics", tags=["monitoring"])

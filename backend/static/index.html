@@ -66,6 +66,11 @@
         <span class="nav-label">Resident</span>
       </button>
       <button class="nav-item" role="tab" aria-selected="false"
+              data-tab="control-room" title="Control Room">
+        <span class="nav-icon">&#127918;</span>
+        <span class="nav-label">Control Room</span>
+      </button>
+      <button class="nav-item" role="tab" aria-selected="false"
               data-tab="overnight" title="Overnight Jobs">
         <span class="nav-icon">&#127769;</span>
         <span class="nav-label">No&#269;n&iacute; &uacute;lohy</span>
@@ -2131,6 +2136,130 @@
       </section>
 
     </div><!-- /tab-knowledge -->
+
+    <!-- ======================== CONTROL ROOM TAB ======================== -->
+    <div class="tab-panel hidden" id="tab-control-room" role="tabpanel">
+
+      <div class="panel-header">
+        <h1 class="panel-title">&#127918; Control Room</h1>
+        <span class="badge badge--accent" title="Jednotný přehled + rychlé mise">Daily Cockpit</span>
+      </div>
+
+      <!-- Quick Actions Toolbar -->
+      <div class="cr-toolbar">
+        <div class="cr-toolbar__missions">
+          <button class="btn btn--primary btn--small" id="cr-tmpl-daily-recap"
+                  onclick="crRunTemplate('daily_recap')" title="Denní rekapitulace KB/git/jobs">
+            &#128203; Daily Recap
+          </button>
+          <button class="btn btn--secondary btn--small" id="cr-tmpl-stack"
+                  onclick="crRunTemplate('stack_health')" title="Stack Health monitor">
+            &#128187; Stack
+          </button>
+          <button class="btn btn--ghost btn--small" id="cr-tmpl-lean"
+                  onclick="crRunTemplate('lean_assist')" title="Lean experiment assistant">
+            &#9881; Lean
+          </button>
+        </div>
+        <div class="cr-toolbar__actions">
+          <button class="btn btn--ghost btn--small" id="cr-export-debug-btn"
+                  onclick="crExportDebug()" title="Export debug snapshot JSON">
+            &#128228; Debug
+          </button>
+          <button class="btn btn--ghost btn--small"
+                  onclick="switchTab('settings')" title="Přejít do nastavení">
+            &#9881; Settings
+          </button>
+        </div>
+      </div>
+
+      <!-- Toast for template feedback -->
+      <div id="cr-toast" class="cr-toast hidden"></div>
+
+      <!-- 3-column dashboard grid -->
+      <div class="cr-grid">
+
+        <!-- LEFT: Resident Status -->
+        <section class="card cr-card" id="cr-resident-card">
+          <h2 class="card-title">&#129302; Resident Agent</h2>
+          <div class="cr-resident-status">
+            <span class="cr-status-dot" id="cr-status-dot"></span>
+            <span id="cr-resident-status-text">Načítám…</span>
+          </div>
+          <div class="cr-resident-uptime" id="cr-resident-uptime"></div>
+          <div class="cr-resident-last" id="cr-resident-last"></div>
+          <div class="cr-resident-actions" style="margin-top:0.75rem;display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn--primary btn--small" onclick="crResidentStart()">&#9654; Start</button>
+            <button class="btn btn--ghost btn--small" onclick="crResidentStop()">&#9632; Stop</button>
+            <button class="btn btn--secondary btn--small" onclick="switchTab('resident')" title="Podrobná správa agenta">&#9881; Správa</button>
+          </div>
+        </section>
+
+        <!-- MIDDLE: Active + Recent Jobs -->
+        <section class="card cr-card" id="cr-jobs-card">
+          <h2 class="card-title">&#128188; Jobs &amp; Fronta</h2>
+          <div id="cr-jobs-list">
+            <p class="empty-state">Načítám…</p>
+          </div>
+          <div style="margin-top:0.75rem">
+            <button class="btn btn--ghost btn--small" onclick="switchTab('jobs')" title="Přejít na Jobs">
+              &#10132; Všechny joby
+            </button>
+          </div>
+        </section>
+
+        <!-- RIGHT: Quick Stats -->
+        <section class="card cr-card" id="cr-stats-card">
+          <h2 class="card-title">&#128200; Quick Stats</h2>
+          <div class="cr-stats-list">
+            <div class="cr-stat-row">
+              <span class="cr-stat-label">&#128257; Cyklů dnes</span>
+              <span class="cr-stat-value" id="cr-cycles-today">-</span>
+            </div>
+            <div class="cr-stat-row">
+              <span class="cr-stat-label">&#129504; Ollama</span>
+              <span class="cr-stat-value" id="cr-ollama-status">-</span>
+            </div>
+            <div class="cr-stat-row">
+              <span class="cr-stat-label">&#128190; KB (MB)</span>
+              <span class="cr-stat-value" id="cr-disk-kb">-</span>
+            </div>
+            <div class="cr-stat-row">
+              <span class="cr-stat-label">&#128190; Jobs dir (MB)</span>
+              <span class="cr-stat-value" id="cr-disk-jobs">-</span>
+            </div>
+            <div class="cr-stat-row">
+              <span class="cr-stat-label">&#9989; Jobs úspěšnost</span>
+              <span class="cr-stat-value" id="cr-success-rate">-</span>
+            </div>
+          </div>
+        </section>
+
+      </div><!-- /cr-grid -->
+
+      <!-- Mission Templates -->
+      <section class="card" style="margin-top:1rem">
+        <h2 class="card-title">&#127919; Mission Templates</h2>
+        <div class="cr-templates-grid" id="cr-templates-grid">
+          <p class="empty-state">Načítám šablony…</p>
+        </div>
+      </section>
+
+      <!-- BOTTOM: Live Logs Feed -->
+      <section class="card" style="margin-top:1rem">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
+          <h2 class="card-title" style="margin:0">&#128221; Live Logs</h2>
+          <div style="display:flex;gap:6px;align-items:center">
+            <span class="cr-ws-dot" id="cr-ws-dot" title="WebSocket"></span>
+            <button class="btn btn--ghost btn--small" onclick="crClearLogs()">&#128465; Clear</button>
+          </div>
+        </div>
+        <div class="cr-logs-feed" id="cr-logs-feed">
+          <p class="empty-state">Čekám na WebSocket…</p>
+        </div>
+      </section>
+
+    </div><!-- /tab-control-room -->
 
   </main>
 

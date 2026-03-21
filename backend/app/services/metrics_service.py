@@ -130,6 +130,33 @@ agent_cycles_total = Counter(
     ["status"],
 )
 
+# ── Agent spawn blocking ───────────────────────────────────────
+agent_spawn_blocked_total = Counter(
+    "agent_spawn_blocked_total",
+    "Agent spawn attempts blocked by guardrails",
+    ["reason"],  # "resource" | "concurrent_limit" | "experimental"
+)
+
+# ── Resident agent cycle counters (detailed) ──────────────────
+resident_cycles_total = Counter(
+    "resident_cycles_total",
+    "Resident agent cycle outcomes",
+    ["status"],  # "success" | "fail" | "aborted"
+)
+
+# ── KB reindex job counter ────────────────────────────────────
+kb_reindex_jobs_total = Counter(
+    "kb_reindex_jobs_total",
+    "KB reindex jobs by status",
+    ["status"],  # "queued" | "success" | "fail"
+)
+
+# ── Resident queue depth ──────────────────────────────────────
+resident_queue_depth = Gauge(
+    "resident_queue_depth",
+    "Number of tasks in the resident agent queue",
+)
+
 # ── Ollama memory ─────────────────────────────────────────────
 ollama_memory_bytes = Gauge(
     "ollama_memory_bytes",
@@ -138,6 +165,37 @@ ollama_memory_bytes = Gauge(
 
 # ── Application info (static) ─────────────────────────────────
 app_info = Info("ai_home_hub", "Application version and config")
+
+
+# ── Guardrail / Safe-Mode metrics (Hardening v2) ──────────────────────────────
+
+resident_action_budget_daily = Gauge(
+    "resident_action_budget_daily",
+    "Resident agent daily action usage count",
+    ["action"],
+)
+
+resident_action_budget_remaining = Gauge(
+    "resident_action_budget_remaining",
+    "Resident agent remaining daily action budget",
+    ["action"],
+)
+
+agent_memory_usage_bytes = Gauge(
+    "agent_memory_usage_bytes",
+    "Resident agent approximate in-memory state size in bytes",
+)
+
+concurrent_agent_limit = Gauge(
+    "concurrent_agent_limit",
+    "Current vs max concurrent agents (label: current|max)",
+    ["kind"],  # "current" or "max"
+)
+
+safe_mode_enabled = Gauge(
+    "safe_mode_enabled",
+    "1 when Safe Mode is active, 0 otherwise",
+)
 
 
 def init_app_info(version: str = "0.5.0") -> None:
