@@ -1,30 +1,12 @@
-# Grafana datasource – Prometheus metrics from AI Home Hub backend
-#
-# The backend exposes /metrics (Prometheus format) on port 8000.
-# This datasource scrapes it directly (no separate Prometheus server needed).
-#
-# NOTE on Docker networking:
-#   - Linux:   use "http://app:8000" (compose service name)
-#   - macOS/Windows Docker Desktop: "http://app:8000" also works within compose network
-#   - If Grafana runs outside compose: use "http://host.docker.internal:8000"
-#     (macOS/Windows) or "http://172.17.0.1:8000" (Linux host)
-#
-# Since both app and grafana are in the same compose network,
-# we use the service name "app" which is the safest default.
-
 apiVersion: 1
 
 datasources:
-  - name: AI Home Hub Metrics
+  - name: Prometheus
     type: prometheus
     access: proxy
-    # Service name within docker-compose network
-    url: http://app:8000
+    url: http://prometheus:9090
     isDefault: true
-    editable: true
+    editable: false
     jsonData:
-      httpMethod: GET
-      # The /metrics endpoint path
-      prometheusType: Prometheus
-      # Scrape interval
       timeInterval: "15s"
+      httpMethod: POST

@@ -1,71 +1,55 @@
-# docker-compose.prod.yml – Production deployment for AI Home Hub
-# Cross-platform: Linux, Windows (Docker Desktop), macOS (Docker Desktop)
-#
-# Usage:
-#   docker compose -f docker-compose.prod.yml up -d
-#
-# Override env vars via .env.prod file or shell environment.
-# See .env.prod.example for all available options.
+version: "3.9"
+
+# ── AI Home Hub – Production Compose ──────────────────────────────────────────
+# Includes: app (hub:8000), Prometheus (:9090), Grafana (:3001), Ollama (:11434)
+# Usage: docker compose -f docker-compose.prod.yml up -d
+# ─────────────────────────────────────────────────────────────────────────────
 
 services:
+
+  # ── Application ─────────────────────────────────────────────
   app:
     build:
       context: ./backend
       dockerfile: Dockerfile
     ports:
-      - "${APP_PORT:-8000}:8000"
+      - "8000:8000"
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
-      - SAFE_MODE=${SAFE_MODE:-true}
-      - TZ=${TZ:-UTC}
-      - DATA_PATH=/app/data
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
+      - GRAFANA_URL=http://grafana:3000
+      - GRAFANA_USER=admin
+      - GRAFANA_PASSWORD=${GRAFANA_PASSWORD:-hub123}
+      - ENABLE_GRACEFUL_SHUTDOWN=true
     volumes:
-      # Relative path – works on Linux, Windows, macOS
-      - ./data:/app/data
+      - ./backend/data:/app/data
     depends_on:
       ollama:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health/live"]
-      interval: 30s
-      timeout: 10s
+      interval: 10s
+      timeout: 5s
       retries: 5
-      start_period: 30s
-    deploy:
-      resources:
-        limits:
-          memory: ${APP_MEMORY_LIMIT:-2g}
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+      start_period: 15s
 
+  # ── Ollama LLM ──────────────────────────────────────────────
   ollama:
     image: ollama/ollama:latest
     ports:
-      - "${OLLAMA_PORT:-11434}:11434"
+      - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:11434"]
-      interval: 15s
+      interval: 10s
       timeout: 5s
       retries: 6
-      start_period: 30s
-    deploy:
-      resources:
-        limits:
-          memory: ${OLLAMA_MEMORY_LIMIT:-4g}
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+      start_period: 20s
 
-  # One-shot model pull – runs once, then exits
+  # ── One-shot model pull ─────────────────────────────────────
   ollama-pull:
     image: ollama/ollama:latest
     depends_on:
@@ -80,39 +64,48 @@ services:
        ollama pull llava:7b"
     restart: "no"
 
-  # Optional: Grafana for monitoring dashboards
-  # Enable by setting ENABLE_GRAFANA=true in .env.prod
+  # ── Prometheus ───────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--storage.tsdb.retention.time=30d'
+    restart: unless-stopped
+    depends_on:
+      - app
+
+  # ── Grafana ──────────────────────────────────────────────────
   grafana:
     image: grafana/grafana:latest
     ports:
-      - "${GRAFANA_PORT:-3001}:3000"
+      - "3001:3000"
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
-      - GF_USERS_ALLOW_SIGN_UP=false
-      - GF_INSTALL_PLUGINS=
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-hub123}
+      - GF_SERVER_ROOT_URL=http://localhost:3001
+      - GF_FEATURE_TOGGLES_ENABLE=ngalert
+      - GF_UNIFIED_ALERTING_ENABLED=true
+      - GF_ALERTING_ENABLED=false
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
-    depends_on:
-      app:
-        condition: service_healthy
     restart: unless-stopped
-    profiles:
-      - monitoring
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
-    logging:
-      driver: json-file
-      options:
-        max-size: "5m"
-        max-file: "2"
+    depends_on:
+      - prometheus
 
 volumes:
   ollama_data:
+    driver: local
+  prometheus_data:
     driver: local
   grafana_data:
     driver: local

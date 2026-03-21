@@ -21,6 +21,9 @@ Lokální AI orchestrační centrum pro macOS. Propojuje Ollama, VS Code, filesy
 | 🧠 Model Manager (Ollama + HuggingFace GGUF stahování) | ✅ |
 | ⚙️ LLM Settings (model routing, parametry, hot-reload) | ✅ |
 | 📊 Prometheus /metrics endpoint | ✅ |
+| 📈 Grafana Dashboards (5 panelů) | ✅ |
+| 🔔 Slack Alerting (Grafana + webhook relay) | ✅ |
+| ⚡ Power UX (force-cycle, CSV export, graceful shutdown) | ✅ |
 | ⚡ Live Activity Bar (WebSocket, RAM, jobs, KB stats) | ✅ |
 | 📸 Screenshot (Mac native + mobile html2canvas) | ✅ |
 | 🌐 Tailscale Funnel (remote přístup) | ✅ |
@@ -182,6 +185,62 @@ Běží automaticky každých 6 hodin – není potřeba manuální údržba:
 - Archivace KB artefaktů starších 30 dní do `data/archive/`
 - VACUUM SQLite databází (jobs.db, resident_state.db)
 - Stav: `GET /api/health/cleanup`
+
+---
+
+## 📊 Monitoring (Grafana + Slack)
+
+Produkční stack zahrnuje Prometheus + Grafana pro kompletní observability.
+
+### Spuštění
+
+```bash
+# Zkopíruj env soubor a doplň Slack webhook
+cp .env.example .env
+# SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
+
+# Spusť produkční stack
+docker compose -f docker-compose.prod.yml up -d
+```
+
+### Přístup
+
+| Služba | URL | Přihlášení |
+|--------|-----|-----------|
+| App (hub) | http://localhost:8000 | – |
+| Grafana | http://localhost:3001 | admin / hub123 |
+| Prometheus | http://localhost:9090 | – |
+
+### Dashboard
+
+**AI Home Hub Resident** (`grafana/provisioning/dashboards/ai-home-hub.json`) – automaticky importován při startu Grafany.
+
+Obsahuje 5 panelů:
+1. **Resident Health** – Success Rate 24h (Stat, červená <80%, žlutá <90%)
+2. **Agent Lifecycle** – Spawned vs Blocked, Queue Depth (Time Series)
+3. **Resource Usage** – Memory (GB), Concurrent Agents % (Gauge)
+4. **KB Operations** – Reindex Success Rate, Watchdog Triggers (Stat)
+5. **Alerts Summary** – Active Failures tabulka (Table)
+
+### Slack Alerts
+
+Alerty se posílají do kanálu `#ai-home-hub`:
+- `ResidentSuccessRateLow` – success rate <80% po dobu 15 minut → 🔴 critical
+- `AgentMemoryHigh` – memory >4GB po dobu 5 minut → 🟡 warning
+
+Grafana contact point míří na `http://app:8000/api/alerts/slack`.
+
+Test integrace: `POST /api/alerts/test`
+
+### Power Features (Control Room)
+
+| Akce | Endpoint |
+|------|----------|
+| ⚡ Force Resident Cycle | `POST /api/control/resident/force-cycle` |
+| 📥 CSV Export (1000 cyklů) | `GET /api/control/resident/history/csv?limit=1000` |
+| 🛑 Graceful Shutdown | `POST /api/control/shutdown-graceful` |
+| 🗑️ Purge KB Cache | `POST /api/control/kb/purge-cache` |
+| 📌 Grafana Annotation | `POST /api/alerts/annotation` |
 
 ---
 

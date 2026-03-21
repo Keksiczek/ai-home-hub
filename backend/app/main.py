@@ -24,6 +24,8 @@ from app.routers import prompts as prompts_router
 from app.routers import models as models_router
 from app.routers.websocket_router import router as ws_router
 from app.routers import system as system_router
+from app.routers import alerting as alerting_router
+from app.routers import control as control_router
 
 # Wire up broadcast callback so agents/tasks can push WS updates
 from app.services.ws_manager import get_ws_manager
@@ -220,6 +222,8 @@ app.include_router(prompts_router.router, prefix="/api", tags=["prompts"])
 app.include_router(profiles_router.router, prefix="/api", tags=["profiles"])
 app.include_router(models_router.router, prefix="/api", tags=["models", "llm"])
 app.include_router(system_router.router, prefix="/api", tags=["system"])
+app.include_router(alerting_router.router, prefix="/api", tags=["alerting"])
+app.include_router(control_router.router, prefix="/api", tags=["control"])
 
 # Status (has its own /api/status prefix)
 app.include_router(status.router)
