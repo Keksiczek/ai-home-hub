@@ -1,7 +1,7 @@
 """Startup validation checks for Ollama and ChromaDB.
 
-Runs during FastAPI lifespan to fail-fast on critical issues
-and warn about missing recommended models.
+Runs during FastAPI lifespan and returns a component health dict instead of
+raising on non-critical failures (e.g. Ollama unavailable).
 """
 
 import logging
@@ -17,31 +17,39 @@ RECOMMENDED_MODELS = ["llama3.2"]
 async def check_ollama(ollama_url: str, timeout: float = 5.0) -> List[str]:
     """Verify Ollama is running and return list of available model names.
 
-    Raises RuntimeError if Ollama is unreachable or returns non-200.
+    Returns empty list and logs a warning instead of raising on connectivity
+    issues, so the app can start in degraded mode.
     """
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.get(f"{ollama_url}/api/tags")
             resp.raise_for_status()
             data = resp.json()
+        models = [m["name"] for m in data.get("models", [])]
+        return models
     except httpx.ConnectError:
-        raise RuntimeError(
-            f"Ollama is not running at {ollama_url}. "
-            "Start it with 'ollama serve' and restart AI Home Hub."
+        logger.warning(
+            "Ollama is not running at %s. "
+            "Start it with 'ollama serve'. App will run in degraded mode.",
+            ollama_url,
         )
+        return []
     except httpx.TimeoutException:
-        raise RuntimeError(
-            f"Ollama at {ollama_url} did not respond within {timeout}s. "
-            "Check if Ollama is overloaded or restart it."
+        logger.warning(
+            "Ollama at %s did not respond within %.1fs. "
+            "App will run in degraded mode.",
+            ollama_url, timeout,
         )
+        return []
     except httpx.HTTPStatusError as exc:
-        raise RuntimeError(
-            f"Ollama returned HTTP {exc.response.status_code} on /api/tags. "
-            "Ensure Ollama is healthy and restart AI Home Hub."
+        logger.warning(
+            "Ollama returned HTTP %s on /api/tags. App will run in degraded mode.",
+            exc.response.status_code,
         )
-
-    models = [m["name"] for m in data.get("models", [])]
-    return models
+        return []
+    except Exception as exc:
+        logger.warning("Ollama check failed unexpectedly: %s. Degraded mode.", exc)
+        return []
 
 
 def validate_models(available: List[str]) -> None:
@@ -81,19 +89,16 @@ def validate_models(available: List[str]) -> None:
         )
 
 
-async def check_chromadb() -> None:
+async def check_chromadb() -> str:
     """Verify ChromaDB is writable by doing a dummy write + read + cleanup.
 
-    Raises RuntimeError if ChromaDB is not operational.
+    Returns "ok" or "error". Never raises.
     """
-    import chromadb
-
     try:
         from app.services.vector_store_service import get_vector_store_service
         vs = get_vector_store_service()
         client = vs.client  # access underlying chromadb PersistentClient
 
-        # Use a test collection
         test_col = client.get_or_create_collection("__startup_test__")
         test_col.add(
             ids=["startup_probe"],
@@ -102,46 +107,74 @@ async def check_chromadb() -> None:
         results = test_col.get(ids=["startup_probe"])
         if not results or not results.get("ids"):
             raise RuntimeError("ChromaDB read-back returned empty result")
-        # Cleanup
         client.delete_collection("__startup_test__")
-    except RuntimeError:
-        raise
+        logger.info(
+            "startup_check",
+            extra={"check": "chromadb", "status": "ok", "writable": True},
+        )
+        return "ok"
     except Exception as exc:
-        raise RuntimeError(
-            f"ChromaDB is not writable: {exc}. "
-            "Check disk space and file permissions on the data directory."
-        ) from exc
-
-    logger.info(
-        "startup_check",
-        extra={"check": "chromadb", "status": "ok", "writable": True},
-    )
+        logger.error(
+            "ChromaDB check failed: %s. Check disk space and file permissions.",
+            exc,
+        )
+        return "error"
 
 
 async def run_startup_checks(ollama_url: str) -> Dict[str, Any]:
-    """Run all startup checks. Returns summary dict.
+    """Run all startup checks. Returns component health dict.
 
-    Raises RuntimeError on critical failures (Ollama unreachable, ChromaDB broken).
-    Model availability is only a warning — never blocks startup.
+    Never raises – returns health status for each component so the app can
+    start in degraded mode when optional services are unavailable.
+
+    Returns::
+
+        {
+            "ollama": "ok" | "degraded" | "unavailable",
+            "kb": "ok" | "degraded",
+            "jobs_db": "ok" | "error",
+            "overall": "healthy" | "degraded" | "critical",
+        }
     """
     result: Dict[str, Any] = {}
 
-    # 1. Ollama connectivity (fail-fast)
+    # 1. Ollama connectivity
     logger.info("startup_check", extra={"check": "ollama_connectivity", "url": ollama_url})
     available_models = await check_ollama(ollama_url)
-    result["ollama"] = {"status": "ok", "models": available_models}
 
-    # 2. Model validation (warn only)
-    validate_models(available_models)
-    result["models"] = {"available": available_models, "recommended": RECOMMENDED_MODELS}
+    if available_models:
+        validate_models(available_models)
+        result["ollama"] = "ok"
+        result["ollama_models"] = available_models
+    else:
+        result["ollama"] = "unavailable"
+        result["ollama_models"] = []
+        logger.warning("Ollama unavailable – LLM features will be degraded")
 
-    # 3. ChromaDB write test (fail-fast)
+    # 2. ChromaDB / KB
     logger.info("startup_check", extra={"check": "chromadb_write_test"})
-    await check_chromadb()
-    result["chromadb"] = {"status": "ok"}
+    chromadb_status = await check_chromadb()
+    result["kb"] = "ok" if chromadb_status == "ok" else "degraded"
+
+    # 3. Jobs DB (SQLite)
+    try:
+        from app.db.jobs_db import get_jobs_db
+        get_jobs_db()
+        result["jobs_db"] = "ok"
+    except Exception as exc:
+        logger.error("Jobs DB init failed: %s", exc)
+        result["jobs_db"] = "error"
+
+    # 4. Compute overall health
+    if result["jobs_db"] == "error" or result["kb"] == "degraded":
+        result["overall"] = "critical"
+    elif result["ollama"] == "unavailable":
+        result["overall"] = "degraded"
+    else:
+        result["overall"] = "healthy"
 
     logger.info(
         "startup_check",
-        extra={"check": "all_passed", "summary": result},
+        extra={"check": "complete", "summary": result},
     )
     return result

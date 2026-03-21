@@ -130,6 +130,33 @@ agent_cycles_total = Counter(
     ["status"],
 )
 
+# ── Agent spawn blocking ───────────────────────────────────────
+agent_spawn_blocked_total = Counter(
+    "agent_spawn_blocked_total",
+    "Agent spawn attempts blocked by guardrails",
+    ["reason"],  # "resource" | "concurrent_limit" | "experimental"
+)
+
+# ── Resident agent cycle counters (detailed) ──────────────────
+resident_cycles_total = Counter(
+    "resident_cycles_total",
+    "Resident agent cycle outcomes",
+    ["status"],  # "success" | "fail" | "aborted"
+)
+
+# ── KB reindex job counter ────────────────────────────────────
+kb_reindex_jobs_total = Counter(
+    "kb_reindex_jobs_total",
+    "KB reindex jobs by status",
+    ["status"],  # "queued" | "success" | "fail"
+)
+
+# ── Resident queue depth ──────────────────────────────────────
+resident_queue_depth = Gauge(
+    "resident_queue_depth",
+    "Number of tasks in the resident agent queue",
+)
+
 # ── Ollama memory ─────────────────────────────────────────────
 ollama_memory_bytes = Gauge(
     "ollama_memory_bytes",
