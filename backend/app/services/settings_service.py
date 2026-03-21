@@ -315,6 +315,34 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         "vision", "timer", "calculator",
     ],
     "resident_mode": "advisor",  # observer | advisor | autonomous
+    # ── Guardrails (Hardening v2) ─────────────────────────────────────────────
+    "guardrails": {
+        "safe_mode": False,
+        "safe_mode_restrictions": {
+            "disable_experimental_agents": True,
+            "resident_autonomy": "observer",
+            "max_concurrent_agents": 1,
+        },
+        "agent_guardrails": {
+            "general":  {"max_steps": 8,  "max_total_tokens": 8_000,  "step_timeout_s": 30,  "max_sub_agent_depth": 2},
+            "code":     {"max_steps": 15, "max_total_tokens": 32_000, "step_timeout_s": 300, "max_sub_agent_depth": 3},
+            "research": {"max_steps": 12, "max_total_tokens": 64_000, "step_timeout_s": 300, "max_sub_agent_depth": 2},
+            "testing":  {"max_steps": 8,  "max_total_tokens": 16_000, "step_timeout_s": 120, "max_sub_agent_depth": 2},
+            "devops":   {"max_steps": 6,  "max_total_tokens": 8_000,  "step_timeout_s": 120, "max_sub_agent_depth": 1},
+        },
+        "resident": {
+            "interval_seconds": 900,
+            "quiet_hours": ["22:00-07:00"],
+            "max_cycles_per_day": 96,
+            "autonomy_level": "advisor",
+            "max_daily_actions": {
+                "git_operations": 5,
+                "system_commands": 3,
+                "spawn_devops_agent": 1,
+                "spawn_specialist": 10,
+            },
+        },
+    },
     "quick_actions": [],
     "job_settings": {
         "max_concurrent_jobs": 1,
@@ -355,17 +383,32 @@ class SettingsService:
         """Load settings, returning defaults merged with stored values."""
         if not SETTINGS_FILE.exists():
             self.save(DEFAULT_SETTINGS)
-            return _deep_copy(DEFAULT_SETTINGS)
+            result = _deep_copy(DEFAULT_SETTINGS)
+        else:
+            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                stored = json.load(f)
+            result = _deep_merge(DEFAULT_SETTINGS, stored)
 
-        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-            stored = json.load(f)
+        # Refresh guardrail singleton from loaded settings
+        try:
+            from app.core.settings import update_guardrail_settings
+            update_guardrail_settings(result)
+        except Exception as exc:
+            logger.debug("Guardrail settings refresh failed: %s", exc)
 
-        return _deep_merge(DEFAULT_SETTINGS, stored)
+        return result
 
     def save(self, settings: Dict[str, Any]) -> None:
         """Persist settings to disk."""
         with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
             json.dump(settings, f, indent=2, ensure_ascii=False)
+
+        # Refresh guardrail singleton after save
+        try:
+            from app.core.settings import update_guardrail_settings
+            update_guardrail_settings(settings)
+        except Exception as exc:
+            logger.debug("Guardrail settings refresh (post-save) failed: %s", exc)
 
     def update(self, partial: Dict[str, Any]) -> Dict[str, Any]:
         """Deep-merge partial settings into current, persist, and return result."""

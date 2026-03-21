@@ -340,6 +340,156 @@ async def update_llm_performance(body: OllamaPerformanceUpdate) -> Dict[str, Any
     return {"status": "ok", "performance": perf, "restarted": restarted}
 
 
+## ── Safe Mode ───────────────────────────────────────────────────────────────
+
+
+@router.post("/settings/safe-mode", tags=["guardrails"])
+async def set_safe_mode(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Enable or disable Safe Mode globally.
+
+    When Safe Mode is active:
+    - Experimental agents are disabled
+    - Resident autonomy is capped to "observer"
+    - Concurrent agent limit is reduced to 1
+    - Agent guardrails use stricter limits
+
+    Request body::
+
+        {
+          "enabled": true,
+          "restrictions": {          # optional
+            "disable_experimental_agents": true,
+            "resident_autonomy": "observer",
+            "max_concurrent_agents": 1
+          }
+        }
+    """
+    from app.core.settings import get_guardrail_settings, GlobalGuardrailSettings
+
+    enabled: bool = body.get("enabled", False)
+    restrictions: Dict[str, Any] = body.get("restrictions", {})
+
+    svc = get_settings_service()
+    settings = svc.load()
+
+    guardrails = settings.get("guardrails", {})
+    guardrails["safe_mode"] = enabled
+    if restrictions:
+        guardrails.setdefault("safe_mode_restrictions", {}).update(restrictions)
+    settings["guardrails"] = guardrails
+    svc.save(settings)
+
+    gs = get_guardrail_settings()
+
+    # Update safe_mode metric
+    try:
+        from app.services.metrics_service import safe_mode_enabled
+        safe_mode_enabled.set(1 if enabled else 0)
+    except Exception:
+        pass
+
+    logger.info("Safe Mode %s", "ENABLED" if enabled else "DISABLED")
+
+    return {
+        "safe_mode": gs.safe_mode,
+        "restrictions": gs.safe_mode_restrictions.model_dump(),
+        "effective_autonomy": gs.effective_resident_autonomy(),
+    }
+
+
+@router.get("/settings/safe-mode", tags=["guardrails"])
+async def get_safe_mode() -> Dict[str, Any]:
+    """Return current Safe Mode status."""
+    from app.core.settings import get_guardrail_settings
+    gs = get_guardrail_settings()
+    return {
+        "safe_mode": gs.safe_mode,
+        "restrictions": gs.safe_mode_restrictions.model_dump(),
+        "effective_autonomy": gs.effective_resident_autonomy(),
+    }
+
+
+## ── Guardrails ───────────────────────────────────────────────────────────────
+
+
+@router.get("/settings/guardrails", tags=["guardrails"])
+async def get_guardrails() -> Dict[str, Any]:
+    """Return current guardrail configuration."""
+    from app.core.settings import get_guardrail_settings
+    gs = get_guardrail_settings()
+    return {
+        "safe_mode": gs.safe_mode,
+        "agent_guardrails": {
+            k: v.model_dump() for k, v in gs.agent_guardrails.items()
+        },
+        "resident": gs.resident.model_dump(),
+        "effective_autonomy": gs.effective_resident_autonomy(),
+    }
+
+
+@router.post("/settings/guardrails", tags=["guardrails"])
+async def update_guardrails(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Update guardrail configuration.
+
+    Accepts a partial guardrails dict; merges with current config.
+    Example::
+
+        {
+          "agent_guardrails": {
+            "code": {"max_steps": 20, "max_total_tokens": 40000}
+          },
+          "resident": {
+            "autonomy_level": "autonomous",
+            "interval_seconds": 600
+          }
+        }
+    """
+    svc = get_settings_service()
+    settings = svc.load()
+
+    existing_guardrails = settings.get("guardrails", {})
+    # Deep merge new values
+    from app.services.settings_service import _deep_merge  # type: ignore[attr-defined]
+    merged = _deep_merge(existing_guardrails, body)
+    settings["guardrails"] = merged
+
+    # If autonomy_level is set, sync resident_mode for backward compat
+    resident_update = body.get("resident", {})
+    if "autonomy_level" in resident_update:
+        settings["resident_mode"] = resident_update["autonomy_level"]
+
+    svc.save(settings)
+
+    from app.core.settings import get_guardrail_settings
+    gs = get_guardrail_settings()
+    return {
+        "safe_mode": gs.safe_mode,
+        "agent_guardrails": {k: v.model_dump() for k, v in gs.agent_guardrails.items()},
+        "resident": gs.resident.model_dump(),
+        "effective_autonomy": gs.effective_resident_autonomy(),
+    }
+
+
+@router.get("/settings/guardrails/status", tags=["guardrails"])
+async def get_guardrail_runtime_status() -> Dict[str, Any]:
+    """Return runtime guardrail state from the resident agent (cooldowns, budgets)."""
+    try:
+        from app.services.resident_agent import get_resident_agent
+        agent = get_resident_agent()
+        return agent.get_guardrail_status()
+    except Exception as exc:
+        logger.debug("Could not fetch resident guardrail status: %s", exc)
+        from app.core.settings import get_guardrail_settings
+        gs = get_guardrail_settings()
+        return {
+            "safe_mode": gs.safe_mode,
+            "autonomy_level": gs.effective_resident_autonomy(),
+            "daily_action_counts": {},
+            "daily_action_budgets": gs.resident.max_daily_actions,
+            "cooldowns": {},
+        }
+
+
 def _mask_secrets(settings: Dict[str, Any]) -> None:
     """Replace API key values with masked placeholder in-place."""
     try:

@@ -140,6 +140,37 @@ ollama_memory_bytes = Gauge(
 app_info = Info("ai_home_hub", "Application version and config")
 
 
+# ── Guardrail / Safe-Mode metrics (Hardening v2) ──────────────────────────────
+
+resident_action_budget_daily = Gauge(
+    "resident_action_budget_daily",
+    "Resident agent daily action usage count",
+    ["action"],
+)
+
+resident_action_budget_remaining = Gauge(
+    "resident_action_budget_remaining",
+    "Resident agent remaining daily action budget",
+    ["action"],
+)
+
+agent_memory_usage_bytes = Gauge(
+    "agent_memory_usage_bytes",
+    "Resident agent approximate in-memory state size in bytes",
+)
+
+concurrent_agent_limit = Gauge(
+    "concurrent_agent_limit",
+    "Current vs max concurrent agents (label: current|max)",
+    ["kind"],  # "current" or "max"
+)
+
+safe_mode_enabled = Gauge(
+    "safe_mode_enabled",
+    "1 when Safe Mode is active, 0 otherwise",
+)
+
+
 def init_app_info(version: str = "0.5.0") -> None:
     """Set static application info labels."""
     app_info.info({

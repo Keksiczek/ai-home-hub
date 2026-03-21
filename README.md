@@ -174,6 +174,82 @@ Testovací skupiny: `test_resident_flow.py`, `test_kb_upload_flow.py`, `test_job
 
 ---
 
+## 🔒 Safe Mode & Guardrails (Hardening v2)
+
+Resident Agent podporuje konfigurovatelné guardrails pro bezpečný 24/7 autonomous provoz.
+
+### Safe Mode
+
+Aktivuj Safe Mode pro konzervativní limity:
+
+```bash
+# Přes API
+curl -X POST http://localhost:8000/api/settings/safe-mode \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true}'
+
+# Nebo v docker-compose s .env:
+docker-compose up --env-file .env.safe
+```
+
+**Co Safe Mode dělá:**
+- Zamkne Resident Agent na `observer` mód (žádné destruktivní akce)
+- Omezí concurrent agents na 1
+- Snižuje agent guardrails (max_steps=8, max_tokens=16k)
+- Zakáže experimentální agenty (devops, testing)
+
+### Autonomy Levels (Action Tiers)
+
+| Level | Povolené akce |
+|-------|---------------|
+| `observer` | Pouze čtení stavu (system_health, no_op, ...) |
+| `advisor` | + čtení souborů, git status, KB search |
+| `autonomous` | Všechny akce včetně git_operations, spawn_devops_agent |
+
+### Cooldowns per action
+
+| Akce | Cooldown |
+|------|----------|
+| `git_operations` | 1 hodina |
+| `system_commands` | 2 hodiny |
+| `spawn_devops_agent` | 24 hodin |
+
+### Daily Budgets
+
+Každá nebezpečná akce má denní limit (reset o půlnoci UTC):
+- `git_operations`: 5×/den
+- `system_commands`: 3×/den
+- `spawn_devops_agent`: 1×/den
+
+### Guardrail tuning
+
+Uprav přes API nebo v `backend/data/settings.json` pod klíčem `guardrails`:
+
+```json
+{
+  "guardrails": {
+    "safe_mode": false,
+    "resident": {
+      "autonomy_level": "advisor",
+      "interval_seconds": 900,
+      "max_cycles_per_day": 96
+    }
+  }
+}
+```
+
+Defaulty jsou konzervativní pro 24/7 provoz.
+
+### Migrace ze starší konfigurace
+
+```bash
+python scripts/migrate-settings-v1-to-v2.py
+# nebo dry-run:
+python scripts/migrate-settings-v1-to-v2.py --dry-run
+```
+
+---
+
 ## 📄 Licence
 
 MIT – projekt je lokální a privátní. Sdílej zodpovědně.
