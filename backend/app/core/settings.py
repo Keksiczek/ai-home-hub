@@ -125,6 +125,50 @@ class SafeModeRestrictions(BaseModel):
     disable_experimental_agents: bool = True
     resident_autonomy: AutonomyLevel = "observer"
     max_concurrent_agents: int = Field(1, ge=1, le=5)
+    disable_system_capabilities: bool = True
+
+
+# ── Capability settings ──────────────────────────────────────────────────────
+
+CapabilityRisk = Literal["low", "medium", "high"]
+
+
+class CapabilityConfig(BaseModel):
+    """Configuration for the system-access capability layer."""
+
+    enabled: bool = Field(False, description="Master switch for system capabilities (default OFF)")
+    shell_whitelist: List[str] = Field(
+        default_factory=list,
+        description="Additional whitelisted shell commands (beyond safe defaults)",
+    )
+    file_read_paths: List[str] = Field(
+        default_factory=lambda: ["./data", "~/Documents"],
+        description="Directories allowed for file reads",
+    )
+    file_write_paths: List[str] = Field(
+        default_factory=lambda: ["./data/output"],
+        description="Directories allowed for file writes",
+    )
+    browser_domains: List[str] = Field(
+        default_factory=lambda: ["github.com", "localhost"],
+        description="Domain whitelist for browser automation",
+    )
+    app_whitelist: List[str] = Field(
+        default_factory=lambda: ["code", "firefox"],
+        description="Applications allowed to launch",
+    )
+    approval_timeout_minutes: int = Field(
+        30, ge=5, le=1440,
+        description="How long to wait for human approval of high-risk caps",
+    )
+    sandbox_root: str = Field(
+        "./sandbox_data",
+        description="Root directory for sandboxed execution",
+    )
+    audit_log_retention_days: int = Field(
+        30, ge=1, le=365,
+        description="How many days to keep audit log entries",
+    )
 
 
 # ── Global settings ───────────────────────────────────────────────────────────
@@ -143,6 +187,10 @@ class GlobalGuardrailSettings(BaseModel):
     )
     resident: ResidentGuardrailsConfig = Field(
         default_factory=ResidentGuardrailsConfig
+    )
+    capabilities: CapabilityConfig = Field(
+        default_factory=CapabilityConfig,
+        description="System-access capability configuration (Full Autonomy)",
     )
 
     def effective_resident_autonomy(self) -> AutonomyLevel:

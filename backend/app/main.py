@@ -24,6 +24,7 @@ from app.routers import prompts as prompts_router
 from app.routers import models as models_router
 from app.routers.websocket_router import router as ws_router
 from app.routers import system as system_router
+from app.routers import capabilities as capabilities_router
 
 # Wire up broadcast callback so agents/tasks can push WS updates
 from app.services.ws_manager import get_ws_manager
@@ -152,6 +153,15 @@ async def lifespan(app: FastAPI):
     get_resident_state_db()
     logger.info("ResidentStateDB (SQLite) initialized")
 
+    # Initialize audit log database (Full System Access)
+    from app.db.audit_log import get_audit_log_db
+    get_audit_log_db()
+    logger.info("AuditLogDB (SQLite) initialized")
+
+    # Ensure sandbox data directory exists
+    from pathlib import Path as _Path
+    (_Path(base) / ".." / "sandbox_data").resolve().mkdir(parents=True, exist_ok=True)
+
     logger.info("AI Home Hub started – Mac Control Center ready")
     yield
 
@@ -220,6 +230,7 @@ app.include_router(prompts_router.router, prefix="/api", tags=["prompts"])
 app.include_router(profiles_router.router, prefix="/api", tags=["profiles"])
 app.include_router(models_router.router, prefix="/api", tags=["models", "llm"])
 app.include_router(system_router.router, prefix="/api", tags=["system"])
+app.include_router(capabilities_router.router, prefix="/api", tags=["capabilities"])
 
 # Status (has its own /api/status prefix)
 app.include_router(status.router)
