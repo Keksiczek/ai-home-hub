@@ -276,6 +276,112 @@ async def get_nightly_report() -> Dict[str, Any]:
     return {"available": False, "message": "Žádný report zatím nevytvořen. Spusť nightly_summary job."}
 
 
+# ── Job History with output summaries ──────────────────────────
+# // KB INITIALIZATION – job output visibility
+
+
+@router.get("/jobs/history", tags=["jobs"])
+async def get_job_history(limit: int = 20) -> Dict[str, Any]:
+    """Return recent jobs with output summaries for UI display.
+
+    Each job includes a short output_summary extracted from meta.result,
+    plus timing and action info for quick scanning.
+    """
+    svc = get_job_service()
+    jobs = svc.list_jobs(limit=limit)
+
+    history = []
+    for j in jobs:
+        meta = j.meta or {}
+        result = meta.get("result", {})
+
+        # Extract output summary
+        output_summary = ""
+        action = ""
+        model_used = ""
+
+        if isinstance(result, dict):
+            # Resident task results
+            output_summary = result.get("summary", result.get("output", ""))
+            action = result.get("action", result.get("action_type", ""))
+            model_used = result.get("model_used", result.get("model", ""))
+            # For other job types
+            if not output_summary:
+                if result.get("ingested_count") is not None:
+                    output_summary = f"Ingested {result['ingested_count']} files, {result.get('total_chunks', 0)} chunks"
+                elif result.get("summary"):
+                    output_summary = result["summary"]
+                elif result.get("report"):
+                    output_summary = str(result["report"])[:200]
+        elif isinstance(result, str):
+            output_summary = result
+
+        # Truncate summary
+        if isinstance(output_summary, str) and len(output_summary) > 200:
+            output_summary = output_summary[:200] + "..."
+        elif not isinstance(output_summary, str):
+            output_summary = str(output_summary)[:200]
+
+        # Calculate duration
+        duration_s = None
+        if j.started_at and j.finished_at:
+            try:
+                from datetime import datetime as dt
+                start = dt.fromisoformat(j.started_at)
+                end = dt.fromisoformat(j.finished_at)
+                duration_s = round((end - start).total_seconds(), 1)
+            except (ValueError, TypeError):
+                pass
+
+        history.append({
+            "id": j.id,
+            "type": j.type,
+            "title": j.title,
+            "status": j.status,
+            "progress": j.progress,
+            "priority": j.priority,
+            "created_at": j.created_at,
+            "started_at": j.started_at,
+            "finished_at": j.finished_at,
+            "duration_s": duration_s,
+            "action": action,
+            "output_summary": output_summary,
+            "model_used": model_used,
+            "has_error": bool(j.last_error),
+            "error_preview": (j.last_error or "")[:100],
+        })
+
+    return {"jobs": history, "count": len(history), "limit": limit}
+
+
+@router.get("/jobs/{job_id}/detail", tags=["jobs"])
+async def get_job_detail(job_id: str) -> Dict[str, Any]:
+    """Get full job output + raw JSON for detail view."""
+    svc = get_job_service()
+    job = svc.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+    meta = job.meta or {}
+    result = meta.get("result", {})
+
+    # Full output text
+    full_output = ""
+    if isinstance(result, dict):
+        full_output = result.get("full_output", result.get("output", result.get("summary", "")))
+        if not full_output:
+            full_output = str(result)
+    elif isinstance(result, str):
+        full_output = result
+
+    return {
+        "job": job.model_dump(),
+        "full_output": full_output,
+        "raw_result": result,
+        "has_kb_entry": bool(result),
+    }
+
+
 @router.delete("/jobs/{job_id}", tags=["jobs"])
 async def delete_job(job_id: str) -> Dict[str, Any]:
     """Permanently delete a job from the queue."""

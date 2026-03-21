@@ -260,7 +260,7 @@ function switchTab(tabName) {
   if (tabName === 'status') loadSystemStatus();
   if (tabName === 'agents') { refreshAgents(); loadAgentSkillSelect(); loadFsAgentSkillSelect(); loadAgentMemoryTable(); }
   if (tabName === 'skills') loadSkills();
-  if (tabName === 'jobs') loadJobs();
+  if (tabName === 'jobs') { loadJobs(); loadJobHistory(); }
   if (tabName === 'actions') { loadQuickActions(); loadVSCodeProjects(); loadActionHistory(); }
   if (tabName === 'settings') { loadSettings(); loadOllamaModels(); loadRuntimeSkills(); }
   if (tabName === 'files-manager') loadFilesManager();
@@ -4658,6 +4658,11 @@ function renderJobDetail(job) {
            <button class="btn btn--secondary btn--small" onclick="createReportFromJob('${escHtml(job.id)}', 'pdf')">Generovat PDF</button>
          </div>`
       : ''}
+    ${(job.status === 'succeeded' || job.status === 'failed')
+      ? `<div style="margin-top:0.5rem">
+           <button class="btn btn--ghost btn--small" onclick="showJobDetailExpanded('${escHtml(job.id)}')">Zobrazit plny vystup</button>
+         </div>`
+      : ''}
   `;
 }
 
@@ -4665,6 +4670,93 @@ function closeJobDetail() {
   _selectedJobId = null;
   const section = document.getElementById('job-detail-section');
   if (section) section.classList.add('hidden');
+}
+
+// // KB INITIALIZATION – Job History with output summaries
+
+async function loadJobHistory() {
+  const container = document.getElementById('job-history-list');
+  if (!container) return;
+  try {
+    const res = await fetch('/api/jobs/history?limit=20');
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    renderJobHistory(data.jobs || []);
+    loadKbStats();
+  } catch (err) {
+    container.innerHTML = `<div class="resident-error-box"><span>Chyba: ${escHtml(err.message)}</span></div>`;
+  }
+}
+
+function renderJobHistory(jobs) {
+  const container = document.getElementById('job-history-list');
+  if (!container) return;
+  if (!jobs.length) {
+    container.innerHTML = '<p class="empty-state">Zatim zadna historie jobu.</p>';
+    return;
+  }
+
+  const statusIcon = { succeeded: '\u2705', failed: '\u26A0\uFE0F', running: '\u23F3', queued: '\u23F0', cancelled: '\u274C', paused: '\u23F8\uFE0F' };
+  const rows = jobs.map(j => {
+    const icon = statusIcon[j.status] || '\u2753';
+    const time = j.created_at ? new Date(j.created_at).toLocaleString('cs-CZ', { hour: '2-digit', minute: '2-digit' }) : '';
+    const dur = j.duration_s != null ? (j.duration_s < 60 ? j.duration_s + 's' : Math.floor(j.duration_s/60) + 'm ' + Math.round(j.duration_s%60) + 's') : '';
+    const actionBadge = j.action ? `<span class="hint-text" style="font-size:0.75rem">Action: ${escHtml(j.action)}</span>` : '';
+    const modelBadge = j.model_used ? `<span class="hint-text" style="font-size:0.7rem">${escHtml(j.model_used)}</span>` : '';
+    const outputPreview = j.output_summary ? escHtml(j.output_summary) : '<span class="hint-text">-</span>';
+    const expandId = 'jh-expand-' + j.id.replace(/[^a-zA-Z0-9]/g, '');
+
+    return `<div class="job-history-row" style="border-bottom:1px solid #1e293b;padding:0.5rem 0;cursor:pointer" onclick="showJobDetail('${escHtml(j.id)}')">
+      <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
+        <span style="font-size:0.85rem">${icon}</span>
+        <span style="color:#60a5fa;font-weight:500;font-size:0.85rem">${escHtml(j.title)}</span>
+        <span class="job-type-badge" style="font-size:0.7rem">${escHtml(j.type)}</span>
+        <span class="job-status-badge job-status--${j.status}" style="font-size:0.7rem">${escHtml(j.status)}</span>
+        ${dur ? `<span class="hint-text" style="font-size:0.7rem">${dur}</span>` : ''}
+        <span class="hint-text" style="font-size:0.7rem;margin-left:auto">${time}</span>
+      </div>
+      <div style="margin-top:0.25rem;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+        ${actionBadge}
+        <span style="font-size:0.8rem;color:#94a3b8;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${outputPreview}</span>
+        ${modelBadge}
+      </div>
+      ${j.has_error ? `<div style="margin-top:0.25rem;font-size:0.75rem;color:#f87171">${escHtml(j.error_preview)}</div>` : ''}
+    </div>`;
+  }).join('');
+
+  container.innerHTML = rows;
+}
+
+async function loadKbStats() {
+  const badge = document.getElementById('kb-stats-badge');
+  if (!badge) return;
+  try {
+    const res = await fetch('/api/kb/stats');
+    if (!res.ok) return;
+    const data = await res.json();
+    badge.textContent = `KB: ${data.chunks || 0} chunks | ${data.documents || 0} docs | ${data.collections || 0} collections`;
+  } catch { badge.textContent = ''; }
+}
+
+async function showJobDetailExpanded(jobId) {
+  try {
+    const res = await fetch('/api/jobs/' + encodeURIComponent(jobId) + '/detail');
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    const job = data.job;
+    renderJobDetail(job);
+    // Append full output
+    const content = document.getElementById('job-detail-content');
+    if (content && data.full_output) {
+      content.innerHTML += `<div style="margin-top:1rem;border-top:1px solid #2d3348;padding-top:0.75rem">
+        <h3 style="color:#e2e8f0;margin-bottom:0.5rem">Plny vystup</h3>
+        <pre style="white-space:pre-wrap;font-size:0.8rem;color:#94a3b8;max-height:400px;overflow-y:auto;background:#0f172a;padding:0.75rem;border-radius:0.5rem">${escHtml(data.full_output)}</pre>
+      </div>`;
+    }
+    document.getElementById('job-detail-section').classList.remove('hidden');
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
 }
 
 async function cancelJob(jobId, triggerBtn) {
@@ -4769,6 +4861,10 @@ function handleJobUpdate(jobData) {
   const panel = document.getElementById('tab-jobs');
   if (panel && !panel.classList.contains('hidden')) {
     renderJobsList(_jobsCache);
+    // Refresh job history when a job completes
+    if (jobData.status === 'succeeded' || jobData.status === 'failed') {
+      loadJobHistory();
+    }
     // Update detail if this job is selected
     if (_selectedJobId === jobData.id) {
       showJobDetail(jobData.id);
