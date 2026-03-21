@@ -138,10 +138,21 @@ async def lifespan(app: FastAPI):
     kb_watchdog_task = kb_watchdog.start()
     _supervisor.register("kb_watchdog", kb_watchdog_task)
 
+    # Start cleanup service (runs every 6h – removes old sessions, archives, vacuums DBs)
+    from app.services.cleanup_service import get_cleanup_service
+    cleanup_svc = get_cleanup_service()
+    cleanup_svc_task = cleanup_svc.start()
+    _supervisor.register("cleanup_service", cleanup_svc_task, cleanup_svc.start)
+
     # Initialize SQLite jobs database
     from app.db.jobs_db import get_jobs_db
     get_jobs_db()
     logger.info("JobsDB (SQLite) initialized")
+
+    # Initialize SQLite resident state database
+    from app.db.resident_state import get_resident_state_db
+    get_resident_state_db()
+    logger.info("ResidentStateDB (SQLite) initialized")
 
     logger.info("AI Home Hub started – Mac Control Center ready")
     yield
@@ -167,6 +178,10 @@ app = FastAPI(
 # Request ID + structured logging middleware (4B)
 from app.middleware.logging_middleware import RequestIDMiddleware
 app.add_middleware(RequestIDMiddleware)
+
+# Global error handler – catches unhandled exceptions → structured 500 JSON
+from app.middleware.error_handler import ErrorHandlerMiddleware
+app.add_middleware(ErrorHandlerMiddleware)
 
 # CORS – allow the SPA to call the API (useful when running on different ports)
 app.add_middleware(
@@ -250,6 +265,23 @@ async def agent_history(limit: int = 20) -> dict:
     agent = get_resident_agent()
     history = agent.get_cycle_history(limit=limit)
     return {"history": history, "count": len(history)}
+
+
+@app.get("/api/agent/history/persistent", tags=["agent"])
+async def agent_history_persistent(limit: int = 50, status: str = None) -> dict:
+    """Return persistent cycle history from SQLite (survives restarts)."""
+    from app.db.resident_state import get_resident_state_db
+    db = get_resident_state_db()
+    history = db.get_history(limit=limit, status=status)
+    stats = db.get_stats()
+    return {"history": history, "stats": stats, "count": len(history)}
+
+
+@app.get("/api/agent/metrics/cached", tags=["agent"])
+async def agent_metrics_cached() -> dict:
+    """Return cached agent metrics (1-min TTL)."""
+    from app.services.resident_agent import get_resident_agent
+    return get_resident_agent().get_cached_metrics()
 
 
 @app.get("/api/agent/logs", tags=["agent"])
@@ -432,6 +464,21 @@ async def health() -> dict:
         "background_tasks": bg_tasks,
         "tailscale_funnel": tailscale_health,
     }
+
+
+@app.get("/api/health/errors", tags=["health"])
+async def health_errors(limit: int = 20) -> dict:
+    """Return recent unhandled error records for debugging."""
+    from app.middleware.error_handler import get_error_history
+    errors = get_error_history(limit=limit)
+    return {"errors": errors, "count": len(errors)}
+
+
+@app.get("/api/health/cleanup", tags=["health"])
+async def health_cleanup() -> dict:
+    """Return cleanup service status."""
+    from app.services.cleanup_service import get_cleanup_service
+    return get_cleanup_service().get_status()
 
 
 @app.get("/api/health/live", tags=["health"])

@@ -9915,3 +9915,91 @@ function exportNightlyReport() {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+/* ============================================================
+   GLOBAL ERROR BOUNDARY
+   Catches unhandled JS errors, promise rejections, network
+   failures. Shows recovery UI and persists to localStorage.
+   ============================================================ */
+const _errorLog = [];
+const MAX_ERROR_LOG = 50;
+
+function _recordError(err) {
+  const entry = {
+    ts: new Date().toISOString(),
+    message: err.message || String(err),
+    stack: (err.stack || '').slice(0, 500),
+    url: window.location.hash,
+  };
+  _errorLog.push(entry);
+  if (_errorLog.length > MAX_ERROR_LOG) _errorLog.shift();
+  try {
+    localStorage.setItem('aih_error_log', JSON.stringify(_errorLog.slice(-20)));
+  } catch (_) { /* storage full */ }
+}
+
+function _showErrorBanner(message) {
+  let banner = document.getElementById('error-boundary-banner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'error-boundary-banner';
+    banner.className = 'error-boundary-banner';
+    document.body.prepend(banner);
+  }
+  banner.innerHTML = `
+    <span class="error-boundary-msg">Oops, nastala chyba: ${escHtml(message)}</span>
+    <div class="error-boundary-actions">
+      <button class="btn btn-sm btn--ghost" onclick="exportErrorLog()">Export logs</button>
+      <button class="btn btn-sm btn-primary" onclick="location.reload()">Reload</button>
+      <button class="btn btn-sm btn--ghost" onclick="this.closest('.error-boundary-banner').remove()">✕</button>
+    </div>`;
+  banner.classList.remove('hidden');
+}
+
+function exportErrorLog() {
+  const stored = localStorage.getItem('aih_error_log') || '[]';
+  const blob = new Blob([stored], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `aih-error-log-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+window.addEventListener('error', (event) => {
+  _recordError(event.error || new Error(event.message));
+  _showErrorBanner(event.message || 'Neznámá chyba');
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  const err = event.reason || new Error('Unhandled promise rejection');
+  _recordError(err);
+  _showErrorBanner(err.message || 'Async chyba');
+});
+
+/* ============================================================
+   TOOLTIPS – hover tooltips for key UI elements
+   ============================================================ */
+const TOOLTIPS = {
+  'nav-chat': 'Hlavní chat s AI asistentem',
+  'nav-agents': 'Dashboard běžících agentů',
+  'nav-resident': 'Vše na jednom místě – status, jobs, logs',
+  'nav-knowledge': 'Knowledge Base – sémantické vyhledávání',
+  'nav-jobs': 'Fronta úloh a historie',
+  'nav-overnight': 'Noční automatické úlohy',
+  'nav-settings': 'Nastavení aplikace',
+  'resident-safe-mode-label': 'Bezpečný mód – žádné destruktivní akce',
+};
+
+function initTooltips() {
+  Object.entries(TOOLTIPS).forEach(([id, text]) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.setAttribute('title', text);
+      el.setAttribute('data-tooltip', text);
+    }
+  });
+}
+
+document.addEventListener('DOMContentLoaded', initTooltips);

@@ -5293,3 +5293,59 @@ details[open].reasoning-cycle-item > .reasoning-cycle-summary::before {
     display: none;
   }
 }
+
+/* ── Error Boundary Banner ──────────────────────────────── */
+.error-boundary-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 20px;
+  background: var(--danger-soft, rgba(239, 68, 68, 0.15));
+  border-bottom: 2px solid var(--danger, #ef4444);
+  color: #fca5a5;
+  font-size: 14px;
+  animation: errorSlideIn 0.3s ease-out;
+}
+.error-boundary-banner.hidden { display: none; }
+.error-boundary-msg { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.error-boundary-actions { display: flex; gap: 8px; flex-shrink: 0; }
+@keyframes errorSlideIn { from { transform: translateY(-100%); } to { transform: translateY(0); } }
+
+/* ── Tooltip styling ────────────────────────────────────── */
+[data-tooltip] { position: relative; }
+[data-tooltip]:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-left: 8px;
+  padding: 6px 10px;
+  background: #1e293b;
+  color: #e2e8f0;
+  font-size: 12px;
+  border-radius: 6px;
+  white-space: nowrap;
+  z-index: 9999;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+
+/* ── Mobile touch-friendly buttons ──────────────────────── */
+@media (max-width: 768px) {
+  .btn, button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  .nav-item {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+}

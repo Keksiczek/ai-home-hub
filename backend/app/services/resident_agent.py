@@ -100,6 +100,11 @@ MAX_REFLECTIONS_HISTORY = 50
 MAX_CYCLE_HISTORY = 200
 MAX_LOG_ENTRIES = 1000
 
+# Performance: metrics cache TTL
+METRICS_CACHE_TTL_S = 60  # 1 minute
+# Performance: KB reindex cooldown
+KB_REINDEX_COOLDOWN_S = 300  # 5 minutes
+
 WS_EVENT_RESIDENT_SUGGESTION = "resident_suggestion"
 
 
@@ -189,6 +194,11 @@ class ResidentAgent(BackgroundService):
         self._last_proposal_time: Optional[float] = None
         # Live thought stream (SSE consumers read from here)
         self._thought_queue: asyncio.Queue = asyncio.Queue(maxsize=500)
+        # Performance: metrics cache with TTL
+        self._metrics_cache: Dict[str, Any] = {}
+        self._metrics_cache_ts: float = 0.0
+        # Performance: KB reindex cooldown
+        self._last_reindex_ts: float = 0.0
 
     def set_broadcast(self, fn: Callable) -> None:
         """Register a coroutine for broadcasting WebSocket messages."""
@@ -216,8 +226,25 @@ class ResidentAgent(BackgroundService):
         log_fn(event, cycle_id=cycle_id, **data)
 
     def _add_cycle_record(self, record: CycleRecord) -> None:
-        """Add a cycle record to history."""
+        """Add a cycle record to in-memory history and persist to SQLite."""
         self._cycle_history.append(record)
+        # Persist to SQLite in background (fire-and-forget)
+        try:
+            from app.db.resident_state import get_resident_state_db
+            db = get_resident_state_db()
+            db.save_cycle(
+                cycle_id=record.cycle_id,
+                cycle_number=record.cycle_number,
+                timestamp=record.timestamp,
+                status=record.status,
+                action_type=record.action_type,
+                action_target=record.action_target,
+                output_preview=record.output_preview,
+                duration_ms=record.duration_ms,
+                error=record.error,
+            )
+        except Exception as exc:
+            logger.debug("Failed to persist cycle record: %s", exc)
 
     def get_cycle_history(self, limit: int = 20) -> List[dict]:
         """Return recent cycle history as dicts."""
@@ -305,6 +332,33 @@ class ResidentAgent(BackgroundService):
                 setattr(self._agent_settings, key, value)
         self._add_log("INFO", "settings_updated", **updates)
         return self._agent_settings.to_dict()
+
+    def get_cached_metrics(self) -> Dict[str, Any]:
+        """Return metrics with a 1-minute TTL cache to avoid expensive recalculation."""
+        now = time.monotonic()
+        if now - self._metrics_cache_ts < METRICS_CACHE_TTL_S and self._metrics_cache:
+            return self._metrics_cache
+        metrics = {
+            "tick_count": self._state.tick_count,
+            "errors_since_start": self._state.errors_since_start,
+            "consecutive_errors": self._state.consecutive_errors,
+            "uptime_seconds": round(self.get_uptime_seconds(), 1),
+            "cycle_history_len": len(self._cycle_history),
+            "log_entries_len": len(self._log_entries),
+            "heartbeat_status": self._state.heartbeat_status,
+            "daily_cycle_count": self._daily_cycle_count,
+        }
+        self._metrics_cache = metrics
+        self._metrics_cache_ts = now
+        return metrics
+
+    def should_reindex_kb(self) -> bool:
+        """Check KB reindex cooldown – prevents reindex more often than every 5 min."""
+        now = time.time()
+        if now - self._last_reindex_ts < KB_REINDEX_COOLDOWN_S:
+            return False
+        self._last_reindex_ts = now
+        return True
 
     def _is_quiet_hours(self) -> bool:
         """Check if current time is within quiet hours."""
