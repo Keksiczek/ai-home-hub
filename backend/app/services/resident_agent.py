@@ -19,7 +19,7 @@ from typing import Any, Callable, Dict, List, Optional
 import structlog
 
 from app.services.background_service import BackgroundService
-from app.services.metrics_service import agent_cycles_total
+from app.services.metrics_service import agent_cycles_total, resident_cycles_total, resident_queue_depth
 
 logger = logging.getLogger(__name__)
 log = structlog.get_logger("resident_agent")
@@ -538,6 +538,13 @@ class ResidentAgent(BackgroundService):
 
         self._add_cycle_record(cycle_record)
         agent_cycles_total.labels(status=cycle_record.status).inc()
+
+        # Map cycle status to resident_cycles_total labels
+        _status_map = {"success": "success", "error": "fail", "aborted": "aborted"}
+        _final_status = _status_map.get(cycle_record.status, "fail")
+        resident_cycles_total.labels(status=_final_status).inc()
+        logger.debug("resident_cycles_total incremented: status=%s", _final_status)
+
         await self._heartbeat_broadcast()
 
         # Count down next_run_in for the UI
@@ -1171,6 +1178,8 @@ class ResidentAgent(BackgroundService):
             from app.services.job_service import get_job_service
             job_svc = get_job_service()
             pending_jobs = job_svc.list_jobs(status="queued", type="resident_task")
+            resident_queue_depth.set(len(pending_jobs))
+            logger.debug("resident_queue_depth updated: %d", len(pending_jobs))
 
             for job in pending_jobs:
                 self._state.current_task = job.title
