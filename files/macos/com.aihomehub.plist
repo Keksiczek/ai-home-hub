@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd plist for AI Home Hub (Docker Compose production)
+
+  Install:
+    cp com.aihomehub.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.aihomehub.plist
+
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.aihomehub.plist
+    rm ~/Library/LaunchAgents/com.aihomehub.plist
+
+  NOTE: Adjust /opt/ai-home-hub to your actual install path.
+  Docker Desktop must be running before this agent starts.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.aihomehub</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/docker</string>
+        <string>compose</string>
+        <string>-f</string>
+        <string>/opt/ai-home-hub/docker-compose.prod.yml</string>
+        <string>up</string>
+        <string>-d</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/opt/ai-home-hub</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/aihomehub.stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/aihomehub.stderr.log</string>
+
+    <!-- Wait for network before starting -->
+    <key>NetworkState</key>
+    <true/>
+</dict>
+</plist>

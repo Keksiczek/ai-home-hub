@@ -1,0 +1,54 @@
+name: CI – Lint & Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Check formatting (black)
+        working-directory: backend
+        run: |
+          black --check --diff .
+
+      - name: Run tests
+        working-directory: backend
+        run: |
+          pytest tests/ -q --timeout=30
+
+      - name: Validate provisioning files
+        run: |
+          python -c "
+          import json, sys
+          # Validate Grafana dashboard JSON
+          with open('grafana/provisioning/dashboards/ai-home-hub-overview.json') as f:
+              d = json.load(f)
+              assert 'panels' in d, 'Dashboard missing panels'
+              assert len(d['panels']) > 0, 'Dashboard has no panels'
+              print(f'Dashboard OK: {len(d[\"panels\"])} panels')
+          "
