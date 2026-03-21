@@ -31,6 +31,7 @@ data/jobs/
 data/sessions/
 data/chroma/
 data/settings.json
+data/*.db
 
 # IDE
 .idea/

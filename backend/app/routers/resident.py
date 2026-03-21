@@ -79,9 +79,44 @@ async def resident_heartbeat() -> dict:
 
 @router.get("/dashboard")
 async def resident_dashboard() -> dict:
-    """Get resident agent dashboard data: status, uptime, heartbeat, tasks, alerts, stats."""
+    """Get resident agent dashboard data for the control-room UX.
+
+    Extends the base agent data with:
+    - ``health``: startup component health from ``/api/system/health``
+    - ``metrics_24h``: cycle success rate, count, and avg duration
+    - enriched ``alerts`` (includes component health warnings)
+    """
     agent = get_resident_agent()
-    return agent.get_dashboard_data()
+    data = agent.get_dashboard_data()
+
+    # Attach startup component health
+    settings_svc = get_settings_service()
+    health = settings_svc.global_health
+    data["health"] = health
+
+    # Build metrics_24h from stats_24h if available
+    stats = data.get("stats_24h", {})
+    total = stats.get("total", 0)
+    succeeded = stats.get("succeeded", 0)
+    avg_duration = stats.get("avg_duration_s", None)
+    success_rate = round(succeeded / total, 4) if total else 0.0
+    data["metrics_24h"] = {
+        "cycles_total": total,
+        "success_rate": success_rate,
+        "avg_cycle_duration_s": avg_duration,
+    }
+
+    # Enrich alerts with health-based warnings
+    alerts: list = list(data.get("alerts", []))
+    if health.get("ollama") == "unavailable":
+        alerts.append("Ollama degraded – LLM features unavailable")
+    if health.get("kb") == "degraded":
+        alerts.append("Knowledge Base degraded")
+    if health.get("jobs_db") == "error":
+        alerts.append("Jobs DB error – task queue unavailable")
+    data["alerts"] = alerts
+
+    return data
 
 
 @router.post("/start")

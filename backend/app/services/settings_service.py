@@ -348,6 +348,9 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
 
 
 class SettingsService:
+    # Populated during lifespan startup with the result of run_startup_checks()
+    global_health: Dict[str, Any] = {}
+
     def __init__(self) -> None:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
 
