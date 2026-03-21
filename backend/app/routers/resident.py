@@ -3,10 +3,12 @@
 import asyncio
 import json
 import logging
+import os
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.services.resident_agent import get_resident_agent
@@ -754,4 +756,119 @@ async def resident_stream(request: Request):
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
         },
+    )
+
+
+# ── Control Room: Mission Templates ───────────────────────────
+
+class MissionRequest(BaseModel):
+    """Optional metadata for template runs."""
+    context: str = ""
+
+
+_TEMPLATES = [
+    {
+        "id": "daily_recap",
+        "title": "📋 Denní rekapitulace",
+        "desc": "Analyzuj dnešní KB/git/jobs a vytvoř shrnutí + todo na zítřek",
+        "icon": "📋",
+    },
+    {
+        "id": "stack_health",
+        "title": "🖥️ Stack monitor",
+        "desc": "Zkontroluj Ollama/disk/jobs/Tailscale a připrav report + doporučení",
+        "icon": "🖥️",
+    },
+    {
+        "id": "lean_assist",
+        "title": "⚙️ Lean experiment",
+        "desc": "Z metrik navrhni Lean experiment (hypothesis + test + success metric)",
+        "icon": "⚙️",
+    },
+]
+
+_TEMPLATE_PROMPTS: Dict[str, str] = {
+    "daily_recap": "Analyzuj dnešní KB/git/jobs → shrnutí + todo zítra",
+    "stack_health": "Check Ollama/disk/jobs/Tailscale → report + akce",
+    "lean_assist": "Z metrik navrhni Lean experiment (hypothesis+test)",
+}
+
+
+@router.get("/templates")
+async def get_templates() -> List[Dict[str, Any]]:
+    """List available Control Room mission templates."""
+    return _TEMPLATES
+
+
+@router.post("/run-template/{template_id}")
+async def run_template(template_id: str, req: MissionRequest = MissionRequest()) -> dict:
+    """Queue a resident task from a predefined mission template."""
+    if template_id not in _TEMPLATE_PROMPTS:
+        raise HTTPException(status_code=404, detail=f"Template '{template_id}' nenalezen")
+
+    prompt = _TEMPLATE_PROMPTS[template_id]
+    if req.context:
+        prompt = f"{prompt}\n\nKontext: {req.context}"
+
+    job_svc = get_job_service()
+    job = job_svc.create_job(
+        type="resident_task",
+        title=template_id,
+        input_summary=prompt,
+        payload={},
+        priority="normal",
+    )
+    return {"job_id": job.id, "status": "queued", "template_id": template_id, "title": template_id}
+
+
+# ── Control Room: Debug Export ─────────────────────────────────
+
+@router.post("/export-debug")
+async def export_debug() -> JSONResponse:
+    """Export a debug snapshot: resident state + recent jobs + logs + config summary."""
+    agent = get_resident_agent()
+    job_svc = get_job_service()
+    settings = get_settings_service().load()
+
+    try:
+        dashboard = agent.get_dashboard_data()
+    except Exception:
+        dashboard = {}
+
+    try:
+        jobs = job_svc.list_jobs(limit=10)
+        recent_jobs = [
+            {
+                "id": j.id,
+                "title": j.title,
+                "status": j.status,
+                "type": j.type,
+                "created_at": j.created_at,
+            }
+            for j in jobs
+        ]
+    except Exception:
+        recent_jobs = []
+
+    try:
+        logs_data = agent.get_logs(limit=50)
+    except Exception:
+        logs_data = []
+
+    snapshot = {
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "resident_state": dashboard,
+        "recent_jobs": recent_jobs,
+        "logs": logs_data,
+        "config_summary": {
+            "resident_interval": settings.get("resident_interval", 900),
+            "resident_mode": settings.get("resident_mode", "advisor"),
+            "llm_provider": settings.get("llm", {}).get("provider", "unknown"),
+        },
+    }
+
+    content = json.dumps(snapshot, ensure_ascii=False, indent=2, default=str)
+    return JSONResponse(
+        content=snapshot,
+        headers={"Content-Disposition": "attachment; filename=debug.json"},
     )

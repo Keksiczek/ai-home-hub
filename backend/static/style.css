@@ -5293,3 +5293,182 @@ details[open].reasoning-cycle-item > .reasoning-cycle-summary::before {
     display: none;
   }
 }
+
+
+/* ============================================================
+   CONTROL ROOM
+   ============================================================ */
+
+/* Toolbar */
+.cr-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--surface, #0f172a);
+  border-radius: var(--radius-lg, 12px);
+  border: 1px solid var(--border, #1e293b);
+}
+
+.cr-toolbar__missions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.cr-toolbar__actions  { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+/* 3-column grid */
+.cr-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  margin-bottom: 0;
+}
+
+@media (max-width: 900px) {
+  .cr-grid { grid-template-columns: 1fr; }
+}
+
+.cr-card { min-height: 160px; }
+
+/* Resident status */
+.cr-resident-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.cr-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.cr-status-dot--running  { background: var(--success, #22c55e); box-shadow: 0 0 6px var(--success, #22c55e); }
+.cr-status-dot--stopped  { background: var(--danger, #ef4444); }
+
+.cr-resident-uptime { font-size: 0.8rem; color: var(--muted, #64748b); margin-bottom: 0.2rem; }
+.cr-resident-last   { font-size: 0.8rem; color: var(--muted, #64748b); }
+
+/* Jobs list */
+.cr-job-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--border, #1e293b);
+  font-size: 0.85rem;
+}
+.cr-job-row:last-child { border-bottom: none; }
+.cr-job-icon  { flex-shrink: 0; }
+.cr-job-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.cr-job-progress {
+  width: 60px;
+  height: 5px;
+  background: var(--border, #1e293b);
+  border-radius: 3px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.cr-job-progress-bar {
+  height: 100%;
+  background: var(--accent, #6366f1);
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+
+/* Quick stats */
+.cr-stats-list { display: flex; flex-direction: column; gap: 0.4rem; }
+.cr-stat-row   { display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; }
+.cr-stat-label { color: var(--muted, #64748b); }
+.cr-stat-value { font-weight: 600; color: var(--fg, #e2e8f0); }
+
+/* Templates grid */
+.cr-templates-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.75rem;
+}
+
+.cr-template-card {
+  background: var(--surface, #0f172a);
+  border: 1px solid var(--border, #1e293b);
+  border-radius: var(--radius-md, 8px);
+  padding: 0.75rem;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.cr-template-card:hover {
+  border-color: var(--accent, #6366f1);
+  background: rgba(99, 102, 241, 0.06);
+}
+.cr-template-title { font-weight: 600; margin-bottom: 0.3rem; font-size: 0.9rem; }
+.cr-template-desc  { font-size: 0.8rem; color: var(--muted, #64748b); }
+
+/* Logs feed */
+.cr-logs-feed {
+  max-height: 260px;
+  overflow-y: auto;
+  font-family: monospace;
+  font-size: 0.8rem;
+  background: var(--bg, #020617);
+  border-radius: var(--radius-sm, 6px);
+  padding: 0.5rem;
+}
+
+.cr-log-entry {
+  display: grid;
+  grid-template-columns: 70px 80px 1fr;
+  gap: 0.4rem;
+  padding: 0.2rem 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.cr-log-entry:last-child { border-bottom: none; }
+
+.cr-log-time { color: var(--muted, #64748b); }
+.cr-log-type {
+  font-weight: 600;
+  font-size: 0.75rem;
+  padding: 1px 4px;
+  border-radius: 3px;
+  text-align: center;
+}
+.cr-log-type--resident_tick   { background: rgba(99,102,241,0.2); color: #818cf8; }
+.cr-log-type--job_update      { background: rgba(34,197,94,0.15); color: #4ade80; }
+.cr-log-type--resource_update { background: rgba(234,179,8,0.15);  color: #fbbf24; }
+.cr-log-type--event           { background: rgba(100,116,139,0.2); color: #94a3b8; }
+.cr-log-msg   { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg, #e2e8f0); }
+
+/* WebSocket status dot */
+.cr-ws-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.cr-ws-dot--connected    { background: var(--success, #22c55e); }
+.cr-ws-dot--disconnected { background: var(--danger, #ef4444); }
+
+/* Toast */
+.cr-toast {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  z-index: 9999;
+  padding: 0.6rem 1.2rem;
+  border-radius: var(--radius-md, 8px);
+  font-size: 0.9rem;
+  font-weight: 500;
+  max-width: 320px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  animation: cr-toast-in 0.2s ease;
+}
+@keyframes cr-toast-in { from { opacity:0; transform: translateY(8px); } to { opacity:1; transform: translateY(0); } }
+.cr-toast--success { background: var(--success, #22c55e); color: #000; }
+.cr-toast--error   { background: var(--danger, #ef4444);  color: #fff; }
+.cr-toast--info    { background: var(--accent, #6366f1);  color: #fff; }
+.cr-toast--warning { background: var(--warning, #eab308); color: #000; }
