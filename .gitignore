@@ -26,6 +26,7 @@ backend/data/*.db
 backend/data/chroma/
 backend/data/archive/
 backend/data/*.db
+backend/data/skills.json
 data/uploads/
 data/artifacts/
 data/jobs/
