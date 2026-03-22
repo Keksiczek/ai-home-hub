@@ -167,7 +167,11 @@ async def agent_search_kb(body: AgentSearchKBRequest) -> AgentSearchKBResponse:
 
     query_embedding = await embeddings_svc.generate_embedding(body.query)
     if not query_embedding:
-        raise HTTPException(status_code=500, detail="Failed to generate query embedding")
+        model = embeddings_svc._active_model or embeddings_svc.DEFAULT_MODEL
+        raise HTTPException(
+            status_code=503,
+            detail=f"Embedding model unavailable: {model}. Run: ollama pull {model}",
+        )
 
     raw = vector_store.search(query_embedding=query_embedding, top_k=body.top_k)
 

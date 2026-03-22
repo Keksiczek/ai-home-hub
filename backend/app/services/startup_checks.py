@@ -12,6 +12,8 @@ import httpx
 logger = logging.getLogger(__name__)
 
 RECOMMENDED_MODELS = ["llama3.2"]
+EMBEDDING_MODEL = "nomic-embed-text"
+EMBEDDING_FALLBACK = "llama3.2"
 
 
 async def check_ollama(ollama_url: str, timeout: float = 5.0) -> List[str]:
@@ -99,7 +101,7 @@ async def check_chromadb() -> str:
         vs = get_vector_store_service()
         client = vs.client  # access underlying chromadb PersistentClient
 
-        test_col = client.get_or_create_collection("__startup_test__")
+        test_col = client.get_or_create_collection("startup-test")
         test_col.add(
             ids=["startup_probe"],
             documents=["startup validation probe"],
@@ -107,7 +109,7 @@ async def check_chromadb() -> str:
         results = test_col.get(ids=["startup_probe"])
         if not results or not results.get("ids"):
             raise RuntimeError("ChromaDB read-back returned empty result")
-        client.delete_collection("__startup_test__")
+        client.delete_collection("startup-test")
         logger.info(
             "startup_check",
             extra={"check": "chromadb", "status": "ok", "writable": True},
@@ -150,6 +152,26 @@ async def run_startup_checks(ollama_url: str) -> Dict[str, Any]:
         result["ollama"] = "unavailable"
         result["ollama_models"] = []
         logger.warning("Ollama unavailable – LLM features will be degraded")
+
+    # Check embedding model availability
+    available_base = {m.split(":")[0] for m in available_models}
+    if EMBEDDING_MODEL in available_base:
+        result["embeddings"] = "ok"
+    elif EMBEDDING_FALLBACK in available_base:
+        result["embeddings"] = f"degraded: missing model {EMBEDDING_MODEL}"
+        logger.warning(
+            "KB nefunkční: spusť `ollama pull %s` a restartuj app. "
+            "Using fallback model '%s'.",
+            EMBEDDING_MODEL, EMBEDDING_FALLBACK,
+        )
+    elif available_models:
+        result["embeddings"] = "unavailable"
+        logger.error(
+            "KB nefunkční: spusť `ollama pull %s` a restartuj app",
+            EMBEDDING_MODEL,
+        )
+    else:
+        result["embeddings"] = "unavailable"
 
     # 2. ChromaDB / KB
     logger.info("startup_check", extra={"check": "chromadb_write_test"})

@@ -348,7 +348,11 @@ async def search_knowledge(
     # Generate query embedding
     query_embedding = await embeddings_svc.generate_embedding(query)
     if not query_embedding:
-        raise HTTPException(status_code=500, detail="Failed to generate query embedding")
+        model = embeddings_svc._active_model or embeddings_svc.DEFAULT_MODEL
+        raise HTTPException(
+            status_code=503,
+            detail=f"Embedding model unavailable: {model}. Run: ollama pull {model}",
+        )
 
     # Search vector store
     search_results = vector_store.search(
@@ -1085,7 +1089,11 @@ async def kb_search_with_filters(
     embeddings_svc = get_embeddings_service()
     query_embedding = await embeddings_svc.generate_embedding(q)
     if not query_embedding:
-        raise HTTPException(status_code=500, detail="Failed to generate query embedding")
+        model = embeddings_svc._active_model or embeddings_svc.DEFAULT_MODEL
+        raise HTTPException(
+            status_code=503,
+            detail=f"Embedding model unavailable: {model}. Run: ollama pull {model}",
+        )
 
     # Use the target collection's ChromaDB collection object
     col_name = collection or vector_store.COLLECTION_NAME
