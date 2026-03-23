@@ -372,6 +372,13 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         "port": 8000,
         "timeout": 300,
     },
+    "cleanup": {
+        "enabled": True,
+        "interval_hours": 6,
+        "session_retention_days": 7,
+        "artifact_retention_days": 30,
+        "vacuum_enabled": True,
+    },
 }
 
 

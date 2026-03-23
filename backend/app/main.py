@@ -25,6 +25,7 @@ from app.routers import models as models_router
 from app.routers.websocket_router import router as ws_router
 from app.routers import system as system_router
 from app.routers import capabilities as capabilities_router
+from app.routers import cleanup as cleanup_router
 
 # Wire up broadcast callback so agents/tasks can push WS updates
 from app.services.ws_manager import get_ws_manager
@@ -231,6 +232,7 @@ app.include_router(profiles_router.router, prefix="/api", tags=["profiles"])
 app.include_router(models_router.router, prefix="/api", tags=["models", "llm"])
 app.include_router(system_router.router, prefix="/api", tags=["system"])
 app.include_router(capabilities_router.router, prefix="/api", tags=["capabilities"])
+app.include_router(cleanup_router.router, prefix="/api", tags=["cleanup"])
 
 # Status (has its own /api/status prefix)
 app.include_router(status.router)

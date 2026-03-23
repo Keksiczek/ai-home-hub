@@ -2509,6 +2509,8 @@ async function loadSettings() {
     updateModelBadge();
     // Refresh tailscale status badge after loading
     tailscaleRefreshStatus();
+    // Load cleanup settings
+    loadCleanupSettings();
   } catch (err) {
     showToast(`${t('settings_load_error')}: ${err.message}`, 'error');
   }
@@ -10685,3 +10687,92 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Initialize marketplace events on DOM ready
 document.addEventListener('DOMContentLoaded', bindMarketplaceEvents);
+
+// ── Auto-Cleanup Settings ─────────────────────────────────────────────────
+
+async function loadCleanupSettings() {
+  try {
+    const res = await fetch('/api/settings/cleanup');
+    if (!res.ok) return;
+    const cfg = await res.json();
+    setChecked('cleanup-enabled', cfg.enabled !== false);
+    setVal('cleanup-interval-hours', cfg.interval_hours ?? 6);
+    setVal('cleanup-session-days', cfg.session_retention_days ?? 7);
+    setVal('cleanup-artifact-days', cfg.artifact_retention_days ?? 30);
+    setChecked('cleanup-vacuum-enabled', cfg.vacuum_enabled !== false);
+
+    // Show last run info from health endpoint
+    try {
+      const hRes = await fetch('/api/health/cleanup');
+      if (hRes.ok) {
+        const health = await hRes.json();
+        const lastRunEl = document.getElementById('cleanup-last-run');
+        const nextRunEl = document.getElementById('cleanup-next-run');
+        if (lastRunEl) {
+          lastRunEl.textContent = health.last_run
+            ? new Date(health.last_run).toLocaleString('cs-CZ')
+            : '– nikdy';
+        }
+        if (nextRunEl && health.last_run && cfg.interval_hours) {
+          const nextTs = new Date(health.last_run).getTime() + cfg.interval_hours * 3600 * 1000;
+          const diffH = Math.max(0, Math.round((nextTs - Date.now()) / 3600000));
+          nextRunEl.textContent = diffH <= 0 ? 'brzy' : `${diffH} h`;
+        }
+      }
+    } catch (_) {}
+  } catch (err) {
+    console.warn('Cleanup settings load error:', err);
+  }
+}
+
+async function saveCleanupSettings() {
+  const btn = document.getElementById('cleanup-save-btn');
+  if (btn) btn.disabled = true;
+  try {
+    const body = {
+      enabled: document.getElementById('cleanup-enabled')?.checked ?? true,
+      interval_hours: parseInt(document.getElementById('cleanup-interval-hours')?.value ?? '6', 10),
+      session_retention_days: parseInt(document.getElementById('cleanup-session-days')?.value ?? '7', 10),
+      artifact_retention_days: parseInt(document.getElementById('cleanup-artifact-days')?.value ?? '30', 10),
+      vacuum_enabled: document.getElementById('cleanup-vacuum-enabled')?.checked ?? true,
+    };
+    const res = await fetch('/api/settings/cleanup', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      showToast(`Chyba uložení: ${err.detail || res.status}`, 'error');
+      return;
+    }
+    showToast('Nastavení uloženo', 'success');
+  } catch (err) {
+    showToast(`Chyba: ${err.message}`, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function runCleanupNow() {
+  const btn = document.getElementById('cleanup-run-now-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Probíhá...'; }
+  try {
+    const res = await fetch('/api/control/cleanup/run-now', { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showToast(`Cleanup selhal: ${data.detail || res.status}`, 'error');
+      return;
+    }
+    if (data.status === 'skipped') {
+      showToast('Cleanup přeskočen (zakázán v nastavení)', 'warning');
+    } else {
+      showToast(`Cleanup dokončen – uvolněno ${data.freed_mb ?? 0} MB`, 'success');
+    }
+    loadCleanupSettings();
+  } catch (err) {
+    showToast(`Chyba: ${err.message}`, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🚀 Spustit nyní'; }
+  }
+}
