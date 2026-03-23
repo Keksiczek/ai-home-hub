@@ -2600,7 +2600,7 @@
         const statsEl = document.getElementById('mobile-jobs-stats');
         const listEl = document.getElementById('mobile-jobs-list');
         if (!statsEl || !listEl) return;
-        statsEl.innerHTML = `&#128260; ${data.total} jobs | ${data.failed} failed`;
+        statsEl.innerHTML = `&#128260; ${data.total || 0} jobs | ${data.failed || 0} failed`;
         listEl.innerHTML = data.jobs.map(j => {
           const icon = STATUS_ICONS[j.status] || '&#10067;';
           const dur = j.duration_ms > 0 ? `${(j.duration_ms/1000).toFixed(0)}s` : '';

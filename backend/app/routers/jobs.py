@@ -155,115 +155,6 @@ async def get_job_queue() -> Dict[str, Any]:
     }
 
 
-@router.get("/jobs/{job_id}", tags=["jobs"])
-async def get_job(job_id: str) -> Dict[str, Any]:
-    """Get detail of a single job."""
-    svc = get_job_service()
-    job = svc.get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
-    return job.model_dump()
-
-
-@router.post("/jobs/{job_id}/cancel", tags=["jobs"])
-async def cancel_job(job_id: str) -> Dict[str, Any]:
-    """Cancel a queued or running job (sets status to cancelled)."""
-    svc = get_job_service()
-    job = svc.get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
-    if job.status in ("succeeded", "failed", "cancelled"):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Job {job_id} is already {job.status}, cannot cancel",
-        )
-    job.status = "cancelled"
-    from datetime import datetime, timezone
-    job.finished_at = datetime.now(timezone.utc).isoformat()
-    svc.update_job(job)
-    return {"id": job.id, "status": job.status}
-
-
-@router.post("/jobs/{job_id}/pause", tags=["jobs"])
-async def pause_job(job_id: str) -> Dict[str, Any]:
-    """Pause a running job (sets status to 'paused')."""
-    svc = get_job_service()
-    job = svc.get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
-    if job.status != "running":
-        raise HTTPException(
-            status_code=400,
-            detail=f"Job {job_id} is '{job.status}', only running jobs can be paused",
-        )
-    job.status = "paused"
-    svc.update_job(job)
-    return {"id": job.id, "status": job.status}
-
-
-@router.post("/jobs/{job_id}/resume", tags=["jobs"])
-async def resume_job(job_id: str) -> Dict[str, Any]:
-    """Resume a paused job (sets status back to 'queued' for the worker to pick up)."""
-    svc = get_job_service()
-    job = svc.get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
-    if job.status != "paused":
-        raise HTTPException(
-            status_code=400,
-            detail=f"Job {job_id} is '{job.status}', only paused jobs can be resumed",
-        )
-    job.status = "queued"
-    svc.update_job(job)
-    return {"id": job.id, "status": job.status}
-
-
-@router.post("/jobs/{job_id}/retry", tags=["jobs"])
-async def retry_job(job_id: str) -> Dict[str, Any]:
-    """Re-queue a failed or cancelled job by creating a fresh copy with status 'queued'.
-
-    Only jobs in 'failed' or 'cancelled' state can be retried. A new job is
-    created (preserving type, title, payload and priority) so the original error
-    record is kept for audit purposes.
-    """
-    svc = get_job_service()
-    original = svc.get_job(job_id)
-    if not original:
-        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
-    if original.status not in ("failed", "cancelled"):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Job {job_id} has status '{original.status}'; only failed/cancelled jobs can be retried",
-        )
-    new_job = svc.create_job(
-        type=original.type,
-        title=original.title,
-        input_summary=original.input_summary,
-        payload=original.payload,
-        priority=original.priority,
-        meta={**original.meta, "retry_of": original.id},
-    )
-    return {"id": new_job.id, "status": new_job.status, "retry_of": original.id}
-
-
-class PriorityRequest(BaseModel):
-    priority: str  # "high" | "normal" | "low"
-
-
-@router.post("/jobs/{job_id}/priority", tags=["jobs"])
-async def set_job_priority(job_id: str, req: PriorityRequest) -> Dict[str, Any]:
-    """Update job priority (high/normal/low)."""
-    if req.priority not in ("high", "normal", "low"):
-        raise HTTPException(status_code=400, detail=f"Invalid priority: {req.priority}")
-    svc = get_job_service()
-    job = svc.get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
-    job.priority = req.priority
-    svc.update_job(job)
-    return {"id": job.id, "priority": job.priority}
-
-
 @router.get("/jobs/nightly-report", tags=["jobs"])
 async def get_nightly_report() -> Dict[str, Any]:
     """Return the most recent nightly summary report.
@@ -386,6 +277,144 @@ async def get_job_history(limit: int = 20) -> Dict[str, Any]:
         })
 
     return {"jobs": history, "count": len(history), "limit": limit}
+
+
+@router.get("/jobs/mobile-summary", tags=["jobs"])
+async def mobile_jobs_summary(limit: int = 20) -> Dict[str, Any]:
+    """Compact job summary optimized for mobile UI."""
+    from app.db.jobs_db import get_jobs_db
+    db = get_jobs_db()
+    jobs = db.list_jobs(limit=limit)
+    counts = db.count_by_status()
+    total = sum(counts.values())
+    failed = counts.get("failed", 0)
+
+    compact = []
+    for j in jobs:
+        compact.append({
+            "id": j["id"][:8],
+            "full_id": j["id"],
+            "time": (j.get("created_at") or "")[-8:-3],  # HH:MM
+            "status": j["status"],
+            "title": j["title"][:60],
+            "summary": (j.get("output_summary") or j.get("input_summary") or "")[:80],
+            "duration_ms": j.get("execution_time", 0),
+        })
+
+    return {
+        "total": total,
+        "failed": failed,
+        "jobs": compact,
+    }
+
+
+@router.get("/jobs/{job_id}", tags=["jobs"])
+async def get_job(job_id: str) -> Dict[str, Any]:
+    """Get detail of a single job."""
+    svc = get_job_service()
+    job = svc.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    return job.model_dump()
+
+
+@router.post("/jobs/{job_id}/cancel", tags=["jobs"])
+async def cancel_job(job_id: str) -> Dict[str, Any]:
+    """Cancel a queued or running job (sets status to cancelled)."""
+    svc = get_job_service()
+    job = svc.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    if job.status in ("succeeded", "failed", "cancelled"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Job {job_id} is already {job.status}, cannot cancel",
+        )
+    job.status = "cancelled"
+    from datetime import datetime, timezone
+    job.finished_at = datetime.now(timezone.utc).isoformat()
+    svc.update_job(job)
+    return {"id": job.id, "status": job.status}
+
+
+@router.post("/jobs/{job_id}/pause", tags=["jobs"])
+async def pause_job(job_id: str) -> Dict[str, Any]:
+    """Pause a running job (sets status to 'paused')."""
+    svc = get_job_service()
+    job = svc.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    if job.status != "running":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Job {job_id} is '{job.status}', only running jobs can be paused",
+        )
+    job.status = "paused"
+    svc.update_job(job)
+    return {"id": job.id, "status": job.status}
+
+
+@router.post("/jobs/{job_id}/resume", tags=["jobs"])
+async def resume_job(job_id: str) -> Dict[str, Any]:
+    """Resume a paused job (sets status back to 'queued' for the worker to pick up)."""
+    svc = get_job_service()
+    job = svc.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    if job.status != "paused":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Job {job_id} is '{job.status}', only paused jobs can be resumed",
+        )
+    job.status = "queued"
+    svc.update_job(job)
+    return {"id": job.id, "status": job.status}
+
+
+@router.post("/jobs/{job_id}/retry", tags=["jobs"])
+async def retry_job(job_id: str) -> Dict[str, Any]:
+    """Re-queue a failed or cancelled job by creating a fresh copy with status 'queued'.
+
+    Only jobs in 'failed' or 'cancelled' state can be retried. A new job is
+    created (preserving type, title, payload and priority) so the original error
+    record is kept for audit purposes.
+    """
+    svc = get_job_service()
+    original = svc.get_job(job_id)
+    if not original:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    if original.status not in ("failed", "cancelled"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Job {job_id} has status '{original.status}'; only failed/cancelled jobs can be retried",
+        )
+    new_job = svc.create_job(
+        type=original.type,
+        title=original.title,
+        input_summary=original.input_summary,
+        payload=original.payload,
+        priority=original.priority,
+        meta={**original.meta, "retry_of": original.id},
+    )
+    return {"id": new_job.id, "status": new_job.status, "retry_of": original.id}
+
+
+class PriorityRequest(BaseModel):
+    priority: str  # "high" | "normal" | "low"
+
+
+@router.post("/jobs/{job_id}/priority", tags=["jobs"])
+async def set_job_priority(job_id: str, req: PriorityRequest) -> Dict[str, Any]:
+    """Update job priority (high/normal/low)."""
+    if req.priority not in ("high", "normal", "low"):
+        raise HTTPException(status_code=400, detail=f"Invalid priority: {req.priority}")
+    svc = get_job_service()
+    job = svc.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    job.priority = req.priority
+    svc.update_job(job)
+    return {"id": job.id, "priority": job.priority}
 
 
 @router.get("/jobs/{job_id}/detail", tags=["jobs"])
@@ -542,32 +571,3 @@ async def init_jobs_db() -> Dict[str, Any]:
     db = get_jobs_db()
     stats = db.count_by_status()
     return {"status": "ok", "db": "jobs.db", "counts": stats}
-
-
-@router.get("/jobs/mobile-summary", tags=["jobs"])
-async def mobile_jobs_summary(limit: int = 20) -> Dict[str, Any]:
-    """Compact job summary optimized for mobile UI."""
-    from app.db.jobs_db import get_jobs_db
-    db = get_jobs_db()
-    jobs = db.list_jobs(limit=limit)
-    counts = db.count_by_status()
-    total = sum(counts.values())
-    failed = counts.get("failed", 0)
-
-    compact = []
-    for j in jobs:
-        compact.append({
-            "id": j["id"][:8],
-            "full_id": j["id"],
-            "time": (j.get("created_at") or "")[-8:-3],  # HH:MM
-            "status": j["status"],
-            "title": j["title"][:60],
-            "summary": (j.get("output_summary") or j.get("input_summary") or "")[:80],
-            "duration_ms": j.get("execution_time", 0),
-        })
-
-    return {
-        "total": total,
-        "failed": failed,
-        "jobs": compact,
-    }

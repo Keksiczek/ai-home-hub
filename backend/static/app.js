@@ -7965,6 +7965,168 @@ function bindCustomProfileBtn() {
 }
 
 /* ============================================================
+   CONTROL ROOM
+   ============================================================ */
+async function loadControlRoom() {
+  // Load resident agent status
+  try {
+    const res = await fetch('/api/agent/status');
+    if (res.ok) {
+      const data = await res.json();
+      const agent = data.resident_agent || {};
+      const dotEl = document.getElementById('cr-status-dot');
+      const statusEl = document.getElementById('cr-resident-status-text');
+      const uptimeEl = document.getElementById('cr-resident-uptime');
+      if (dotEl) {
+        dotEl.className = 'cr-status-dot' + (agent.is_running ? ' cr-status-dot--active' : '');
+      }
+      if (statusEl) statusEl.textContent = agent.is_running ? (agent.status || 'running') : 'stopped';
+      if (uptimeEl) uptimeEl.textContent = agent.is_running ? 'Ticks: ' + (agent.tick_count || 0) : '';
+    }
+  } catch (e) { /* ignore */ }
+
+  // Load active jobs for CR
+  try {
+    const res = await fetch('/api/jobs/queue');
+    if (res.ok) {
+      const data = await res.json();
+      const el = document.getElementById('cr-jobs-list');
+      if (el) {
+        const jobs = data.queue || [];
+        if (jobs.length === 0) {
+          el.innerHTML = '<p class="empty-state">Žádné aktivní joby</p>';
+        } else {
+          el.innerHTML = jobs.slice(0, 5).map(function(j) {
+            return '<div class="cr-job-row"><span class="badge badge--small">' + escHtml(j.status) + '</span> ' + escHtml(j.title || j.type) + '</div>';
+          }).join('');
+        }
+      }
+    }
+  } catch (e) { /* ignore */ }
+
+  // Load quick stats
+  try {
+    const res = await fetch('/api/system/health');
+    if (res.ok) {
+      const data = await res.json();
+      const ollamaEl = document.getElementById('cr-ollama-status');
+      if (ollamaEl) ollamaEl.textContent = data.ollama || '?';
+    }
+  } catch (e) { /* ignore */ }
+
+  // Load job stats
+  try {
+    const res = await fetch('/api/jobs?limit=200');
+    if (res.ok) {
+      const data = await res.json();
+      var jobs = data.jobs || [];
+      var succeeded = jobs.filter(function(j) { return j.status === 'succeeded'; }).length;
+      var total = jobs.length;
+      var rate = total > 0 ? Math.round(succeeded / total * 100) + '%' : '-';
+      var cyclesEl = document.getElementById('cr-cycles-today');
+      var rateEl = document.getElementById('cr-success-rate');
+      if (cyclesEl) cyclesEl.textContent = total;
+      if (rateEl) rateEl.textContent = rate;
+    }
+  } catch (e) { /* ignore */ }
+
+  // Load mission templates
+  try {
+    var templatesEl = document.getElementById('cr-templates-grid');
+    if (templatesEl) {
+      var templates = [
+        { id: 'daily_recap', icon: '\uD83D\uDCCB', name: 'Daily Recap', desc: 'Denní souhrn KB/git/jobs' },
+        { id: 'stack_health', icon: '\uD83D\uDCBB', name: 'Stack Health', desc: 'Kontrola zdraví systému' },
+        { id: 'lean_assist', icon: '\u2699', name: 'Lean Assist', desc: 'Lean experiment asistent' },
+        { id: 'kb_reindex', icon: '\uD83D\uDD04', name: 'KB Reindex', desc: 'Přeindexovat Knowledge Base' },
+      ];
+      templatesEl.innerHTML = templates.map(function(t) {
+        return '<div class="cr-template-card" onclick="crRunTemplate(\'' + t.id + '\')">' +
+          '<div class="cr-template-icon">' + t.icon + '</div>' +
+          '<div class="cr-template-name">' + escHtml(t.name) + '</div>' +
+          '<div class="cr-template-desc">' + escHtml(t.desc) + '</div>' +
+          '</div>';
+      }).join('');
+    }
+  } catch (e) { /* ignore */ }
+}
+
+async function crRunTemplate(templateId) {
+  var toastEl = document.getElementById('cr-toast');
+  try {
+    if (toastEl) {
+      toastEl.textContent = 'Spouštím ' + templateId + '...';
+      toastEl.classList.remove('hidden');
+    }
+    var res = await fetch('/api/jobs/run-now', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: templateId, title: 'CR: ' + templateId }),
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    var data = await res.json();
+    if (toastEl) toastEl.textContent = templateId + ' job vytvořen (ID: ' + (data.id || '?').slice(0, 8) + ')';
+    showToast(templateId + ' job vytvořen', 'success');
+    setTimeout(function() { loadControlRoom(); }, 1000);
+  } catch (err) {
+    if (toastEl) toastEl.textContent = 'Chyba: ' + err.message;
+    showToast('Chyba: ' + err.message, 'error');
+  }
+  if (toastEl) setTimeout(function() { toastEl.classList.add('hidden'); }, 5000);
+}
+
+async function crExportDebug() {
+  try {
+    var healthRes = await fetch('/api/health');
+    var errorsRes = await fetch('/api/health/errors?limit=10');
+    var healthData = await healthRes.json();
+    var errorsData = await errorsRes.json();
+    var snapshot = {
+      timestamp: new Date().toISOString(),
+      health: healthData,
+      errors: errorsData,
+    };
+    var blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'debug-snapshot-' + new Date().toISOString().slice(0, 19).replace(/:/g, '-') + '.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('Debug snapshot exportován', 'success');
+  } catch (err) {
+    showToast('Chyba exportu: ' + err.message, 'error');
+  }
+}
+
+async function crResidentStart() {
+  try {
+    var res = await fetch('/api/resident/start', { method: 'POST' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    showToast('Resident agent spuštěn', 'success');
+    setTimeout(function() { loadControlRoom(); }, 1000);
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
+}
+
+async function crResidentStop() {
+  try {
+    var res = await fetch('/api/agent/pause', { method: 'POST' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    showToast('Resident agent zastaven', 'success');
+    setTimeout(function() { loadControlRoom(); }, 1000);
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
+}
+
+function crClearLogs() {
+  var feed = document.getElementById('cr-logs-feed');
+  if (feed) feed.innerHTML = '<p class="empty-state">Logy vyčištěny</p>';
+}
+
+/* ============================================================
    LIVE ACTIVITY BAR
    ============================================================ */
 function handleActivityUpdate(msg) {
@@ -9172,7 +9334,7 @@ async function loadKBManagerCollections() {
 
     el.innerHTML = cols.map(c => {
       const tags = (c.tags || []).map(t => `<span class="tag">${escHtml(t)}</span>`).join('');
-      const chunks = c.chunk_count !== undefined ? c.chunk_count : (c.chunks || '?');
+      const chunks = c.chunk_count !== undefined ? c.chunk_count : (c.count !== undefined ? c.count : (c.chunks || '?'));
       return `
         <div class="kb-card">
           <div class="kb-card-header">

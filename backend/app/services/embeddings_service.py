@@ -16,6 +16,7 @@ class EmbeddingsService:
     """Generate text embeddings using Ollama with an in-memory LRU cache."""
 
     DEFAULT_MODEL = "nomic-embed-text"
+    FALLBACK_MODEL = "llama3.2"
 
     def __init__(self) -> None:
         self._cache: Dict[str, tuple] = {}  # {text_hash: (embedding, timestamp)}
@@ -23,6 +24,8 @@ class EmbeddingsService:
         self._cache_ttl_seconds: int = 3600  # 1 hour
         self._cache_hits: int = 0
         self._cache_misses: int = 0
+        self._active_model: Optional[str] = None  # tracks which model is in use
+        self._status: str = "unknown"  # "ok", "degraded", "unavailable"
 
     async def get_embedding(self, text: str) -> Optional[List[float]]:
         """Get embedding with cache support. Falls back to generate_embedding on miss."""
@@ -56,23 +59,51 @@ class EmbeddingsService:
         return embedding
 
     async def _fetch_embedding_from_ollama(self, text: str) -> Optional[List[float]]:
-        """Call Ollama embeddings API directly."""
+        """Call Ollama embeddings API directly, with fallback to llama3.2."""
         settings = get_settings_service().load()
         ollama_url = settings.get("llm", {}).get("ollama_url", "http://localhost:11434").rstrip("/")
-        model = settings.get("llm", {}).get("embeddings_model", self.DEFAULT_MODEL)
+        primary_model = settings.get("llm", {}).get("embeddings_model", self.DEFAULT_MODEL)
 
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.post(
-                    f"{ollama_url}/api/embed",
-                    json={"model": model, "prompt": text},
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                return data.get("embedding")
-        except Exception as exc:
-            logger.error("Failed to generate embedding: %s", exc, exc_info=True)
-            return None
+        # Try primary model first, then fallback
+        models_to_try = [primary_model]
+        if self.FALLBACK_MODEL not in primary_model:
+            models_to_try.append(self.FALLBACK_MODEL)
+
+        last_error = None
+        for model in models_to_try:
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    resp = await client.post(
+                        f"{ollama_url}/api/embed",
+                        json={"model": model, "input": text},
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    embedding = data.get("embeddings", [None])[0] or data.get("embedding")
+                    if embedding:
+                        if self._active_model != model:
+                            self._active_model = model
+                            if model != primary_model:
+                                logger.warning(
+                                    "Embeddings: primary model '%s' unavailable, using fallback '%s'",
+                                    primary_model, model,
+                                )
+                                self._status = f"degraded: using fallback {model}"
+                            else:
+                                self._status = "ok"
+                        return embedding
+            except Exception as exc:
+                last_error = exc
+                logger.warning("Embedding model '%s' failed: %s", model, exc)
+                continue
+
+        logger.error("All embedding models failed. Last error: %s", last_error, exc_info=True)
+        self._status = "unavailable"
+        return None
+
+    def get_status(self) -> str:
+        """Return current embeddings status for health checks."""
+        return self._status
 
     async def generate_embedding(self, text: str) -> Optional[List[float]]:
         """Generate embedding for a single text (uses cache)."""
