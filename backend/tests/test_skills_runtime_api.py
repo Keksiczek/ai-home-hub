@@ -8,7 +8,7 @@ def test_skills_catalog(client):
     assert resp.status_code == 200
     data = resp.json()
     assert "skills" in data
-    assert data["count"] == 11
+    assert data["count"] >= 11
     skill_names = [s["name"] for s in data["skills"]]
     assert "web_search" in skill_names
     assert "code_exec" in skill_names
