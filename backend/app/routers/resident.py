@@ -335,7 +335,18 @@ async def get_mode_status() -> dict:
 @router.patch("/mode")
 async def set_resident_mode(req: ResidentModeRequest) -> dict:
     """Set resident autonomy mode (observer/advisor/autonomous)."""
-    get_settings_service().update({"resident_mode": req.mode})
+    from app.services.mode_audit_service import get_mode_audit_service
+
+    svc = get_settings_service()
+    prev_mode = svc.load().get("resident_mode", "advisor")
+    svc.update({"resident_mode": req.mode})
+    if prev_mode != req.mode:
+        get_mode_audit_service().record_change(
+            from_mode=prev_mode,
+            to_mode=req.mode,
+            changed_by="user",
+            reason="API PATCH /resident/mode",
+        )
     logger.info("Resident mode changed to: %s", req.mode)
     return {"mode": req.mode, "message": f"Režim změněn na {req.mode}"}
 
@@ -347,7 +358,18 @@ async def pause_resident_mode() -> dict:
     Disables autonomous action execution without stopping the agent daemon.
     Always safe to call – never raises even if already in advisor/observer mode.
     """
-    get_settings_service().update({"resident_mode": "advisor"})
+    from app.services.mode_audit_service import get_mode_audit_service
+
+    svc = get_settings_service()
+    prev_mode = svc.load().get("resident_mode", "advisor")
+    svc.update({"resident_mode": "advisor"})
+    if prev_mode != "advisor":
+        get_mode_audit_service().record_change(
+            from_mode=prev_mode,
+            to_mode="advisor",
+            changed_by="user",
+            reason="Panic/Pause button",
+        )
     logger.warning("Resident PANIC/PAUSE – mode forced to advisor")
     return {
         "status": "ok",
@@ -363,7 +385,18 @@ async def enable_resident_autonomous() -> dict:
     Note: destructive actions (delete, overwrite) always require confirmation
     regardless of this setting – that logic lives in the job worker, not here.
     """
-    get_settings_service().update({"resident_mode": "autonomous"})
+    from app.services.mode_audit_service import get_mode_audit_service
+
+    svc = get_settings_service()
+    prev_mode = svc.load().get("resident_mode", "advisor")
+    svc.update({"resident_mode": "autonomous"})
+    if prev_mode != "autonomous":
+        get_mode_audit_service().record_change(
+            from_mode=prev_mode,
+            to_mode="autonomous",
+            changed_by="user",
+            reason="Enable autonomous button",
+        )
     logger.info("Resident autonomous mode enabled")
     return {"status": "ok", "mode": "autonomous", "message": "Autonomous mód zapnut"}
 
@@ -719,6 +752,84 @@ async def clear_agent_memory() -> dict:
     """Clear all resident agent memory entries."""
     agent = get_resident_agent()
     return await agent.clear_agent_memory()
+
+
+@router.get("/agent-memory/search")
+async def search_agent_memory(
+    q: str = Query(..., description="Search query (min 3 chars)"),
+    limit: int = Query(default=10, ge=1, le=50),
+) -> dict:
+    """Full-text search over agent memory entries."""
+    if len(q) < 3:
+        raise HTTPException(
+            status_code=400, detail="Query must be at least 3 characters"
+        )
+    try:
+        from app.services.memory_service import get_memory_service
+
+        mem = get_memory_service()
+        records = await mem.search_memory(q, top_k=limit)
+        results = []
+        for i, r in enumerate(records):
+            results.append(
+                {
+                    "id": r.id,
+                    "content": getattr(r, "text", getattr(r, "content", str(r))),
+                    "tags": list(getattr(r, "tags", [])),
+                    "created_at": getattr(r, "created_at", None),
+                    "relevance_score": round(max(0.0, 1.0 - i * 0.05), 2),
+                }
+            )
+        return {"results": results, "count": len(results), "query": q}
+    except Exception as exc:
+        logger.error("Memory search failed: %s", exc)
+        return {"results": [], "count": 0, "query": q}
+
+
+# ── Pending Actions (advisor mode) ───────────────────────────
+
+
+@router.get("/pending-actions")
+async def get_pending_actions() -> dict:
+    """Get list of pending actions awaiting user approval (advisor mode)."""
+    agent = get_resident_agent()
+    actions = agent.get_pending_actions()
+    # Only return pending ones to the UI
+    pending = [a for a in actions if a.get("status") == "pending"]
+    return {"actions": pending, "count": len(pending)}
+
+
+@router.post("/pending-actions/{action_id}/approve")
+async def approve_pending_action(action_id: str) -> dict:
+    """Approve a pending action."""
+    agent = get_resident_agent()
+    action = agent.approve_action(action_id)
+    if action is None:
+        raise HTTPException(404, "Akce nenalezena nebo již zpracována")
+    return {"status": "approved", "action_id": action_id, "action": action}
+
+
+@router.post("/pending-actions/{action_id}/reject")
+async def reject_pending_action(action_id: str) -> dict:
+    """Reject a pending action."""
+    agent = get_resident_agent()
+    action = agent.reject_action(action_id)
+    if action is None:
+        raise HTTPException(404, "Akce nenalezena nebo již zpracována")
+    return {"status": "rejected", "action_id": action_id}
+
+
+# ── Mode History ──────────────────────────────────────────────
+
+
+@router.get("/mode-history")
+async def get_mode_history(limit: int = Query(default=20, ge=1, le=50)) -> dict:
+    """Get recent mode change history."""
+    from app.services.mode_audit_service import get_mode_audit_service
+
+    audit_svc = get_mode_audit_service()
+    history = audit_svc.get_history(limit=limit)
+    return {"history": history, "count": len(history)}
 
 
 # ── Reflections ──────────────────────────────────────────────

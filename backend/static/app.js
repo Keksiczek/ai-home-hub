@@ -5796,10 +5796,11 @@ async function loadResidentDashboard() {
     _residentDashboardData = data;
     renderResidentDashboard(data);
     if (content) show(content);
-    // Also load logs, settings and mode status
+    // Also load logs, settings, mode status and history
     loadAgentLogs();
     loadAgentSettings();
     loadResidentModeStatus();
+    loadModeHistory();
   } catch (err) {
     showToast('Chyba dashboardu: ' + err.message, 'error');
     // Show inline error with retry – uživatel vidí příčinu místo prázdné stránky
@@ -6209,6 +6210,9 @@ function handleResidentTick(msg) {
     hbEl.className = 'resident-heartbeat resident-hb--' + msg.heartbeat_status;
     hbEl.textContent = msg.heartbeat_status;
   }
+  // Refresh mode status on each tick
+  loadAgentMode();
+  loadPendingActions();
 }
 
 function handleResidentAction(msg) {
@@ -6878,6 +6882,14 @@ async function loadResidentModeStatus() {
     }
     const desc = document.getElementById('modeDescription');
     if (desc) desc.textContent = descriptions[mode] || '';
+    // Update modeSwitcherDesc with user-friendly text
+    const modeDescs = {
+      observer: 'Agent sleduje systém a loguje události. Žádné automatické akce.',
+      advisor: 'Agent navrhuje akce. Každá akce čeká na tvůj souhlas v sekci Pending Actions.',
+      autonomous: 'Agent jedná samostatně. Akce se provádějí okamžitě bez potvrzení.',
+    };
+    const switcherDesc = document.getElementById('modeSwitcherDesc');
+    if (switcherDesc) switcherDesc.textContent = modeDescs[mode] || '';
     document.querySelectorAll('.mode-btn').forEach(btn => {
       btn.classList.toggle('mode-btn--active', btn.dataset.mode === mode);
     });
@@ -6887,7 +6899,139 @@ async function loadResidentModeStatus() {
     if (stats && data.stats) {
       stats.textContent = `${pending} návrhů čeká na schválení · ${data.stats.blocked_actions_since_start || 0} akcí zablokováno`;
     }
+    // Show/refresh pending actions if in advisor mode
+    loadPendingActions(mode);
   } catch (_) { /* silent */ }
+}
+
+async function loadAgentMode() {
+  try {
+    const res = await fetch('/api/resident/status');
+    if (!res.ok) return;
+    const data = await res.json();
+    const mode = data.resident_mode || data.mode || 'autonomous';
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+      btn.classList.toggle('mode-btn--active', btn.dataset.mode === mode);
+    });
+    const modeDescs = {
+      observer: 'Agent sleduje systém a loguje události. Žádné automatické akce.',
+      advisor: 'Agent navrhuje akce. Každá akce čeká na tvůj souhlas v sekci Pending Actions.',
+      autonomous: 'Agent jedná samostatně. Akce se provádějí okamžitě bez potvrzení.',
+    };
+    const switcherDesc = document.getElementById('modeSwitcherDesc');
+    if (switcherDesc) switcherDesc.textContent = modeDescs[mode] || '';
+  } catch (_) { /* silent */ }
+}
+
+async function setAgentMode(mode) {
+  try {
+    const res = await fetch('/api/resident/mode', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    showToast(`Režim změněn na: ${mode}`, 'success');
+    await loadResidentModeStatus();
+  } catch (e) {
+    showToast('Chyba při změně režimu: ' + e.message, 'error');
+  }
+}
+
+// ── Pending Actions ──────────────────────────────────────────
+
+let _pendingActionsTimer = null;
+
+async function loadPendingActions(currentMode) {
+  const panel = document.getElementById('pendingActionsPanel');
+  if (!panel) return;
+  const mode = currentMode || document.getElementById('resident-mode-select')?.value || 'advisor';
+  if (mode !== 'advisor') {
+    panel.style.display = 'none';
+    return;
+  }
+  try {
+    const res = await fetch('/api/resident/pending-actions');
+    if (!res.ok) return;
+    const data = await res.json();
+    const actions = data.actions || [];
+    const countEl = document.getElementById('pendingCount');
+    if (countEl) countEl.textContent = actions.length;
+    if (actions.length === 0) {
+      panel.style.display = 'none';
+      return;
+    }
+    panel.style.display = 'block';
+    const list = document.getElementById('pendingActionsList');
+    if (list) {
+      list.innerHTML = actions.map(a => `
+        <div class="pending-action-card" data-action-id="${escHtml(a.id)}">
+          <div class="pending-action-card__info">
+            <strong>${escHtml(a.action_type)}</strong>
+            <span class="pending-action-card__desc">${escHtml(a.description)}</span>
+            <span class="pending-action-card__time hint-text">${a.created_at ? new Date(a.created_at).toLocaleString('cs-CZ') : ''}</span>
+          </div>
+          <div class="pending-action-card__actions">
+            <button class="btn btn--primary btn--small" onclick="approvePendingAction('${escHtml(a.id)}')">&#10003; Schv&#225;lit</button>
+            <button class="btn btn--danger btn--small" onclick="rejectPendingAction('${escHtml(a.id)}')">&#10005; Zam&#237;tnout</button>
+          </div>
+        </div>`).join('');
+    }
+  } catch (_) {
+    const panel = document.getElementById('pendingActionsPanel');
+    if (panel) panel.style.display = 'none';
+  }
+}
+
+async function approvePendingAction(actionId) {
+  try {
+    const res = await fetch(`/api/resident/pending-actions/${encodeURIComponent(actionId)}/approve`, { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    showToast('Akce schválena', 'success');
+    loadPendingActions();
+  } catch (e) {
+    showToast('Chyba: ' + e.message, 'error');
+  }
+}
+
+async function rejectPendingAction(actionId) {
+  try {
+    const res = await fetch(`/api/resident/pending-actions/${encodeURIComponent(actionId)}/reject`, { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    showToast('Akce zamítnuta', 'info');
+    loadPendingActions();
+  } catch (e) {
+    showToast('Chyba: ' + e.message, 'error');
+  }
+}
+
+// ── Mode History ─────────────────────────────────────────────
+
+async function loadModeHistory() {
+  const el = document.getElementById('modeHistoryList');
+  if (!el) return;
+  try {
+    const res = await fetch('/api/resident/mode-history?limit=20');
+    if (!res.ok) return;
+    const data = await res.json();
+    const history = data.history || [];
+    if (!history.length) {
+      el.innerHTML = '<p class="empty-state">Žádné změny módu</p>';
+      return;
+    }
+    const modeIcons = { observer: '👁️', advisor: '💡', autonomous: '⚡' };
+    el.innerHTML = history.slice().reverse().map(h => `
+      <div class="mode-history-item">
+        <span class="mode-history-item__icon">${modeIcons[h.from_mode] || '?'}</span>
+        <span class="mode-history-item__arrow">→</span>
+        <span class="mode-history-item__icon">${modeIcons[h.to_mode] || '?'}</span>
+        <span class="mode-history-item__modes"><strong>${escHtml(h.from_mode)}</strong> → <strong>${escHtml(h.to_mode)}</strong></span>
+        <span class="mode-history-item__by hint-text">${escHtml(h.changed_by)}</span>
+        <span class="mode-history-item__time hint-text">${h.changed_at ? new Date(h.changed_at).toLocaleString('cs-CZ') : (h.timestamp ? new Date(h.timestamp).toLocaleString('cs-CZ') : '')}</span>
+      </div>`).join('');
+  } catch (_) {
+    el.innerHTML = '<p class="empty-state hint-text">Chyba při načítání</p>';
+  }
 }
 
 async function switchResidentMode(newMode) {
@@ -6917,6 +7061,30 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.mode-btn').forEach(btn => {
     btn.addEventListener('click', () => switchResidentMode(btn.dataset.mode));
   });
+
+  // Load mode history when details is opened
+  const modeHistoryCard = document.getElementById('mode-history-card');
+  if (modeHistoryCard) {
+    modeHistoryCard.addEventListener('toggle', () => {
+      if (modeHistoryCard.open) loadModeHistory();
+    });
+  }
+
+  // Memory search Enter key
+  const memSearchInput = document.getElementById('memorySearchInput');
+  if (memSearchInput) {
+    memSearchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') searchAgentMemory();
+    });
+  }
+
+  // Start pending actions polling every 5 seconds (only when resident tab visible)
+  setInterval(() => {
+    const panel = document.getElementById('tab-resident');
+    if (panel && !panel.classList.contains('hidden')) {
+      loadPendingActions();
+    }
+  }, 5000);
 });
 
 // ── Panic / toggle autonomy ──────────────────────────────────────────────────
@@ -9601,11 +9769,65 @@ function renderAgentMemoryRows(memories) {
 }
 
 function filterAgentMemory(query) {
-  const q = query.toLowerCase();
+  const q = (query || '').toLowerCase();
+  // Show/hide clear button
+  const clearBtn = document.getElementById('memoryClearSearch');
+  const warning = document.getElementById('memorySearchWarning');
+  if (clearBtn) clearBtn.style.display = q ? 'inline-flex' : 'none';
+  if (warning) warning.style.display = (q && q.length < 3) ? 'inline' : 'none';
   const filtered = q
     ? _agentMemoryData.filter(m => (m.text || '').toLowerCase().includes(q) || (m.tags || []).some(t => t.toLowerCase().includes(q)))
     : _agentMemoryData;
   renderAgentMemoryRows(filtered);
+}
+
+async function searchAgentMemory() {
+  const input = document.getElementById('memorySearchInput');
+  const q = input?.value.trim() || '';
+  const warning = document.getElementById('memorySearchWarning');
+  if (q.length < 3) {
+    if (warning) warning.style.display = 'inline';
+    return;
+  }
+  if (warning) warning.style.display = 'none';
+  const clearBtn = document.getElementById('memoryClearSearch');
+  if (clearBtn) clearBtn.style.display = 'inline-flex';
+  try {
+    const res = await fetch(`/api/resident/agent-memory/search?q=${encodeURIComponent(q)}&limit=20`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const tbody = document.getElementById('agent-memory-rows');
+    if (!tbody) return;
+    if (!data.results.length) {
+      tbody.innerHTML = `<tr><td colspan="5" class="hint-text" style="text-align:center;padding:1rem">Nenalezeny žádné výsledky pro „${escHtml(q)}"</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = data.results.map((r, i) => {
+      const tags = (r.tags || []).map(t => `<span class="tag">${escHtml(t)}</span>`).join(' ');
+      const time = r.created_at ? new Date(r.created_at).toLocaleString('cs-CZ') : '—';
+      const score = Math.round((r.relevance_score || 0) * 100);
+      return `
+        <tr>
+          <td class="hint-text">${i + 1}</td>
+          <td class="hint-text" style="white-space:nowrap;font-size:0.75rem">${time}</td>
+          <td>${escHtml((r.content || '').slice(0, 120))}${(r.content || '').length > 120 ? '…' : ''}</td>
+          <td>${tags}</td>
+          <td><span class="tag" style="background:#1e3a5f;color:#60a5fa">${score}%</span></td>
+        </tr>`;
+    }).join('');
+  } catch (err) {
+    showToast(`Chyba hledání: ${err.message}`, 'error');
+  }
+}
+
+function clearAgentMemorySearch() {
+  const input = document.getElementById('memorySearchInput');
+  if (input) input.value = '';
+  const clearBtn = document.getElementById('memoryClearSearch');
+  if (clearBtn) clearBtn.style.display = 'none';
+  const warning = document.getElementById('memorySearchWarning');
+  if (warning) warning.style.display = 'none';
+  renderAgentMemoryRows(_agentMemoryData);
 }
 
 async function addAgentMemoryItem() {

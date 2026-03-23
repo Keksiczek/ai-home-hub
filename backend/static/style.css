@@ -5512,14 +5512,24 @@ details[open].reasoning-cycle-item > .reasoning-cycle-summary::before {
   transition: all 0.15s;
 }
 .mode-btn:hover { border-color: #6b7280; background: #333; }
-.mode-btn--active { border-color: #60a5fa; background: #1e3a5f; color: #60a5fa; }
+/* observer = gray, advisor = blue, autonomous = green */
+.mode-btn--active { border-color: #6b7280; background: #374151; color: #d1d5db; }
+.mode-btn--active[data-mode="observer"] {
+  border-color: #6b7280; background: #1f2937; color: #9ca3af;
+}
 .mode-btn--active[data-mode="advisor"] {
-  border-color: #fbbf24; background: #3d2e00; color: #fbbf24;
+  border-color: #3b82f6; background: #1e3a5f; color: #93c5fd;
 }
 .mode-btn--active[data-mode="autonomous"] {
-  border-color: #34d399; background: #14381f; color: #34d399;
+  border-color: #10b981; background: #064e3b; color: #6ee7b7;
 }
 .mode-btn--danger:hover { border-color: #f87171; }
+.mode-switcher__desc {
+  font-size: 0.82rem;
+  color: var(--text-muted, #888);
+  margin-top: 6px;
+  min-height: 1.2em;
+}
 .mode-stats { font-size: 0.8rem; color: var(--text-muted, #888); }
 .mode-warning {
   margin-top: 8px;
@@ -5530,6 +5540,68 @@ details[open].reasoning-cycle-item > .reasoning-cycle-summary::before {
   color: #fb923c;
   font-size: 0.83rem;
 }
+
+/* ── Pending Actions Panel ───────────────────────────────── */
+.pending-actions {
+  background: var(--bg-card, #0b1120);
+  border: 1px solid #3b82f6;
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+.pending-actions__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-weight: 600;
+  color: #93c5fd;
+}
+.pending-count {
+  background: #3b82f6;
+  color: #fff;
+  border-radius: 12px;
+  padding: 1px 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.pending-action-card {
+  background: var(--bg-surface, #1a1d27);
+  border: 1px solid var(--border, #1f2937);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.pending-action-card__info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pending-action-card__desc { font-size: 0.85rem; color: var(--text-muted, #888); }
+.pending-action-card__time { font-size: 0.75rem; }
+.pending-action-card__actions { display: flex; gap: 6px; align-items: center; }
+
+/* ── Mode History ───────────────────────────────────────── */
+.mode-history-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border, #1f2937);
+  font-size: 0.85rem;
+  flex-wrap: wrap;
+}
+.mode-history-item:last-child { border-bottom: none; }
+.mode-history-item__icon { font-size: 1.1em; }
+.mode-history-item__arrow { color: var(--text-muted, #888); }
+.mode-history-item__modes { flex: 1; }
+.mode-history-item__by { background: var(--bg-surface, #1a1d27); padding: 1px 6px; border-radius: 4px; font-size: 0.75rem; }
+.mode-history-item__time { color: var(--text-muted, #888); font-size: 0.75rem; }
 
 /* ── Quick Actions ────────────────────────────────────────── */
 .quick-actions {

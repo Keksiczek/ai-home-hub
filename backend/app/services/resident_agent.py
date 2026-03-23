@@ -273,6 +273,8 @@ class ResidentAgent(BackgroundService):
         self._blocked_actions_since_start: int = 0
         # Mode change tracking for audit trail
         self._last_known_mode: str = ""
+        # Pending actions for advisor mode
+        self._pending_actions: List[dict] = []
 
     def set_broadcast(self, fn: Callable) -> None:
         """Register a coroutine for broadcasting WebSocket messages."""
@@ -2427,6 +2429,50 @@ class ResidentAgent(BackgroundService):
         except Exception as exc:
             logger.debug("Failed to delete agent memory %s: %s", memory_id, exc)
             return {"status": "error", "error": str(exc)}
+
+    def get_pending_actions(self) -> List[dict]:
+        """Return list of pending actions waiting for user approval."""
+        return list(self._pending_actions)
+
+    def add_pending_action(
+        self,
+        action_type: str,
+        description: str,
+        params: Optional[dict] = None,
+    ) -> dict:
+        """Add a new pending action to the queue."""
+        import uuid
+
+        action = {
+            "id": str(uuid.uuid4()),
+            "action_type": action_type,
+            "description": description,
+            "params": params or {},
+            "status": "pending",
+            "created_at": _now(),
+        }
+        self._pending_actions.append(action)
+        if len(self._pending_actions) > 50:
+            self._pending_actions = self._pending_actions[-50:]
+        return action
+
+    def approve_action(self, action_id: str) -> Optional[dict]:
+        """Approve a pending action. Returns the action dict or None if not found."""
+        for action in self._pending_actions:
+            if action["id"] == action_id and action["status"] == "pending":
+                action["status"] = "approved"
+                self._add_log("INFO", "pending_action_approved", action_id=action_id)
+                return action
+        return None
+
+    def reject_action(self, action_id: str) -> Optional[dict]:
+        """Reject a pending action. Returns the action dict or None if not found."""
+        for action in self._pending_actions:
+            if action["id"] == action_id and action["status"] == "pending":
+                action["status"] = "rejected"
+                self._add_log("INFO", "pending_action_rejected", action_id=action_id)
+                return action
+        return None
 
     async def add_agent_memory_manual(
         self, content: str, tags: list[str] | None = None
