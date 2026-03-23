@@ -211,6 +211,28 @@
           <div id="vision-mode-indicator" class="vision-mode-badge hidden">
             &#128270; Vision mode aktivn&iacute;
           </div>
+          <!-- Quick Action Skills -->
+          <div class="quick-actions" id="quickActions">
+            <span class="quick-actions-label">Rychlé akce:</span>
+            <button class="quick-btn" data-prompt="Zkontroluj aktuální počasí v Nymburku">
+              🌤️ Počasí
+            </button>
+            <button class="quick-btn" data-prompt="Zobraz aktuální stav systému – CPU, RAM, disk">
+              💻 Systém
+            </button>
+            <button class="quick-btn" data-prompt="Vyhledej na webu: ">
+              🌐 Web Search
+            </button>
+            <button class="quick-btn" data-prompt="Zobraz lean metriky za posledních 24 hodin">
+              📈 Metriky
+            </button>
+            <button class="quick-btn" data-prompt="Zkontroluj GitHub CI status pro keksiczek/ai-home-hub">
+              🔄 CI Status
+            </button>
+            <button class="quick-btn" data-prompt="Zobraz dnešní kalendář">
+              📅 Kalendář
+            </button>
+          </div>
           <!-- Quick prompts -->
           <div class="quick-prompts-bar" id="quick-prompts-bar">
             <button class="quick-prompt-btn" data-prompt="Shr&#328; n&iacute;&#382;e uveden&yacute; text do maxim&aacute;ln&#283; 5 odr&aacute;&#382;ek:">&#128221; Shrnutí</button>
@@ -577,6 +599,31 @@
           <div id="resident-observer-info" class="hidden" style="width:100%;margin-top:4px;font-size:0.8em;color:var(--text-secondary)">
             &#128065;&#65039; Observer m&oacute;d &ndash; agent sleduje syst&eacute;m, nevolá LLM ani nezpracov&aacute;v&aacute; tasky.
           </div>
+        </div>
+      </div>
+
+      <!-- Mode Switcher -->
+      <div class="mode-switcher" id="modeSwitcher">
+        <div class="mode-switcher-header">
+          <span class="mode-label">Režim agenta:</span>
+          <span class="mode-badge" id="modeBadge">···</span>
+          <span class="mode-description" id="modeDescription"></span>
+        </div>
+        <div class="mode-buttons">
+          <button class="mode-btn" data-mode="observer" title="Jen sleduje, nevolá LLM">
+            👁 Observer
+          </button>
+          <button class="mode-btn" data-mode="advisor" title="Navrhuje akce, nespouští automaticky">
+            💡 Advisor
+          </button>
+          <button class="mode-btn mode-btn--danger" data-mode="autonomous"
+                  title="Jedná samostatně v rámci guardrailů">
+            ⚡ Autonomous
+          </button>
+        </div>
+        <div class="mode-stats" id="modeStats"></div>
+        <div class="mode-warning" id="modeWarning" style="display:none">
+          ⚠️ Autonomous mód – agent jedná samostatně. Sleduj activity log.
         </div>
       </div>
 
@@ -2704,5 +2751,24 @@
     });
   })();
   </script>
+  <!-- README Preview Modal -->
+  <div id="readmeModal" class="modal-overlay" style="display:none"
+       onclick="if(event.target===this)closeReadmeModal()">
+    <div class="modal-box modal-box--wide">
+      <div class="modal-header">
+        <span id="readmeModalTitle">README</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <a id="readmeModalLink" href="#" target="_blank" class="btn-sm">
+            ↗ Otevřít na GitHubu
+          </a>
+          <button onclick="closeReadmeModal()" class="modal-close">✕</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div id="readmeContent" class="readme-content">Načítám...</div>
+      </div>
+    </div>
+  </div>
+
 </body>
 </html>
