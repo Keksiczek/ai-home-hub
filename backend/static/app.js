@@ -259,7 +259,7 @@ function switchTab(tabName) {
   // Lazy-load tab data
   if (tabName === 'status') loadSystemStatus();
   if (tabName === 'agents') { refreshAgents(); loadAgentSkillSelect(); loadFsAgentSkillSelect(); loadAgentMemoryTable(); }
-  if (tabName === 'skills') loadSkills();
+  if (tabName === 'skills') { loadSkills(); loadMarketplace(); }
   if (tabName === 'jobs') { loadJobs(); loadJobHistory(); }
   if (tabName === 'actions') { loadQuickActions(); loadVSCodeProjects(); loadActionHistory(); }
   if (tabName === 'settings') { loadSettings(); loadOllamaModels(); loadRuntimeSkills(); }
@@ -10223,3 +10223,362 @@ function initTooltips() {
 }
 
 document.addEventListener('DOMContentLoaded', initTooltips);
+
+/* ============================================================
+   SKILLS MARKETPLACE
+   ============================================================ */
+
+let _mpSkills = [];
+let _mpCategoryFilter = '';
+let _mpConfigSkillId = null;
+let _ghDiscoveryLoaded = false;
+
+const MP_CATEGORY_COLORS = {
+  web: '#3b82f6',
+  system: '#6b7280',
+  git: '#8b5cf6',
+  ai: '#10b981',
+  communication: '#f59e0b',
+  custom: '#ec4899',
+};
+
+const MP_PERM_ICONS = {
+  network: '\u{1F310} network',
+  filesystem: '\u{1F4C1} filesystem',
+  shell: '\u2699\uFE0F shell',
+  memory: '\u{1F9E0} memory',
+};
+
+function bindMarketplaceEvents() {
+  // Category tabs
+  const catTabs = document.getElementById('mp-category-tabs');
+  if (catTabs) {
+    catTabs.querySelectorAll('[data-cat]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        catTabs.querySelectorAll('[data-cat]').forEach(b => b.classList.remove('pill--active'));
+        btn.classList.add('pill--active');
+        _mpCategoryFilter = btn.dataset.cat || '';
+        renderMarketplaceGrid();
+      });
+    });
+  }
+
+  // Search
+  const mpSearch = document.getElementById('mp-search');
+  if (mpSearch) {
+    mpSearch.addEventListener('input', debounce(renderMarketplaceGrid, 300));
+  }
+
+  // Config modal
+  const cfgClose = document.getElementById('mp-config-close');
+  const cfgCancel = document.getElementById('mp-config-cancel');
+  const cfgSave = document.getElementById('mp-config-save');
+  if (cfgClose) cfgClose.addEventListener('click', () => hide(document.getElementById('mp-config-modal')));
+  if (cfgCancel) cfgCancel.addEventListener('click', () => hide(document.getElementById('mp-config-modal')));
+  if (cfgSave) cfgSave.addEventListener('click', saveMarketplaceConfig);
+
+  document.getElementById('mp-config-modal')?.addEventListener('click', (e) => {
+    if (e.target.id === 'mp-config-modal') hide(e.target);
+  });
+
+  // GitHub discover
+  const ghBtn = document.getElementById('gh-discover-btn');
+  if (ghBtn) ghBtn.addEventListener('click', loadGitHubDiscover);
+  const ghInput = document.getElementById('gh-discover-search');
+  if (ghInput) {
+    ghInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') loadGitHubDiscover(); });
+  }
+}
+
+async function loadMarketplace() {
+  try {
+    const res = await fetch('/api/skills/marketplace');
+    const data = await res.json();
+    _mpSkills = data.skills || [];
+    renderMarketplaceGrid();
+  } catch (err) {
+    const grid = document.getElementById('mp-grid');
+    if (grid) grid.innerHTML = `<p class="empty-state">Chyba: ${escHtml(err.message)}</p>`;
+  }
+
+  // Auto-load GitHub discovery on first visit
+  if (!_ghDiscoveryLoaded) {
+    _ghDiscoveryLoaded = true;
+    loadGitHubDiscover();
+  }
+}
+
+function renderMarketplaceGrid() {
+  const grid = document.getElementById('mp-grid');
+  if (!grid) return;
+
+  const search = (document.getElementById('mp-search')?.value || '').toLowerCase().trim();
+
+  let filtered = _mpSkills;
+  if (_mpCategoryFilter) {
+    filtered = filtered.filter(s => s.category === _mpCategoryFilter);
+  }
+  if (search) {
+    filtered = filtered.filter(s =>
+      (s.name || '').toLowerCase().includes(search) ||
+      (s.description || '').toLowerCase().includes(search) ||
+      (s.long_description || '').toLowerCase().includes(search)
+    );
+  }
+
+  if (!filtered.length) {
+    grid.innerHTML = '<p class="empty-state">Zadne skills nalezeny.</p>';
+    return;
+  }
+
+  grid.innerHTML = filtered.map(s => {
+    const catColor = MP_CATEGORY_COLORS[s.category] || '#6b7280';
+    const perms = (s.permissions || []).map(p => `<span class="mp-perm-badge">${MP_PERM_ICONS[p] || p}</span>`).join('');
+    const hasInputs = (s.inputs || []).length > 0;
+    const checked = s.enabled ? 'checked' : '';
+
+    return `
+    <div class="skill-card mp-skill-card" data-mp-id="${escHtml(s.id)}">
+      <div class="skill-card-header">
+        <span class="skill-card-icon" style="font-size:2rem">${s.icon || '\u26A1'}</span>
+        <div class="skill-card-info">
+          <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
+            <span class="skill-card-name">${escHtml(s.name)}</span>
+            <span class="mp-cat-badge" style="background:${catColor}">${escHtml(s.category)}</span>
+          </div>
+          <div class="skill-card-desc mp-long-desc">${escHtml(s.long_description || s.description || '')}</div>
+        </div>
+      </div>
+      ${perms ? `<div class="mp-perms-row">${perms}</div>` : ''}
+      <div class="mp-card-footer">
+        <label class="mp-toggle-label">
+          <input type="checkbox" class="mp-toggle-cb" data-skill="${escHtml(s.id)}" ${checked} />
+          <span class="mp-toggle-slider"></span>
+        </label>
+        ${hasInputs ? `<button class="btn btn--ghost btn--small mp-config-btn" data-config="${escHtml(s.id)}">Konfigurovat</button>` : ''}
+        <button class="btn btn--ghost btn--small mp-test-btn" data-test="${escHtml(s.id)}">Test \u25B6</button>
+      </div>
+      <div class="mp-test-result hidden" data-test-result="${escHtml(s.id)}"></div>
+    </div>`;
+  }).join('');
+
+  // Bind toggle events
+  grid.querySelectorAll('.mp-toggle-cb').forEach(cb => {
+    cb.addEventListener('change', async () => {
+      const sid = cb.dataset.skill;
+      const endpoint = cb.checked ? 'enable' : 'disable';
+      try {
+        const res = await fetch(`/api/skills/marketplace/${sid}/${endpoint}`, { method: 'POST' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const manifest = await res.json();
+        // Update local state
+        const idx = _mpSkills.findIndex(s => s.id === sid);
+        if (idx >= 0) _mpSkills[idx] = manifest;
+        showToast(`${manifest.name} ${cb.checked ? 'zapnuto' : 'vypnuto'}`, 'success');
+      } catch (err) {
+        cb.checked = !cb.checked; // revert
+        showToast(`Chyba: ${err.message}`, 'error');
+      }
+    });
+  });
+
+  // Bind config buttons
+  grid.querySelectorAll('.mp-config-btn').forEach(btn => {
+    btn.addEventListener('click', () => openMarketplaceConfig(btn.dataset.config));
+  });
+
+  // Bind test buttons
+  grid.querySelectorAll('.mp-test-btn').forEach(btn => {
+    btn.addEventListener('click', () => testMarketplaceSkill(btn.dataset.test, btn));
+  });
+}
+
+function openMarketplaceConfig(skillId) {
+  const skill = _mpSkills.find(s => s.id === skillId);
+  if (!skill || !skill.inputs || !skill.inputs.length) return;
+
+  _mpConfigSkillId = skillId;
+  const title = document.getElementById('mp-config-title');
+  const body = document.getElementById('mp-config-body');
+  title.textContent = `Konfigurovat ${skill.name}`;
+
+  const config = skill.config || {};
+
+  body.innerHTML = skill.inputs.map(inp => {
+    const val = config[inp.id] != null ? config[inp.id] : (inp.default || '');
+    const displayVal = (inp.secret && val === '***') ? '' : val;
+    const reqMark = inp.required ? '<span style="color:#ef4444">*</span>' : '';
+
+    let inputHtml = '';
+    if (inp.type === 'password') {
+      inputHtml = `
+        <div style="display:flex;gap:0.5rem;align-items:center">
+          <input type="password" class="input mp-cfg-input" data-field="${escHtml(inp.id)}"
+                 value="${escHtml(String(displayVal))}" placeholder="${escHtml(String(inp.default || ''))}"
+                 style="flex:1" />
+          <button class="btn btn--ghost btn--small mp-reveal-btn" type="button"
+                  onclick="this.previousElementSibling.type = this.previousElementSibling.type==='password' ? 'text' : 'password'">
+            \u{1F441} Zobrazit
+          </button>
+        </div>`;
+    } else if (inp.type === 'boolean') {
+      const isChecked = val === true || val === 'true' ? 'checked' : '';
+      inputHtml = `<label class="mp-toggle-label" style="justify-content:flex-start">
+        <input type="checkbox" class="mp-cfg-input mp-toggle-cb" data-field="${escHtml(inp.id)}" ${isChecked} />
+        <span class="mp-toggle-slider"></span>
+      </label>`;
+    } else if (inp.type === 'select') {
+      inputHtml = `<select class="input mp-cfg-input" data-field="${escHtml(inp.id)}">
+        ${(inp.options || []).map(o => `<option value="${escHtml(o)}" ${o === val ? 'selected' : ''}>${escHtml(o)}</option>`).join('')}
+      </select>`;
+    } else {
+      const inputType = inp.type === 'number' ? 'number' : 'text';
+      inputHtml = `<input type="${inputType}" class="input mp-cfg-input" data-field="${escHtml(inp.id)}"
+                          value="${escHtml(String(displayVal))}" placeholder="${escHtml(String(inp.default || ''))}" />`;
+    }
+
+    return `
+      <div class="form-group">
+        <label class="form-label">${escHtml(inp.label)} ${reqMark}</label>
+        ${inputHtml}
+        ${inp.description ? `<p style="color:#64748b;font-size:0.75rem;margin-top:0.25rem">${escHtml(inp.description)}</p>` : ''}
+      </div>`;
+  }).join('');
+
+  // Focus event: clear "***" placeholder for secret fields
+  body.querySelectorAll('.mp-cfg-input[type="password"]').forEach(el => {
+    el.addEventListener('focus', () => {
+      if (el.value === '***' || el.value === '') el.value = '';
+    });
+  });
+
+  show(document.getElementById('mp-config-modal'));
+}
+
+async function saveMarketplaceConfig() {
+  if (!_mpConfigSkillId) return;
+
+  const body = document.getElementById('mp-config-body');
+  const updates = {};
+
+  body.querySelectorAll('.mp-cfg-input').forEach(el => {
+    const field = el.dataset.field;
+    if (el.type === 'checkbox') {
+      updates[field] = el.checked;
+    } else if (el.type === 'number') {
+      updates[field] = Number(el.value);
+    } else {
+      // Don't update secret fields if left empty
+      if (el.value !== '' || el.type !== 'password') {
+        updates[field] = el.value;
+      }
+    }
+  });
+
+  try {
+    const res = await fetch(`/api/skills/marketplace/${_mpConfigSkillId}/config`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const manifest = await res.json();
+    const idx = _mpSkills.findIndex(s => s.id === _mpConfigSkillId);
+    if (idx >= 0) _mpSkills[idx] = manifest;
+    showToast('Konfigurace ulozena', 'success');
+    hide(document.getElementById('mp-config-modal'));
+  } catch (err) {
+    showToast(`Chyba: ${err.message}`, 'error');
+  }
+}
+
+async function testMarketplaceSkill(skillId, btn) {
+  const resultEl = document.querySelector(`[data-test-result="${skillId}"]`);
+  btn.disabled = true;
+  btn.textContent = '\u23F3 Testuji...';
+  if (resultEl) { resultEl.classList.remove('hidden'); resultEl.textContent = 'Spoustim test...'; }
+
+  try {
+    const res = await fetch(`/api/skills/marketplace/${skillId}/test`, { method: 'POST' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    if (data.success) {
+      btn.textContent = '\u2705 OK';
+      btn.classList.add('skill-test-btn--success');
+      if (resultEl) {
+        const outShort = (data.output || '').substring(0, 200);
+        resultEl.innerHTML = `<span style="color:#10b981">\u2705 Success \u00B7 ${data.duration_ms}ms</span> <span style="color:#94a3b8">${escHtml(outShort)}</span>`;
+      }
+    } else {
+      btn.textContent = '\u274C Fail';
+      btn.classList.add('skill-test-btn--error');
+      if (resultEl) {
+        resultEl.innerHTML = `<span style="color:#ef4444">\u274C Error \u00B7 ${data.duration_ms}ms \u00B7 ${escHtml(data.error || '')}</span>`;
+      }
+    }
+  } catch (err) {
+    btn.textContent = '\u274C Fail';
+    btn.classList.add('skill-test-btn--error');
+    if (resultEl) resultEl.innerHTML = `<span style="color:#ef4444">\u274C ${escHtml(err.message)}</span>`;
+  }
+
+  setTimeout(() => {
+    btn.disabled = false;
+    btn.textContent = 'Test \u25B6';
+    btn.classList.remove('skill-test-btn--success', 'skill-test-btn--error');
+  }, 5000);
+}
+
+async function loadGitHubDiscover() {
+  const grid = document.getElementById('gh-discover-grid');
+  const searchVal = document.getElementById('gh-discover-search')?.value?.trim() || '';
+  if (!grid) return;
+
+  grid.innerHTML = '<p class="empty-state">\u23F3 Hledam na GitHubu...</p>';
+
+  try {
+    let url = '/api/skills/marketplace/discover';
+    if (searchVal) url += `?query=${encodeURIComponent(searchVal)}`;
+    const res = await fetch(url);
+    const data = await res.json();
+
+    if (data.error) {
+      grid.innerHTML = `<p class="empty-state">Chyba: ${escHtml(data.error)}</p>`;
+      return;
+    }
+
+    const results = data.results || [];
+    if (!results.length) {
+      grid.innerHTML = '<p class="empty-state">Zadne vysledky.</p>';
+      return;
+    }
+
+    grid.innerHTML = results.map(r => `
+      <div class="skill-card mp-gh-card">
+        <div class="skill-card-header">
+          <div class="skill-card-info" style="width:100%">
+            <div style="display:flex;align-items:center;gap:0.5rem;justify-content:space-between">
+              <a href="${escHtml(r.url)}" target="_blank" rel="noopener" class="skill-card-name" style="color:#60a5fa;text-decoration:none">
+                ${escHtml(r.name)}
+              </a>
+              <span style="color:#fbbf24;font-size:0.8125rem">\u2B50 ${r.stars}</span>
+            </div>
+            <div class="skill-card-desc">${escHtml(r.description || '')}</div>
+          </div>
+        </div>
+        <div class="mp-gh-meta">
+          ${r.language ? `<span class="mp-perm-badge">${escHtml(r.language)}</span>` : ''}
+          ${r.compatible ? '<span class="mp-perm-badge" style="background:rgba(16,185,129,0.15);color:#10b981">Compatible</span>' : ''}
+          ${(r.topics || []).slice(0, 4).map(t => `<span class="skill-tag">${escHtml(t)}</span>`).join('')}
+        </div>
+        <div style="font-size:0.75rem;color:#64748b;margin-top:0.25rem">${escHtml(r.install_hint || '')}</div>
+      </div>
+    `).join('');
+  } catch (err) {
+    grid.innerHTML = `<p class="empty-state">Chyba: ${escHtml(err.message)}</p>`;
+  }
+}
+
+// Initialize marketplace events on DOM ready
+document.addEventListener('DOMContentLoaded', bindMarketplaceEvents);

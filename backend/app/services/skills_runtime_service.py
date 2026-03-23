@@ -606,3 +606,171 @@ def get_skills_catalog() -> List[Dict[str, Any]]:
         entry["enabled"] = name in enabled
         result.append(entry)
     return result
+
+
+# ── Marketplace functions ──────────────────────────────────────
+
+from app.models.skill_manifest import SkillManifest
+from app.services.skill_registry import get_builtin_manifest, get_all_builtin_manifests
+
+
+def _mask_secrets(manifest: SkillManifest) -> SkillManifest:
+    """Return a copy of the manifest with secret field values masked."""
+    secret_ids = {inp.id for inp in manifest.inputs if inp.secret}
+    if not secret_ids or not manifest.config:
+        return manifest
+    masked_config = dict(manifest.config)
+    for key in secret_ids:
+        if key in masked_config and masked_config[key]:
+            masked_config[key] = "***"
+    return manifest.model_copy(update={"config": masked_config})
+
+
+def get_skill_manifest(skill_id: str) -> Optional[SkillManifest]:
+    """Manifest obohacený o aktuální enabled stav a config ze settings.json."""
+    manifest = get_builtin_manifest(skill_id)
+    if not manifest:
+        return None
+    settings = get_settings_service().load()
+    enabled_list = settings.get("enabled_skills", list(ALL_SKILLS.keys()))
+    skill_config = settings.get("skills_config", {}).get(skill_id, {})
+    updated = manifest.model_copy(update={
+        "enabled": skill_id in enabled_list,
+        "config": skill_config,
+    })
+    return _mask_secrets(updated)
+
+
+def get_all_skill_manifests() -> List[SkillManifest]:
+    """Manifesty pro všechny builtin skills."""
+    settings = get_settings_service().load()
+    enabled_list = set(settings.get("enabled_skills", list(ALL_SKILLS.keys())))
+    skills_config = settings.get("skills_config", {})
+    result = []
+    for manifest in get_all_builtin_manifests():
+        skill_config = skills_config.get(manifest.id, {})
+        updated = manifest.model_copy(update={
+            "enabled": manifest.id in enabled_list,
+            "config": skill_config,
+        })
+        result.append(_mask_secrets(updated))
+    return result
+
+
+def get_skills_by_category() -> Dict[str, List[SkillManifest]]:
+    """Dict category → list manifests."""
+    manifests = get_all_skill_manifests()
+    categories: Dict[str, List[SkillManifest]] = {}
+    for m in manifests:
+        categories.setdefault(m.category, []).append(m)
+    return categories
+
+
+def enable_skill(skill_id: str) -> bool:
+    """Přidá skill do enabled_skills v settings.json."""
+    if skill_id not in ALL_SKILLS:
+        return False
+    svc = get_settings_service()
+    settings = svc.load()
+    enabled = settings.get("enabled_skills", list(ALL_SKILLS.keys()))
+    if skill_id not in enabled:
+        enabled.append(skill_id)
+    settings["enabled_skills"] = enabled
+    svc.save(settings)
+    return True
+
+
+def disable_skill(skill_id: str) -> bool:
+    """Odebere skill z enabled_skills v settings.json."""
+    if skill_id not in ALL_SKILLS:
+        return False
+    svc = get_settings_service()
+    settings = svc.load()
+    enabled = settings.get("enabled_skills", list(ALL_SKILLS.keys()))
+    if skill_id in enabled:
+        enabled.remove(skill_id)
+    settings["enabled_skills"] = enabled
+    svc.save(settings)
+    return True
+
+
+def update_skill_config(skill_id: str, config_updates: dict) -> Optional[SkillManifest]:
+    """Uloží config do settings.json pod skills_config.{skill_id}.
+    Vrátí manifest se zamaskovanými secret fieldy."""
+    manifest = get_builtin_manifest(skill_id)
+    if not manifest:
+        return None
+    svc = get_settings_service()
+    settings = svc.load()
+    skills_config = settings.get("skills_config", {})
+    current = skills_config.get(skill_id, {})
+    current.update(config_updates)
+    skills_config[skill_id] = current
+    settings["skills_config"] = skills_config
+    svc.save(settings)
+    return get_skill_manifest(skill_id)
+
+
+async def test_skill(skill_id: str) -> dict:
+    """Spustí skill s testovacími parametry, timeout 30s.
+    Vrátí {success: bool, output: str, duration_ms: float, error: str}"""
+    import time
+
+    skill = ALL_SKILLS.get(skill_id)
+    if not skill:
+        return {"success": False, "output": "", "duration_ms": 0, "error": f"Skill '{skill_id}' not found"}
+
+    # Skills that should be skipped
+    if skill_id in ("vision", "timer"):
+        return {"success": True, "output": "Test skipped – skill requires special setup", "duration_ms": 0, "error": ""}
+
+    start = time.monotonic()
+    try:
+        result = await asyncio.wait_for(_run_skill_test(skill_id, skill), timeout=30)
+        elapsed = (time.monotonic() - start) * 1000
+        output = str(result) if result else ""
+        if len(output) > 500:
+            output = output[:500] + "..."
+        is_error = isinstance(result, dict) and "error" in result and result["error"]
+        return {
+            "success": not is_error,
+            "output": output,
+            "duration_ms": round(elapsed, 1),
+            "error": result.get("error", "") if isinstance(result, dict) else "",
+        }
+    except asyncio.TimeoutError:
+        elapsed = (time.monotonic() - start) * 1000
+        return {"success": False, "output": "", "duration_ms": round(elapsed, 1), "error": "Timeout after 30s"}
+    except Exception as exc:
+        elapsed = (time.monotonic() - start) * 1000
+        return {"success": False, "output": "", "duration_ms": round(elapsed, 1), "error": str(exc)}
+
+
+async def _run_skill_test(skill_id: str, skill: BaseSkill) -> Any:
+    """Run a test for a specific skill with predefined parameters."""
+    if skill_id == "web_search":
+        return await skill.run(query="Python FastAPI test", max_results=2)
+    elif skill_id == "code_exec":
+        return await skill.run(code="print(2+2)")
+    elif skill_id == "weather":
+        return await skill.run(location="Nymburk")
+    elif skill_id == "calculator":
+        return await skill.run(expression="2**10")
+    elif skill_id == "shell":
+        return await skill.run(command="uptime")
+    elif skill_id == "system_health":
+        return await skill.run()
+    elif skill_id == "lean_metrics":
+        return await skill.run()
+    elif skill_id == "github_ci_status":
+        return await skill.run()
+    elif skill_id == "calendar":
+        return await skill.get_today()
+    elif skill_id == "clipboard":
+        return await skill.read()
+    elif skill_id == "notify":
+        return await skill.send(title="AI Home Hub Test", message="Skill test OK")
+    elif skill_id == "http_fetch":
+        return await skill.get(url="https://httpbin.org/get")
+    else:
+        return {"output": "No test defined for this skill"}
