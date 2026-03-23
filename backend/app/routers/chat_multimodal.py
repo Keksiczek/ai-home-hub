@@ -1,4 +1,5 @@
 """Multimodal chat router – LLM chat with base64-encoded image attachments."""
+
 import asyncio
 import base64 as _b64
 import logging
@@ -107,10 +108,16 @@ async def _call_ollama_generate(
                 data = resp.json()
                 return data.get("response", ""), {"provider": "ollama", "model": model}
     except asyncio.TimeoutError:
-        logger.warning("Ollama vision call timed out for model %s after %.0fs", model, timeout)
+        logger.warning(
+            "Ollama vision call timed out for model %s after %.0fs", model, timeout
+        )
         return (
             f"[Timeout: model {model} neodpověděl do {timeout:.0f}s.]",
-            {"provider": "timeout", "model": model, "error": f"asyncio timeout after {timeout}s"},
+            {
+                "provider": "timeout",
+                "model": model,
+                "error": f"asyncio timeout after {timeout}s",
+            },
         )
     except httpx.ConnectError:
         logger.warning("Ollama not available for vision, falling back to stub")
@@ -122,7 +129,11 @@ async def _call_ollama_generate(
         }
     except Exception as exc:
         logger.error("Ollama generate error: %s", exc)
-        return f"[Error: {exc}]", {"provider": "error", "model": model, "error": str(exc)}
+        return f"[Error: {exc}]", {
+            "provider": "error",
+            "model": model,
+            "error": str(exc),
+        }
 
 
 @router.post("/chat/multimodal", response_model=ChatResponse, tags=["chat"])

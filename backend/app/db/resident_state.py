@@ -100,7 +100,9 @@ class ResidentStateDB:
             conn.commit()
 
             # Auto-prune
-            row = conn.execute("SELECT COUNT(*) as cnt FROM resident_history").fetchone()
+            row = conn.execute(
+                "SELECT COUNT(*) as cnt FROM resident_history"
+            ).fetchone()
             if row and row["cnt"] > MAX_ROWS:
                 conn.execute(
                     """DELETE FROM resident_history
@@ -149,7 +151,9 @@ class ResidentStateDB:
         """Return summary statistics."""
         try:
             conn = self._get_conn()
-            total = conn.execute("SELECT COUNT(*) as cnt FROM resident_history").fetchone()
+            total = conn.execute(
+                "SELECT COUNT(*) as cnt FROM resident_history"
+            ).fetchone()
             errors = conn.execute(
                 "SELECT COUNT(*) as cnt FROM resident_history WHERE status = 'error'"
             ).fetchone()

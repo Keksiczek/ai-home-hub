@@ -1,20 +1,25 @@
 """Tests for job controls: pause, resume, cancel, retry."""
+
 import pytest
 
 
 def test_pause_running_job(client):
     """POST /api/jobs/{id}/pause pauses a running job."""
     # Create a job
-    res = client.post("/api/jobs", json={
-        "type": "test_job",
-        "title": "Test pause job",
-        "priority": "normal",
-    })
+    res = client.post(
+        "/api/jobs",
+        json={
+            "type": "test_job",
+            "title": "Test pause job",
+            "priority": "normal",
+        },
+    )
     assert res.status_code == 200
     job_id = res.json()["id"]
 
     # Manually set it to running (via direct service manipulation)
     from app.services.job_service import get_job_service
+
     svc = get_job_service()
     job = svc.get_job(job_id)
     job.status = "running"
@@ -32,10 +37,13 @@ def test_pause_running_job(client):
 
 def test_pause_non_running_job_fails(client):
     """POST /api/jobs/{id}/pause on queued job returns 400."""
-    res = client.post("/api/jobs", json={
-        "type": "test_job",
-        "title": "Test queued job",
-    })
+    res = client.post(
+        "/api/jobs",
+        json={
+            "type": "test_job",
+            "title": "Test queued job",
+        },
+    )
     job_id = res.json()["id"]
 
     res = client.post(f"/api/jobs/{job_id}/pause")
@@ -45,13 +53,17 @@ def test_pause_non_running_job_fails(client):
 def test_resume_paused_job(client):
     """POST /api/jobs/{id}/resume resumes a paused job."""
     # Create and pause a job
-    res = client.post("/api/jobs", json={
-        "type": "test_job",
-        "title": "Test resume job",
-    })
+    res = client.post(
+        "/api/jobs",
+        json={
+            "type": "test_job",
+            "title": "Test resume job",
+        },
+    )
     job_id = res.json()["id"]
 
     from app.services.job_service import get_job_service
+
     svc = get_job_service()
     job = svc.get_job(job_id)
     job.status = "paused"
@@ -65,13 +77,17 @@ def test_resume_paused_job(client):
 
 def test_resume_non_paused_job_fails(client):
     """POST /api/jobs/{id}/resume on running job returns 400."""
-    res = client.post("/api/jobs", json={
-        "type": "test_job",
-        "title": "Test running job",
-    })
+    res = client.post(
+        "/api/jobs",
+        json={
+            "type": "test_job",
+            "title": "Test running job",
+        },
+    )
     job_id = res.json()["id"]
 
     from app.services.job_service import get_job_service
+
     svc = get_job_service()
     job = svc.get_job(job_id)
     job.status = "running"
@@ -83,13 +99,17 @@ def test_resume_non_paused_job_fails(client):
 
 def test_cancel_paused_job(client):
     """POST /api/jobs/{id}/cancel on paused job works."""
-    res = client.post("/api/jobs", json={
-        "type": "test_job",
-        "title": "Test cancel paused",
-    })
+    res = client.post(
+        "/api/jobs",
+        json={
+            "type": "test_job",
+            "title": "Test cancel paused",
+        },
+    )
     job_id = res.json()["id"]
 
     from app.services.job_service import get_job_service
+
     svc = get_job_service()
     job = svc.get_job(job_id)
     job.status = "paused"

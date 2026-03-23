@@ -1,4 +1,5 @@
 """Tests for CodeExecutionSkill sandbox."""
+
 import pytest
 from app.services.skills_runtime_service import CodeExecutionSkill
 

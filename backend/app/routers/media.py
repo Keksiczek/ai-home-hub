@@ -1,4 +1,5 @@
 """Media router – upload and list audio/video files for transcription."""
+
 import logging
 import os
 import re
@@ -22,8 +23,8 @@ ALLOWED_EXTENSIONS = {".mp3", ".mp4", ".wav", ".m4a", ".ogg", ".webm", ".mov"}
 
 def _sanitize_filename(name: str) -> str:
     """Sanitize filename: keep only safe characters."""
-    name = re.sub(r'[^\w\s\-.]', '', name)
-    name = re.sub(r'\s+', '_', name)
+    name = re.sub(r"[^\w\s\-.]", "", name)
+    name = re.sub(r"\s+", "_", name)
     return name or "unnamed"
 
 
@@ -93,12 +94,16 @@ async def list_media_files() -> List[Dict[str, Any]]:
     for f in sorted(MEDIA_DIR.iterdir()):
         if f.is_file() and f.suffix.lower() in ALLOWED_EXTENSIONS:
             stat = f.stat()
-            files.append({
-                "file_path": str(f.relative_to(DATA_DIR)),
-                "filename": f.name,
-                "size_mb": round(stat.st_size / (1024 * 1024), 2),
-                "format": f.suffix.lower().lstrip("."),
-                "created_at": datetime.fromtimestamp(stat.st_ctime, tz=timezone.utc).isoformat(),
-            })
+            files.append(
+                {
+                    "file_path": str(f.relative_to(DATA_DIR)),
+                    "filename": f.name,
+                    "size_mb": round(stat.st_size / (1024 * 1024), 2),
+                    "format": f.suffix.lower().lstrip("."),
+                    "created_at": datetime.fromtimestamp(
+                        stat.st_ctime, tz=timezone.utc
+                    ).isoformat(),
+                }
+            )
 
     return files

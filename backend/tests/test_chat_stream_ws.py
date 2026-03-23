@@ -1,4 +1,5 @@
 """Tests for the /api/chat/stream WebSocket endpoint."""
+
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -28,10 +29,16 @@ def _mock_deps():
         for token in ["Hello", " ", "World"]:
             yield token
 
-    mock_llm_svc.generate_stream = MagicMock(side_effect=lambda **kw: _fake_stream(**kw))
+    mock_llm_svc.generate_stream = MagicMock(
+        side_effect=lambda **kw: _fake_stream(**kw)
+    )
 
     async def _fake_enrich(msg, **kw):
-        return msg, {"kb_context_used": False, "memory_context_used": False, "memory_context_items": []}
+        return msg, {
+            "kb_context_used": False,
+            "memory_context_used": False,
+            "memory_context_items": [],
+        }
 
     patches = [
         patch("app.routers.chat.get_session_service", return_value=mock_session_svc),

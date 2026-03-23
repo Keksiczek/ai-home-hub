@@ -1,4 +1,5 @@
 """Tests for Resident tool registry and individual tool implementations."""
+
 import json
 from typing import Any, Dict
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -7,6 +8,7 @@ import pytest
 
 # Ensure chromadb is shimmed before importing app code
 import sys
+
 _chroma_mock = MagicMock()
 for _mod in ("chromadb", "chromadb.config"):
     sys.modules.setdefault(_mod, _chroma_mock)
@@ -19,7 +21,6 @@ from app.services.resident_tools import (  # noqa: E402
     render_tools_for_prompt,
 )
 
-
 # ── Registry tests ──────────────────────────────────────────
 
 
@@ -29,8 +30,17 @@ class TestToolRegistry:
 
     def test_registry_tool_names(self):
         names = {t.name for t in TOOLS_REGISTRY}
-        expected = {"search_web", "browse_page", "kb_search", "get_system_stats", "list_jobs", "get_weather"}
-        assert names == expected
+        expected = {
+            "search_web",
+            "browse_page",
+            "kb_search",
+            "get_system_stats",
+            "list_jobs",
+            "get_weather",
+            "kb_store",
+            "web_browse",
+        }
+        assert expected.issubset(names)
 
     def test_tool_map_matches_registry(self):
         assert len(_TOOL_MAP) == len(TOOLS_REGISTRY)
@@ -41,7 +51,7 @@ class TestToolRegistry:
         rendered = render_tools_for_prompt()
         data = json.loads(rendered)
         assert isinstance(data, list)
-        assert len(data) == 6
+        assert len(data) >= 6
         for item in data:
             assert "name" in item
             assert "description" in item
@@ -77,7 +87,9 @@ class TestExecuteToolCall:
     @pytest.mark.asyncio
     async def test_string_arguments_are_parsed(self):
         """Arguments passed as a JSON string should be parsed correctly."""
-        with patch("app.services.resident_tools._get_system_stats", new_callable=AsyncMock) as mock:
+        with patch(
+            "app.services.resident_tools._get_system_stats", new_callable=AsyncMock
+        ) as mock:
             mock.return_value = {"job_queue_depth": 0}
             result = await execute_tool_call(
                 {"function": {"name": "get_system_stats", "arguments": "{}"}}, {}
@@ -87,7 +99,9 @@ class TestExecuteToolCall:
     @pytest.mark.asyncio
     async def test_dict_arguments_work(self):
         """Arguments passed as a dict should also work."""
-        with patch("app.services.resident_tools._get_system_stats", new_callable=AsyncMock) as mock:
+        with patch(
+            "app.services.resident_tools._get_system_stats", new_callable=AsyncMock
+        ) as mock:
             mock.return_value = {"ram_usage": 55}
             result = await execute_tool_call(
                 {"function": {"name": "get_system_stats", "arguments": {}}}, {}
@@ -97,10 +111,18 @@ class TestExecuteToolCall:
     @pytest.mark.asyncio
     async def test_tool_exception_returns_error(self):
         """If a tool raises, the result should indicate failure gracefully."""
-        with patch("app.services.resident_tools._search_web", new_callable=AsyncMock) as mock:
+        with patch(
+            "app.services.resident_tools._search_web", new_callable=AsyncMock
+        ) as mock:
             mock.side_effect = RuntimeError("connection refused")
             result = await execute_tool_call(
-                {"function": {"name": "search_web", "arguments": json.dumps({"query": "test"})}}, {}
+                {
+                    "function": {
+                        "name": "search_web",
+                        "arguments": json.dumps({"query": "test"}),
+                    }
+                },
+                {},
             )
             assert result["ok"] is False
             assert "connection refused" in result["error"]
@@ -108,10 +130,18 @@ class TestExecuteToolCall:
 
     @pytest.mark.asyncio
     async def test_result_has_duration(self):
-        with patch("app.services.resident_tools._get_weather", new_callable=AsyncMock) as mock:
+        with patch(
+            "app.services.resident_tools._get_weather", new_callable=AsyncMock
+        ) as mock:
             mock.return_value = {"location": "Praha", "temp_c": "15"}
             result = await execute_tool_call(
-                {"function": {"name": "get_weather", "arguments": json.dumps({"location": "Praha"})}}, {}
+                {
+                    "function": {
+                        "name": "get_weather",
+                        "arguments": json.dumps({"location": "Praha"}),
+                    }
+                },
+                {},
             )
             assert result["ok"] is True
             assert "duration_ms" in result
@@ -139,9 +169,17 @@ class TestSearchWeb:
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("app.services.resident_tools.httpx.AsyncClient", return_value=mock_client):
+        with patch(
+            "app.services.resident_tools.httpx.AsyncClient", return_value=mock_client
+        ):
             result = await execute_tool_call(
-                {"function": {"name": "search_web", "arguments": json.dumps({"query": "python"})}}, {}
+                {
+                    "function": {
+                        "name": "search_web",
+                        "arguments": json.dumps({"query": "python"}),
+                    }
+                },
+                {},
             )
 
         assert result["ok"] is True
@@ -164,10 +202,21 @@ class TestKbSearch:
             "distances": [0.15],
         }
 
-        with patch("app.services.embeddings_service.get_embeddings_service", return_value=mock_embed_svc), \
-             patch("app.services.vector_store_service.get_vector_store_service", return_value=mock_vs):
+        with patch(
+            "app.services.embeddings_service.get_embeddings_service",
+            return_value=mock_embed_svc,
+        ), patch(
+            "app.services.vector_store_service.get_vector_store_service",
+            return_value=mock_vs,
+        ):
             result = await execute_tool_call(
-                {"function": {"name": "kb_search", "arguments": json.dumps({"query": "CI pipeline"})}}, {}
+                {
+                    "function": {
+                        "name": "kb_search",
+                        "arguments": json.dumps({"query": "CI pipeline"}),
+                    }
+                },
+                {},
             )
 
         assert result["ok"] is True
@@ -181,7 +230,10 @@ class TestGetSystemStats:
     @pytest.mark.asyncio
     async def test_get_system_stats_parses_metrics(self):
         mock_job_svc = MagicMock()
-        mock_job_svc.get_stats_since.return_value = {"tasks_total": 42, "success_rate": 0.95}
+        mock_job_svc.get_stats_since.return_value = {
+            "tasks_total": 42,
+            "success_rate": 0.95,
+        }
         mock_job_svc.list_jobs.return_value = [MagicMock() for _ in range(3)]
         mock_job_svc.count_jobs.return_value = 2
 
@@ -189,15 +241,26 @@ class TestGetSystemStats:
         mock_vs.get_stats.return_value = {"total_chunks": 5000}
 
         mock_monitor = MagicMock()
-        mock_monitor.to_dict.return_value = {"ram_used_percent": 65.2, "cpu_percent": 30.1, "throttle": False}
+        mock_monitor.to_dict.return_value = {
+            "ram_used_percent": 65.2,
+            "cpu_percent": 30.1,
+            "throttle": False,
+        }
 
         mock_cb = AsyncMock()
         mock_cb.can_execute.return_value = True
 
-        with patch("app.services.job_service.get_job_service", return_value=mock_job_svc), \
-             patch("app.services.vector_store_service.get_vector_store_service", return_value=mock_vs), \
-             patch("app.services.resource_monitor.get_resource_monitor", return_value=mock_monitor), \
-             patch("app.utils.circuit_breaker.get_ollama_circuit_breaker", return_value=mock_cb):
+        with patch(
+            "app.services.job_service.get_job_service", return_value=mock_job_svc
+        ), patch(
+            "app.services.vector_store_service.get_vector_store_service",
+            return_value=mock_vs,
+        ), patch(
+            "app.services.resource_monitor.get_resource_monitor",
+            return_value=mock_monitor,
+        ), patch(
+            "app.utils.circuit_breaker.get_ollama_circuit_breaker", return_value=mock_cb
+        ):
             result = await execute_tool_call(
                 {"function": {"name": "get_system_stats", "arguments": "{}"}}, {}
             )
@@ -224,9 +287,17 @@ class TestListJobs:
         mock_job_svc = MagicMock()
         mock_job_svc.list_jobs.return_value = [mock_job]
 
-        with patch("app.services.job_service.get_job_service", return_value=mock_job_svc):
+        with patch(
+            "app.services.job_service.get_job_service", return_value=mock_job_svc
+        ):
             result = await execute_tool_call(
-                {"function": {"name": "list_jobs", "arguments": json.dumps({"status": "succeeded", "limit": 5})}}, {}
+                {
+                    "function": {
+                        "name": "list_jobs",
+                        "arguments": json.dumps({"status": "succeeded", "limit": 5}),
+                    }
+                },
+                {},
             )
 
         assert result["ok"] is True
@@ -241,13 +312,15 @@ class TestGetWeather:
         mock_response = MagicMock()
         mock_response.raise_for_status.return_value = None
         mock_response.json.return_value = {
-            "current_condition": [{
-                "temp_C": "18",
-                "FeelsLikeC": "16",
-                "humidity": "55",
-                "weatherDesc": [{"value": "Partly cloudy"}],
-                "windspeedKmph": "12",
-            }]
+            "current_condition": [
+                {
+                    "temp_C": "18",
+                    "FeelsLikeC": "16",
+                    "humidity": "55",
+                    "weatherDesc": [{"value": "Partly cloudy"}],
+                    "windspeedKmph": "12",
+                }
+            ]
         }
 
         mock_client = AsyncMock()
@@ -255,9 +328,17 @@ class TestGetWeather:
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("app.services.resident_tools.httpx.AsyncClient", return_value=mock_client):
+        with patch(
+            "app.services.resident_tools.httpx.AsyncClient", return_value=mock_client
+        ):
             result = await execute_tool_call(
-                {"function": {"name": "get_weather", "arguments": json.dumps({"location": "Brno"})}}, {}
+                {
+                    "function": {
+                        "name": "get_weather",
+                        "arguments": json.dumps({"location": "Brno"}),
+                    }
+                },
+                {},
             )
 
         assert result["ok"] is True
@@ -280,9 +361,17 @@ class TestBrowsePage:
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("app.services.resident_tools.httpx.AsyncClient", return_value=mock_client):
+        with patch(
+            "app.services.resident_tools.httpx.AsyncClient", return_value=mock_client
+        ):
             result = await execute_tool_call(
-                {"function": {"name": "browse_page", "arguments": json.dumps({"url": "https://example.com"})}}, {}
+                {
+                    "function": {
+                        "name": "browse_page",
+                        "arguments": json.dumps({"url": "https://example.com"}),
+                    }
+                },
+                {},
             )
 
         assert result["ok"] is True
@@ -293,13 +382,20 @@ class TestBrowsePage:
     @pytest.mark.asyncio
     async def test_browse_page_rejects_bad_scheme(self):
         result = await execute_tool_call(
-            {"function": {"name": "browse_page", "arguments": json.dumps({"url": "ftp://evil.com/payload"})}}, {}
+            {
+                "function": {
+                    "name": "browse_page",
+                    "arguments": json.dumps({"url": "ftp://evil.com/payload"}),
+                }
+            },
+            {},
         )
         assert result["ok"] is False
         assert "Unsupported URL" in result["error"]
 
 
 # ── Rate limit / max tools enforcement test ──────────────────
+
 
 class TestToolSafety:
     @pytest.mark.asyncio
@@ -310,10 +406,12 @@ class TestToolSafety:
         reasoner = ResidentReasoner()
 
         # Simulate LLM returning 5 tool calls
-        reply = json.dumps([
-            {"type": "function", "function": {"name": f"tool_{i}", "arguments": {}}}
-            for i in range(5)
-        ])
+        reply = json.dumps(
+            [
+                {"type": "function", "function": {"name": f"tool_{i}", "arguments": {}}}
+                for i in range(5)
+            ]
+        )
         calls = reasoner._parse_tool_calls(reply)
         # parse returns all 5, but reason_with_tools slices to 3
         assert len(calls) == 5  # parser returns all

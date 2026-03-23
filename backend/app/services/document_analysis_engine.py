@@ -6,6 +6,7 @@ Pipeline:
 3. Cross-document synthesis (DA5)
 4. Generate Markdown report and persist results (DA6)
 """
+
 import json
 import logging
 import time
@@ -36,6 +37,7 @@ ARTIFACTS_DIR = DATA_DIR / "artifacts" / "document-analysis"
 @dataclass
 class ParsedDocument:
     """Internal representation of a parsed document."""
+
     file_path: str
     title: str
     text: str
@@ -57,13 +59,18 @@ async def run_document_analysis_pipeline(
     pipeline_start = time.monotonic()
     logger.info(
         "DocumentAnalysis started: %d file(s), task=%s",
-        total_files, input_data.task_description[:80],
+        total_files,
+        input_data.task_description[:80],
     )
 
     # ── Phase 1: Parse documents (0–20%) ─────────────────────
     phase_start = time.monotonic()
-    parsed_docs = await _parse_documents(input_data.file_paths, progress_callback, total_files)
-    document_analysis_duration_seconds.labels(phase="parsing").observe(time.monotonic() - phase_start)
+    parsed_docs = await _parse_documents(
+        input_data.file_paths, progress_callback, total_files
+    )
+    document_analysis_duration_seconds.labels(phase="parsing").observe(
+        time.monotonic() - phase_start
+    )
 
     if not parsed_docs:
         raise ValueError("No documents could be parsed successfully")
@@ -77,7 +84,12 @@ async def run_document_analysis_pipeline(
     for idx, doc in enumerate(parsed_docs):
         await progress_callback(
             20 + (idx / len(parsed_docs)) * 50,
-            {"phase": "summarizing", "current_doc": idx + 1, "total_docs": len(parsed_docs), "file": doc.title},
+            {
+                "phase": "summarizing",
+                "current_doc": idx + 1,
+                "total_docs": len(parsed_docs),
+                "file": doc.title,
+            },
         )
 
         summary = await summarize_document(
@@ -89,7 +101,9 @@ async def run_document_analysis_pipeline(
         per_doc_summaries.append(summary)
         logger.info("Summarized %d/%d: %s", idx + 1, len(parsed_docs), doc.title)
 
-    document_analysis_duration_seconds.labels(phase="summarizing").observe(time.monotonic() - phase_start)
+    document_analysis_duration_seconds.labels(phase="summarizing").observe(
+        time.monotonic() - phase_start
+    )
     await progress_callback(70, {"phase": "summarizing", "status": "done"})
 
     # ── Phase 3: Cross-document synthesis (70–85%) ───────────
@@ -103,7 +117,9 @@ async def run_document_analysis_pipeline(
         input_data.language or "cs",
     )
 
-    document_analysis_duration_seconds.labels(phase="synthesis").observe(time.monotonic() - phase_start)
+    document_analysis_duration_seconds.labels(phase="synthesis").observe(
+        time.monotonic() - phase_start
+    )
     await progress_callback(85, {"phase": "synthesis", "status": "done"})
 
     # ── Phase 4: Generate report (85–100%) ───────────────────
@@ -123,11 +139,21 @@ async def run_document_analysis_pipeline(
     # Persist result JSON
     _persist_result_json(job.id, result)
 
-    document_analysis_duration_seconds.labels(phase="report").observe(time.monotonic() - phase_start)
-    document_analysis_duration_seconds.labels(phase="total").observe(time.monotonic() - pipeline_start)
-    await progress_callback(100, {"phase": "report", "status": "done", "report_path": report_path})
+    document_analysis_duration_seconds.labels(phase="report").observe(
+        time.monotonic() - phase_start
+    )
+    document_analysis_duration_seconds.labels(phase="total").observe(
+        time.monotonic() - pipeline_start
+    )
+    await progress_callback(
+        100, {"phase": "report", "status": "done", "report_path": report_path}
+    )
 
-    logger.info("DocumentAnalysis completed: %d docs, report=%s", len(per_doc_summaries), report_path)
+    logger.info(
+        "DocumentAnalysis completed: %d docs, report=%s",
+        len(per_doc_summaries),
+        report_path,
+    )
     return result
 
 
@@ -154,7 +180,12 @@ async def _parse_documents(
 
         await progress_callback(
             (idx / total_files) * 20,
-            {"phase": "parsing", "current_doc": idx + 1, "total_docs": total_files, "file": file_path.name},
+            {
+                "phase": "parsing",
+                "current_doc": idx + 1,
+                "total_docs": total_files,
+                "file": file_path.name,
+            },
         )
 
         result = parser.parse_file(file_path)
@@ -175,18 +206,28 @@ async def _parse_documents(
             or file_path.stem.replace("_", " ").replace("-", " ").title()
         )
 
-        parsed.append(ParsedDocument(
-            file_path=rel_path,
-            title=title,
-            text=text,
-            metadata=result.get("metadata", {}),
-            page_count=result.get("page_count", 1),
-        ))
+        parsed.append(
+            ParsedDocument(
+                file_path=rel_path,
+                title=title,
+                text=text,
+                metadata=result.get("metadata", {}),
+                page_count=result.get("page_count", 1),
+            )
+        )
         documents_parsed_total.labels(status="success").inc()
 
-        logger.info("Parsed %d/%d: %s (%d chars)", idx + 1, total_files, file_path.name, len(text))
+        logger.info(
+            "Parsed %d/%d: %s (%d chars)",
+            idx + 1,
+            total_files,
+            file_path.name,
+            len(text),
+        )
 
-    await progress_callback(20, {"phase": "parsing", "status": "done", "parsed_count": len(parsed)})
+    await progress_callback(
+        20, {"phase": "parsing", "status": "done", "parsed_count": len(parsed)}
+    )
     return parsed
 
 
@@ -217,7 +258,9 @@ async def _cross_document_synthesis(
             metrics_str = "; ".join(f"{k}: {v}" for k, v in s.metrics.items())
             docs_text += f"Metriky: {metrics_str}\n"
 
-    lang_instruction = "Odpovídej česky." if language == "cs" else f"Respond in {language}."
+    lang_instruction = (
+        "Odpovídej česky." if language == "cs" else f"Respond in {language}."
+    )
 
     prompt = f"""Na základě následujících shrnutí jednotlivých dokumentů vytvoř:
 1. Celkový přehled (overall_summary) – hlavní zjištění, společná témata, rozdíly mezi dokumenty.
@@ -363,6 +406,7 @@ def _parse_json_response(text: str) -> Dict[str, Any]:
 
     # Try extracting JSON from markdown code block
     import re
+
     match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
     if match:
         try:
@@ -375,7 +419,7 @@ def _parse_json_response(text: str) -> Dict[str, Any]:
     end = text.rfind("}")
     if start >= 0 and end > start:
         try:
-            return json.loads(text[start:end + 1])
+            return json.loads(text[start : end + 1])
         except json.JSONDecodeError:
             pass
 

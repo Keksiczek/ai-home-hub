@@ -31,8 +31,7 @@ async def filter_kb_results(
 
     # Spoj texty výsledků
     combined_text = "\n\n---\n\n".join(
-        f"[{r.get('file_name', 'unknown')}]: {r.get('text', '')}"
-        for r in results
+        f"[{r.get('file_name', 'unknown')}]: {r.get('text', '')}" for r in results
     )
 
     # Pokud celková délka < 500 znaků → vrať přímo
@@ -92,8 +91,7 @@ async def compress_conversation_history(
 
     # Sestav text starých zpráv pro shrnutí
     old_text = "\n".join(
-        f"{m.get('role', '?')}: {m.get('content', '')[:200]}"
-        for m in old_messages
+        f"{m.get('role', '?')}: {m.get('content', '')[:200]}" for m in old_messages
     )
 
     prompt = (

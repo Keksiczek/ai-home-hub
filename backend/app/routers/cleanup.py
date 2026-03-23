@@ -5,6 +5,7 @@ Provides:
 - PATCH /api/settings/cleanup     – update cleanup config (with validation)
 - POST /api/control/cleanup/run-now – trigger an immediate cleanup cycle
 """
+
 import asyncio
 import logging
 from typing import Optional
@@ -27,10 +28,12 @@ class CleanupConfig(BaseModel):
 
 # ── GET current cleanup config ──────────────────────────────────────────────
 
+
 @router.get("/settings/cleanup")
 async def get_cleanup_config() -> dict:
     """Return the current cleanup configuration."""
     from app.services.settings_service import get_settings_service
+
     settings = get_settings_service().load()
     cfg = settings.get("cleanup", {})
     defaults = {
@@ -46,10 +49,12 @@ async def get_cleanup_config() -> dict:
 
 # ── PATCH cleanup config ────────────────────────────────────────────────────
 
+
 @router.patch("/settings/cleanup")
 async def update_cleanup_config(body: CleanupConfig) -> dict:
     """Update cleanup configuration. Only provided fields are changed."""
     from app.services.settings_service import get_settings_service
+
     svc = get_settings_service()
     settings = svc.load()
     current = settings.get("cleanup", {})
@@ -65,10 +70,12 @@ async def update_cleanup_config(body: CleanupConfig) -> dict:
 
 # ── POST run-now ─────────────────────────────────────────────────────────────
 
+
 @router.post("/control/cleanup/run-now")
 async def cleanup_run_now() -> dict:
     """Trigger an immediate cleanup cycle (on-demand, does not reset the scheduler)."""
     from app.services.cleanup_service import get_cleanup_service
+
     svc = get_cleanup_service()
     try:
         result = await asyncio.to_thread(svc.run_now)

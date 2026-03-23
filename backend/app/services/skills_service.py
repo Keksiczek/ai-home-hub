@@ -1,4 +1,5 @@
 """Skills service – CRUD operations for agent skills stored in backend/data/skills.json."""
+
 import json
 import logging
 import uuid
@@ -103,7 +104,9 @@ class SkillsService:
         """Create skills.json with default skills if it does not exist."""
         if not SKILLS_FILE.exists():
             self._write(DEFAULT_SKILLS)
-            logger.info("Created skills.json with %d default skills", len(DEFAULT_SKILLS))
+            logger.info(
+                "Created skills.json with %d default skills", len(DEFAULT_SKILLS)
+            )
 
     def _read(self) -> List[Dict[str, Any]]:
         self._ensure_file()
@@ -126,7 +129,8 @@ class SkillsService:
         if search:
             q = search.lower()
             skills = [
-                s for s in skills
+                s
+                for s in skills
                 if q in s.get("name", "").lower()
                 or q in s.get("description", "").lower()
             ]
@@ -149,7 +153,9 @@ class SkillsService:
         logger.info("Created skill %s: %s", skill["id"], skill.get("name"))
         return skill
 
-    def update(self, skill_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def update(
+        self, skill_id: str, updates: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
         """Update a skill by ID. Returns updated skill or None if not found."""
         skills = self._read()
         for i, s in enumerate(skills):

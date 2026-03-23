@@ -101,7 +101,9 @@ async def summarize_session(request: SummarizeSessionRequest):
 
     session_svc = get_session_service()
     if not session_svc.session_exists(request.session_id):
-        raise HTTPException(status_code=404, detail=f"Session {request.session_id} not found")
+        raise HTTPException(
+            status_code=404, detail=f"Session {request.session_id} not found"
+        )
 
     messages = session_svc.load_history(request.session_id, limit=request.max_messages)
     if not messages:
@@ -127,7 +129,9 @@ async def summarize_session(request: SummarizeSessionRequest):
 
     llm_svc = get_llm_service()
     try:
-        reply, _ = await llm_svc.generate(message=prompt, mode="general", profile="chat")
+        reply, _ = await llm_svc.generate(
+            message=prompt, mode="general", profile="chat"
+        )
     except Exception as exc:
         logger.error("LLM summarization failed: %s", exc)
         raise HTTPException(status_code=500, detail="LLM summarization failed")

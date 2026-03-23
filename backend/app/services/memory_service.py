@@ -191,9 +191,7 @@ class MemoryService:
     async def delete_memory(self, memory_id: str) -> bool:
         """Delete a memory by ID. Returns True if deleted."""
         try:
-            existing = await asyncio.to_thread(
-                self.collection.get, ids=[memory_id]
-            )
+            existing = await asyncio.to_thread(self.collection.get, ids=[memory_id])
             if not existing["ids"]:
                 return False
             await self._safe_write(self.collection.delete, ids=[memory_id])
@@ -214,7 +212,9 @@ class MemoryService:
         """Uloží dokončený agent run jako memory entry. Returns memory entry ID."""
         memory_id = f"mem_{uuid.uuid4().hex[:12]}"
         timestamp = datetime.now(timezone.utc).isoformat()
-        content = f"[{agent_type}] Goal: {goal} | Status: {status} | Result: {result[:500]}"
+        content = (
+            f"[{agent_type}] Goal: {goal} | Status: {status} | Result: {result[:500]}"
+        )
 
         metadata = {
             "tags": "agent_run",
@@ -247,7 +247,9 @@ class MemoryService:
                 metadatas=[metadata],
             )
 
-        logger.info("Stored agent run %s (type=%s, status=%s)", agent_id, agent_type, status)
+        logger.info(
+            "Stored agent run %s (type=%s, status=%s)", agent_id, agent_type, status
+        )
         return memory_id
 
     async def store_system_event(self, event_type: str, content: str) -> str:
@@ -286,7 +288,9 @@ class MemoryService:
         logger.info("Stored system event: %s", event_type)
         return memory_id
 
-    async def search_agent_history(self, query: str, top_k: int = 5) -> List[MemoryRecord]:
+    async def search_agent_history(
+        self, query: str, top_k: int = 5
+    ) -> List[MemoryRecord]:
         """Prohledá memory filtrovanou na category == 'agent_run'."""
         embeddings_svc = get_embeddings_service()
         embedding = await embeddings_svc.generate_embedding(query)
@@ -351,13 +355,15 @@ class MemoryService:
             results["documents"],
             results["metadatas"],
         ):
-            events.append({
-                "id": doc_id,
-                "text": doc,
-                "event_type": meta.get("event_type", ""),
-                "timestamp": meta.get("timestamp", ""),
-                "importance": int(meta.get("importance", 4)),
-            })
+            events.append(
+                {
+                    "id": doc_id,
+                    "text": doc,
+                    "event_type": meta.get("event_type", ""),
+                    "timestamp": meta.get("timestamp", ""),
+                    "importance": int(meta.get("importance", 4)),
+                }
+            )
 
         # Sort by timestamp DESC
         events.sort(key=lambda e: e.get("timestamp", ""), reverse=True)

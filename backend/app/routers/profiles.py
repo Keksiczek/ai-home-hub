@@ -1,4 +1,5 @@
 """Profiles router – CRUD for custom chat profiles."""
+
 from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException
@@ -36,7 +37,9 @@ async def get_profile(profile_id: str) -> Dict[str, Any]:
 
 
 @router.post("/profiles/{profile_id}", tags=["profiles"])
-async def create_or_update_profile(profile_id: str, body: CustomProfileRequest) -> Dict[str, Any]:
+async def create_or_update_profile(
+    profile_id: str, body: CustomProfileRequest
+) -> Dict[str, Any]:
     """Create or update a custom profile."""
     svc = get_settings_service()
     profile_data = {

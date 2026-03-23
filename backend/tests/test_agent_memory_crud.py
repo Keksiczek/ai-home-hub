@@ -1,4 +1,5 @@
 """Tests for Agent Memory CRUD endpoints (PR #44)."""
+
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -37,20 +38,23 @@ def _make_agent(
 ):
     """Return a mock ResidentAgent with memory method stubs."""
     agent = MagicMock()
-    agent.get_agent_memory = AsyncMock(return_value=memory_items or [
-        {
-            "id": "mem-1",
-            "text": "KB search: lean waste → 3 chunks",
-            "tags": ["resident", "#lean"],
-            "timestamp": "2025-01-01T10:00:00Z",
-        },
-        {
-            "id": "mem-2",
-            "text": "Web search: ollama 0.3.12 release notes",
-            "tags": ["resident", "#web"],
-            "timestamp": "2025-01-01T10:05:00Z",
-        },
-    ])
+    agent.get_agent_memory = AsyncMock(
+        return_value=memory_items
+        or [
+            {
+                "id": "mem-1",
+                "text": "KB search: lean waste → 3 chunks",
+                "tags": ["resident", "#lean"],
+                "timestamp": "2025-01-01T10:00:00Z",
+            },
+            {
+                "id": "mem-2",
+                "text": "Web search: ollama 0.3.12 release notes",
+                "tags": ["resident", "#web"],
+                "timestamp": "2025-01-01T10:05:00Z",
+            },
+        ]
+    )
     agent.clear_agent_memory = AsyncMock(
         return_value=clear_result or {"status": "ok", "deleted": 2}
     )
@@ -118,7 +122,9 @@ class TestDeleteAgentMemoryById:
         assert data.get("status") == "ok"
 
     def test_delete_by_id_not_found_returns_404(self, client: TestClient):
-        agent = _make_agent(delete_result={"status": "not_found", "memory_id": "missing-id"})
+        agent = _make_agent(
+            delete_result={"status": "not_found", "memory_id": "missing-id"}
+        )
         with patch(_PATCH_PATH, return_value=agent):
             resp = client.delete("/api/agent/memory/missing-id")
         assert resp.status_code == 404

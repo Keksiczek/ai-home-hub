@@ -1,4 +1,5 @@
 """Filesystem router – secure file and directory operations."""
+
 import os
 from pathlib import Path as SysPath
 from typing import Any, Dict, List
@@ -29,11 +30,13 @@ async def browse_directory(
         for entry in sorted(resolved.iterdir()):
             if entry.name.startswith("."):
                 continue  # skip hidden
-            entries.append({
-                "name": entry.name,
-                "path": str(entry),
-                "is_dir": entry.is_dir(),
-            })
+            entries.append(
+                {
+                    "name": entry.name,
+                    "path": str(entry),
+                    "is_dir": entry.is_dir(),
+                }
+            )
         return {
             "current": str(resolved),
             "parent": str(resolved.parent) if resolved.parent != resolved else None,
@@ -51,7 +54,9 @@ async def get_filesystem_config() -> Dict[str, Any]:
 
 
 @router.get("/filesystem/read", tags=["filesystem"])
-async def read_file(path: str = Query(..., description="Absolute file path")) -> Dict[str, Any]:
+async def read_file(
+    path: str = Query(..., description="Absolute file path")
+) -> Dict[str, Any]:
     """Read a text file. Path must be within an allowed directory."""
     svc = get_filesystem_service()
     try:
@@ -66,7 +71,9 @@ async def read_file(path: str = Query(..., description="Absolute file path")) ->
 
 
 @router.get("/filesystem/list", tags=["filesystem"])
-async def list_directory(path: str = Query(..., description="Absolute directory path")) -> Dict[str, Any]:
+async def list_directory(
+    path: str = Query(..., description="Absolute directory path")
+) -> Dict[str, Any]:
     """List directory contents. Path must be within an allowed directory."""
     svc = get_filesystem_service()
     try:
@@ -97,7 +104,9 @@ async def write_file(
 
 
 @router.delete("/filesystem/delete", tags=["filesystem"])
-async def delete_file(path: str = Query(..., description="Absolute file path")) -> Dict[str, Any]:
+async def delete_file(
+    path: str = Query(..., description="Absolute file path")
+) -> Dict[str, Any]:
     """Delete a file. Path must be within an allowed directory."""
     svc = get_filesystem_service()
     try:
@@ -125,7 +134,9 @@ async def search_files(body: SearchRequest) -> Dict[str, Any]:
 
 
 @router.post("/filesystem/mkdir", tags=["filesystem"])
-async def create_directory(path: str = Query(..., description="Absolute directory path")) -> Dict[str, Any]:
+async def create_directory(
+    path: str = Query(..., description="Absolute directory path")
+) -> Dict[str, Any]:
     """Create a directory (and parents). Path must be within an allowed directory."""
     svc = get_filesystem_service()
     try:

@@ -38,6 +38,7 @@ def _load_cleanup_config() -> dict:
     """Load cleanup config from settings, falling back to defaults."""
     try:
         from app.services.settings_service import get_settings_service
+
         settings = get_settings_service().load()
         cfg = settings.get("cleanup", {})
         # Merge with defaults so missing keys fall back gracefully
@@ -79,7 +80,9 @@ class CleanupService:
             interval_s = int(cfg.get("interval_hours", 6)) * 3600
 
             if not cfg.get("enabled", True):
-                logger.info("CleanupService: cleanup disabled by user config, skipping cycle")
+                logger.info(
+                    "CleanupService: cleanup disabled by user config, skipping cycle"
+                )
             else:
                 try:
                     await asyncio.to_thread(self._do_cleanup, cfg)
@@ -114,7 +117,9 @@ class CleanupService:
         cfg = _load_cleanup_config()
         self._last_config = cfg
         if not cfg.get("enabled", True):
-            logger.info("CleanupService: cleanup disabled by user config, skipping on-demand run")
+            logger.info(
+                "CleanupService: cleanup disabled by user config, skipping on-demand run"
+            )
             return {"status": "skipped", "reason": "cleanup disabled by user config"}
         self._do_cleanup(cfg)
         return {
@@ -168,7 +173,9 @@ class CleanupService:
                 logger.debug("Failed to archive %s: %s", f.name, exc)
 
         if count:
-            logger.info("Cleanup: archived %d old artifacts (>%dd)", count, max_age_days)
+            logger.info(
+                "Cleanup: archived %d old artifacts (>%dd)", count, max_age_days
+            )
         return freed
 
     def _vacuum_databases(self) -> None:
@@ -181,6 +188,7 @@ class CleanupService:
             if db_path.exists():
                 try:
                     import sqlite3
+
                     conn = sqlite3.connect(str(db_path), timeout=10)
                     conn.execute("VACUUM")
                     conn.close()

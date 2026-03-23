@@ -5,6 +5,7 @@ builds a system prompt, calls LLM, and returns structured SuggestedActions.
 
 Phase 2 addition: tool-augmented reasoning via ``reason_with_tools()``.
 """
+
 import json
 import logging
 import time
@@ -73,12 +74,16 @@ class ResidentReasoner:
             logger.error("Reasoner suggestion generation failed: %s", exc)
             return None
 
-    async def plan_mission(self, goal: str, context: str = "") -> Optional[List[MissionStep]]:
+    async def plan_mission(
+        self, goal: str, context: str = ""
+    ) -> Optional[List[MissionStep]]:
         """Call LLM to break a goal into mission steps."""
         user_message = f"CÍL MISE: {goal}"
         if context:
             user_message += f"\nKONTEXT: {context}"
-        user_message += "\n\nRozlož cíl na konkrétní kroky. Odpověz POUZE JSON objektem."
+        user_message += (
+            "\n\nRozlož cíl na konkrétní kroky. Odpověz POUZE JSON objektem."
+        )
 
         try:
             llm = get_llm_service()
@@ -135,17 +140,21 @@ class ResidentReasoner:
         # Job stats
         try:
             from app.services.job_service import get_job_service
+
             job_svc = get_job_service()
             since_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
             ctx["job_stats_24h"] = job_svc.get_stats_since(since_24h)
             ctx["queued_jobs"] = len(job_svc.list_jobs(status="queued", limit=100))
-            ctx["failed_jobs_24h"] = job_svc.count_jobs(status="failed", since=since_24h)
+            ctx["failed_jobs_24h"] = job_svc.count_jobs(
+                status="failed", since=since_24h
+            )
         except Exception as exc:
             logger.debug("Context: job stats failed: %s", exc)
 
         # KB stats
         try:
             from app.services.vector_store_service import get_vector_store_service
+
             vs = get_vector_store_service()
             ctx["kb_stats"] = vs.get_stats()
         except Exception as exc:
@@ -154,6 +163,7 @@ class ResidentReasoner:
         # Resource monitor
         try:
             from app.services.resource_monitor import get_resource_monitor
+
             monitor = get_resource_monitor()
             snapshot = monitor.to_dict()
             ctx["resources"] = {
@@ -181,7 +191,9 @@ class ResidentReasoner:
         lines.append(f"Selhalo (24h): {ctx.get('failed_jobs_24h', 0)} jobů")
 
         kb = ctx.get("kb_stats", {})
-        lines.append(f"KB: {kb.get('total_chunks', 0)} chunků, {kb.get('total_collections', 0)} kolekcí")
+        lines.append(
+            f"KB: {kb.get('total_chunks', 0)} chunků, {kb.get('total_collections', 0)} kolekcí"
+        )
 
         res = ctx.get("resources", {})
         lines.append(
@@ -199,7 +211,11 @@ class ResidentReasoner:
         data = self._extract_json(reply)
 
         # Expect a list
-        items = data if isinstance(data, list) else data.get("actions", []) if isinstance(data, dict) else []
+        items = (
+            data
+            if isinstance(data, list)
+            else data.get("actions", []) if isinstance(data, dict) else []
+        )
 
         actions = []
         for item in items[:5]:  # max 5
@@ -208,7 +224,9 @@ class ResidentReasoner:
 
             action_type = item.get("action_type", "other")
             if action_type not in ALLOWED_ACTION_TYPES:
-                logger.warning("Reasoner: filtered out disallowed action_type=%s", action_type)
+                logger.warning(
+                    "Reasoner: filtered out disallowed action_type=%s", action_type
+                )
                 continue
 
             # Enforce requires_confirmation for destructive types
@@ -216,16 +234,24 @@ class ResidentReasoner:
                 item["requires_confirmation"] = True
 
             try:
-                actions.append(SuggestedAction(
-                    **({"id": str(item["id"])[:8]} if item.get("id") else {}),
-                    title=str(item.get("title", "Bez názvu"))[:100],
-                    description=str(item.get("description", ""))[:300],
-                    action_type=action_type,
-                    priority=item.get("priority", "low") if item.get("priority") in ("low", "medium", "high") else "low",
-                    requires_confirmation=bool(item.get("requires_confirmation", True)),
-                    estimated_cost=str(item.get("estimated_cost", ""))[:200],
-                    steps=[str(s)[:200] for s in item.get("steps", [])[:10]],
-                ))
+                actions.append(
+                    SuggestedAction(
+                        **({"id": str(item["id"])[:8]} if item.get("id") else {}),
+                        title=str(item.get("title", "Bez názvu"))[:100],
+                        description=str(item.get("description", ""))[:300],
+                        action_type=action_type,
+                        priority=(
+                            item.get("priority", "low")
+                            if item.get("priority") in ("low", "medium", "high")
+                            else "low"
+                        ),
+                        requires_confirmation=bool(
+                            item.get("requires_confirmation", True)
+                        ),
+                        estimated_cost=str(item.get("estimated_cost", ""))[:200],
+                        steps=[str(s)[:200] for s in item.get("steps", [])[:10]],
+                    )
+                )
             except Exception as exc:
                 logger.debug("Reasoner: skipped malformed suggestion: %s", exc)
 
@@ -245,14 +271,18 @@ class ResidentReasoner:
         for s in raw_steps[:10]:
             if not isinstance(s, dict):
                 continue
-            steps.append(MissionStep(
-                title=str(s.get("title", "Krok"))[:100],
-                description=str(s.get("description", ""))[:300],
-            ))
+            steps.append(
+                MissionStep(
+                    title=str(s.get("title", "Krok"))[:100],
+                    description=str(s.get("description", ""))[:300],
+                )
+            )
 
         return steps if steps else None
 
-    def _parse_reflection(self, reply: str, job_id: str, job_type: str) -> Optional[ResidentReflection]:
+    def _parse_reflection(
+        self, reply: str, job_id: str, job_type: str
+    ) -> Optional[ResidentReflection]:
         """Parse LLM reply into a ResidentReflection."""
         data = self._extract_json(reply)
         if not isinstance(data, dict):
@@ -293,14 +323,15 @@ class ResidentReasoner:
             s = reply.find(start_char)
             e = reply.rfind(end_char)
             if s != -1 and e != -1 and e > s:
-                return json.loads(reply[s:e + 1])
+                return json.loads(reply[s : e + 1])
 
         raise ValueError("No valid JSON found in response")
 
-
     # ── Tool-augmented reasoning ──────────────────────────────
 
-    async def reason_with_tools(self, context_override: Optional[Dict[str, Any]] = None) -> ResidentReasoningCycle:
+    async def reason_with_tools(
+        self, context_override: Optional[Dict[str, Any]] = None
+    ) -> ResidentReasoningCycle:
         """Run a single tool-augmented reasoning cycle.
 
         1. Collect system context.
@@ -378,7 +409,10 @@ class ResidentReasoner:
 
         # Phase 3: Final reasoning with tool results
         tool_results_json = json.dumps(
-            [{"tool": tr.tool_name, "ok": tr.ok, "data": tr.result} for tr in tool_records],
+            [
+                {"tool": tr.tool_name, "ok": tr.ok, "data": tr.result}
+                for tr in tool_records
+            ],
             ensure_ascii=False,
             default=str,
         )[:4000]

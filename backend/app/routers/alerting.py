@@ -1,4 +1,5 @@
 """Alerting router – Slack webhook relay and Grafana annotation proxy."""
+
 import logging
 import os
 import time
@@ -14,6 +15,7 @@ router = APIRouter(prefix="/alerts", tags=["alerting"])
 
 
 # ── Request models ───────────────────────────────────────────
+
 
 class GrafanaAlert(BaseModel):
     status: str = ""
@@ -40,7 +42,7 @@ class SlackAlertPayload(BaseModel):
 
 
 class AnnotationPayload(BaseModel):
-    time: Optional[int] = None   # unix ms; defaults to now
+    time: Optional[int] = None  # unix ms; defaults to now
     timeEnd: Optional[int] = None
     tags: List[str] = []
     title: str
@@ -50,6 +52,7 @@ class AnnotationPayload(BaseModel):
 
 
 # ── Helpers ──────────────────────────────────────────────────
+
 
 def _slack_webhook_url() -> str:
     url = os.environ.get("SLACK_WEBHOOK_URL", "")
@@ -70,7 +73,9 @@ def _build_slack_message(payload: SlackAlertPayload) -> Dict[str, Any]:
     lines = [f"{status_emoji} *AI Home Hub Alert – {payload.status.upper()}*"]
 
     for alert in payload.alerts:
-        summary = alert.annotations.get("summary", alert.labels.get("alertname", "Alert"))
+        summary = alert.annotations.get(
+            "summary", alert.labels.get("alertname", "Alert")
+        )
         description = alert.annotations.get("description", "")
         instance = alert.labels.get("instance", "unknown")
         severity = alert.labels.get("severity", "info")
@@ -91,6 +96,7 @@ def _build_slack_message(payload: SlackAlertPayload) -> Dict[str, Any]:
 
 
 # ── Endpoints ────────────────────────────────────────────────
+
 
 @router.post("/slack")
 async def relay_slack_alert(payload: SlackAlertPayload) -> Dict[str, Any]:
@@ -144,6 +150,7 @@ async def test_slack_alert() -> Dict[str, Any]:
 
 # ── Grafana annotation proxy ──────────────────────────────────
 
+
 @router.post("/annotation")
 async def create_grafana_annotation(payload: AnnotationPayload) -> Dict[str, Any]:
     """Create a Grafana annotation from the app (e.g., on cycle failure).
@@ -186,8 +193,16 @@ async def create_grafana_annotation(payload: AnnotationPayload) -> Dict[str, Any
             )
             resp.raise_for_status()
         result = resp.json()
-        logger.info("Grafana annotation created: id=%s title=%s", result.get("id"), payload.title)
-        return {"status": "created", "annotation_id": result.get("id"), "title": payload.title}
+        logger.info(
+            "Grafana annotation created: id=%s title=%s",
+            result.get("id"),
+            payload.title,
+        )
+        return {
+            "status": "created",
+            "annotation_id": result.get("id"),
+            "title": payload.title,
+        }
     except Exception as exc:
         logger.warning("Failed to create Grafana annotation: %s", exc)
         # Non-fatal – return warning instead of 500

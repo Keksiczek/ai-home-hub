@@ -1,4 +1,5 @@
 """Tests for agent WebSocket heartbeat broadcast."""
+
 import pytest
 from unittest.mock import AsyncMock, patch
 

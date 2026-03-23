@@ -1,4 +1,5 @@
 """File parser service – extract text from various file formats with OCR support."""
+
 import logging
 import re
 import zipfile
@@ -12,24 +13,53 @@ class FileParserService:
     """Parse text content from various file formats including OCR for images."""
 
     SUPPORTED_EXTENSIONS = {
-        ".pdf", ".docx", ".xlsx", ".pptx",
-        ".txt", ".md",
-        ".jpg", ".jpeg", ".png", ".gif", ".bmp",
-        ".mp3", ".wav", ".m4a", ".ogg",
-        ".mp4", ".webm", ".mov",
+        ".pdf",
+        ".docx",
+        ".xlsx",
+        ".pptx",
+        ".txt",
+        ".md",
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".gif",
+        ".bmp",
+        ".mp3",
+        ".wav",
+        ".m4a",
+        ".ogg",
+        ".mp4",
+        ".webm",
+        ".mov",
         ".epub",
-        ".html", ".htm",
+        ".html",
+        ".htm",
         ".zip",
     }
 
     # Map extensions to media_type for unified metadata
     MEDIA_TYPES: Dict[str, str] = {
-        ".pdf": "text", ".docx": "office", ".xlsx": "office", ".pptx": "office",
-        ".txt": "text", ".md": "text",
-        ".jpg": "image", ".jpeg": "image", ".png": "image", ".gif": "image", ".bmp": "image",
-        ".mp3": "audio", ".wav": "audio", ".m4a": "audio", ".ogg": "audio",
-        ".mp4": "video", ".webm": "video", ".mov": "video",
-        ".epub": "text", ".html": "text", ".htm": "text",
+        ".pdf": "text",
+        ".docx": "office",
+        ".xlsx": "office",
+        ".pptx": "office",
+        ".txt": "text",
+        ".md": "text",
+        ".jpg": "image",
+        ".jpeg": "image",
+        ".png": "image",
+        ".gif": "image",
+        ".bmp": "image",
+        ".mp3": "audio",
+        ".wav": "audio",
+        ".m4a": "audio",
+        ".ogg": "audio",
+        ".mp4": "video",
+        ".webm": "video",
+        ".mov": "video",
+        ".epub": "text",
+        ".html": "text",
+        ".htm": "text",
         ".zip": "archive",
     }
 
@@ -39,13 +69,23 @@ class FileParserService:
         ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        ".txt": "text/plain", ".md": "text/markdown",
-        ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
-        ".gif": "image/gif", ".bmp": "image/bmp",
-        ".mp3": "audio/mpeg", ".wav": "audio/wav", ".m4a": "audio/mp4", ".ogg": "audio/ogg",
-        ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime",
+        ".txt": "text/plain",
+        ".md": "text/markdown",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".gif": "image/gif",
+        ".bmp": "image/bmp",
+        ".mp3": "audio/mpeg",
+        ".wav": "audio/wav",
+        ".m4a": "audio/mp4",
+        ".ogg": "audio/ogg",
+        ".mp4": "video/mp4",
+        ".webm": "video/webm",
+        ".mov": "video/quicktime",
         ".epub": "application/epub+zip",
-        ".html": "text/html", ".htm": "text/html",
+        ".html": "text/html",
+        ".htm": "text/html",
         ".zip": "application/zip",
     }
 
@@ -148,7 +188,11 @@ class FileParserService:
             metadata = {
                 "author": doc.core_properties.author or "",
                 "title": doc.core_properties.title or "",
-                "created": str(doc.core_properties.created) if doc.core_properties.created else "",
+                "created": (
+                    str(doc.core_properties.created)
+                    if doc.core_properties.created
+                    else ""
+                ),
             }
 
         return {
@@ -210,7 +254,9 @@ class FileParserService:
                         if row_text.strip():
                             slide_texts.append(row_text)
             if slide_texts:
-                text_parts.append(f"=== Slide {slide_idx} ===\n" + "\n".join(slide_texts))
+                text_parts.append(
+                    f"=== Slide {slide_idx} ===\n" + "\n".join(slide_texts)
+                )
 
         slide_count = len(prs.slides)
         metadata: Dict[str, Any] = {"slide_count": slide_count}
@@ -278,7 +324,9 @@ class FileParserService:
             text = pytesseract.image_to_string(img, lang="eng+ces", timeout=30)
             return text
         except ImportError:
-            logger.warning("pytesseract not installed – OCR skipped for %s", file_path.name)
+            logger.warning(
+                "pytesseract not installed – OCR skipped for %s", file_path.name
+            )
             return ""
         except Exception as exc:
             logger.warning("OCR failed for %s: %s", file_path.name, exc)
@@ -288,7 +336,12 @@ class FileParserService:
         """Public OCR method for external use. Returns {text, metadata, ocr_method}."""
         path = Path(file_path)
         if not path.exists():
-            return {"text": "", "metadata": {}, "ocr_method": "error", "error": "File not found"}
+            return {
+                "text": "",
+                "metadata": {},
+                "ocr_method": "error",
+                "error": "File not found",
+            }
         return self._parse_image(path)
 
     # ── Audio (speech-to-text via faster-whisper) ─────────────────
@@ -329,7 +382,10 @@ class FileParserService:
                 "duration_seconds": metadata.get("duration_seconds"),
             }
         except ImportError:
-            logger.warning("faster-whisper not installed – audio transcription skipped for %s", file_path.name)
+            logger.warning(
+                "faster-whisper not installed – audio transcription skipped for %s",
+                file_path.name,
+            )
             return {
                 "text": f"[Audio: {file_path.name}, transcription unavailable (faster-whisper not installed)]",
                 "metadata": metadata,
@@ -364,9 +420,22 @@ class FileParserService:
                 tmp_path = Path(tmp.name)
 
             result = subprocess.run(
-                ["ffmpeg", "-i", str(file_path), "-vn", "-acodec", "pcm_s16le",
-                 "-ar", "16000", "-ac", "1", str(tmp_path), "-y"],
-                capture_output=True, timeout=120,
+                [
+                    "ffmpeg",
+                    "-i",
+                    str(file_path),
+                    "-vn",
+                    "-acodec",
+                    "pcm_s16le",
+                    "-ar",
+                    "16000",
+                    "-ac",
+                    "1",
+                    str(tmp_path),
+                    "-y",
+                ],
+                capture_output=True,
+                timeout=120,
             )
             if result.returncode != 0:
                 logger.warning("ffmpeg audio extraction failed for %s", file_path.name)
@@ -383,7 +452,9 @@ class FileParserService:
             audio_result["metadata"]["media_type"] = "video"
             return audio_result
         except FileNotFoundError:
-            logger.warning("ffmpeg not found – video transcription skipped for %s", file_path.name)
+            logger.warning(
+                "ffmpeg not found – video transcription skipped for %s", file_path.name
+            )
             return {
                 "text": f"[Video: {file_path.name}, transcription unavailable (ffmpeg not found)]",
                 "metadata": metadata,
@@ -443,7 +514,9 @@ class FileParserService:
                 "page_count": chapter_count or 1,
             }
         except ImportError:
-            logger.warning("ebooklib not installed – ePub parsing skipped for %s", file_path.name)
+            logger.warning(
+                "ebooklib not installed – ePub parsing skipped for %s", file_path.name
+            )
             return {"error": "ebooklib not installed", "text": ""}
         except Exception as exc:
             logger.warning("ePub parse failed for %s: %s", file_path.name, exc)
@@ -483,7 +556,10 @@ class FileParserService:
                 "page_count": 1,
             }
         except ImportError:
-            logger.warning("beautifulsoup4 not installed – HTML parsing skipped for %s", file_path.name)
+            logger.warning(
+                "beautifulsoup4 not installed – HTML parsing skipped for %s",
+                file_path.name,
+            )
             # Fallback: strip tags with regex
             raw = file_path.read_text(encoding="utf-8", errors="ignore")
             text = re.sub(r"<[^>]+>", " ", raw)
@@ -494,7 +570,18 @@ class FileParserService:
 
     def _parse_zip(self, file_path: Path) -> Dict[str, Any]:
         """Extract text from text files inside a ZIP archive (max 10 files, safe)."""
-        TEXT_EXTENSIONS = {".txt", ".md", ".csv", ".json", ".yaml", ".yml", ".xml", ".log", ".py", ".js"}
+        TEXT_EXTENSIONS = {
+            ".txt",
+            ".md",
+            ".csv",
+            ".json",
+            ".yaml",
+            ".yml",
+            ".xml",
+            ".log",
+            ".py",
+            ".js",
+        }
         MAX_FILES = 10
         MAX_SINGLE_SIZE = 5 * 1024 * 1024  # 5 MB per file
 
@@ -556,9 +643,19 @@ class FileParserService:
             import subprocess
 
             result = subprocess.run(
-                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                 "-of", "default=noprint_wrappers=1:nokey=1", str(file_path)],
-                capture_output=True, text=True, timeout=10,
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "default=noprint_wrappers=1:nokey=1",
+                    str(file_path),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
             if result.returncode == 0 and result.stdout.strip():
                 return float(result.stdout.strip())

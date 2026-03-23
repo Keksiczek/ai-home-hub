@@ -1,4 +1,5 @@
 """Integration tests for GET /api/resident/dashboard endpoint."""
+
 import sys
 import time
 from unittest.mock import patch, AsyncMock, MagicMock
@@ -92,6 +93,7 @@ def test_resident_dashboard_with_running_agent(client):
 def test_resident_start_stop(client):
     """Start and stop endpoints return proper JSON responses."""
     from app.services.resident_agent import get_resident_agent
+
     agent = get_resident_agent()
 
     # Ensure clean state
@@ -137,10 +139,13 @@ def test_resident_dashboard_stats_structure(client):
 
 def test_resident_add_task(client):
     """Add a task via the resident task endpoint."""
-    resp = client.post("/api/resident/task", json={
-        "title": "Test task",
-        "description": "A test task for integration test",
-    })
+    resp = client.post(
+        "/api/resident/task",
+        json={
+            "title": "Test task",
+            "description": "A test task for integration test",
+        },
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "queued"

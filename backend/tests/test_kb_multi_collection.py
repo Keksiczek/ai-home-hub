@@ -1,4 +1,5 @@
 """Tests for Multi-KB collection management endpoints."""
+
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -28,28 +29,36 @@ def client() -> TestClient:
 def _make_vs_mock():
     """Build a VectorStoreService mock with Multi-KB methods."""
     mock = MagicMock()
-    mock.list_collections = AsyncMock(return_value=[
-        {"name": "knowledge_base", "count": 847, "metadata": {}},
-        {"name": "powerbi", "count": 234, "metadata": {"description": "DAX docs"}},
-    ])
-    mock.create_collection = AsyncMock(return_value={
-        "name": "dev-notes",
-        "metadata": {"description": "Dev notes", "tags": '["#python"]'},
-    })
+    mock.list_collections = AsyncMock(
+        return_value=[
+            {"name": "knowledge_base", "count": 847, "metadata": {}},
+            {"name": "powerbi", "count": 234, "metadata": {"description": "DAX docs"}},
+        ]
+    )
+    mock.create_collection = AsyncMock(
+        return_value={
+            "name": "dev-notes",
+            "metadata": {"description": "Dev notes", "tags": '["#python"]'},
+        }
+    )
     mock.delete_collection = AsyncMock(return_value=None)
     mock.add_tags_to_document = AsyncMock(return_value=None)
-    mock.search_by_tag = AsyncMock(return_value={
-        "ids": ["doc-1"],
-        "documents": ["Lean waste reduction"],
-        "metadatas": [{"tags": '["#lean"]', "file_path": "/docs/lean.md"}],
-    })
+    mock.search_by_tag = AsyncMock(
+        return_value={
+            "ids": ["doc-1"],
+            "documents": ["Lean waste reduction"],
+            "metadatas": [{"tags": '["#lean"]', "file_path": "/docs/lean.md"}],
+        }
+    )
     # search() used by existing endpoints
-    mock.search = MagicMock(return_value={
-        "ids": [],
-        "documents": [],
-        "metadatas": [],
-        "distances": [],
-    })
+    mock.search = MagicMock(
+        return_value={
+            "ids": [],
+            "documents": [],
+            "metadatas": [],
+            "distances": [],
+        }
+    )
     mock.COLLECTION_NAME = "knowledge_base"
     mock.collection = MagicMock()
     mock.collection.count.return_value = 847
@@ -87,11 +96,14 @@ class TestCreateCollection:
     def test_create_collection_returns_200(self, client: TestClient):
         vs = _make_vs_mock()
         with patch("app.routers.knowledge.get_vector_store_service", return_value=vs):
-            resp = client.post("/api/kb/collections", json={
-                "name": "dev-notes",
-                "description": "Dev notes",
-                "tags": ["#python"],
-            })
+            resp = client.post(
+                "/api/kb/collections",
+                json={
+                    "name": "dev-notes",
+                    "description": "Dev notes",
+                    "tags": ["#python"],
+                },
+            )
         assert resp.status_code == 200
 
     def test_create_collection_without_name_returns_400(self, client: TestClient):
@@ -132,7 +144,9 @@ class TestDeleteCollection:
 
     def test_delete_default_collection_returns_400(self, client: TestClient):
         vs = _make_vs_mock()
-        vs.delete_collection = AsyncMock(side_effect=ValueError("Cannot delete the default"))
+        vs.delete_collection = AsyncMock(
+            side_effect=ValueError("Cannot delete the default")
+        )
         with patch("app.routers.knowledge.get_vector_store_service", return_value=vs):
             resp = client.delete(
                 "/api/kb/collections/knowledge_base",

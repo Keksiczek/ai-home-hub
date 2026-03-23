@@ -1,4 +1,5 @@
 """Tests for file tree navigation and file manager endpoints."""
+
 import json
 import os
 import tempfile
@@ -49,7 +50,9 @@ def test_file_action_unknown_type(client):
     mock_svc = MagicMock()
     mock_svc._assert_allowed.return_value = Path("/tmp/testfile")
 
-    with patch("app.services.filesystem_service.get_filesystem_service", return_value=mock_svc):
+    with patch(
+        "app.services.filesystem_service.get_filesystem_service", return_value=mock_svc
+    ):
         res = client.post("/api/files/action?type=unknown_action&path=/tmp/testfile")
         assert res.status_code == 400
         assert "Unknown action" in res.json()["detail"]
@@ -66,7 +69,10 @@ def test_file_tree_with_allowed_dir(client):
         mock_svc = MagicMock()
         mock_svc._assert_allowed.return_value = Path(tmpdir)
 
-        with patch("app.services.filesystem_service.get_filesystem_service", return_value=mock_svc):
+        with patch(
+            "app.services.filesystem_service.get_filesystem_service",
+            return_value=mock_svc,
+        ):
             res = client.get(f"/api/files/tree?path={tmpdir}")
             assert res.status_code == 200
             data = res.json()
@@ -88,7 +94,10 @@ def test_file_preview_text(client):
         mock_svc = MagicMock()
         mock_svc._assert_allowed.return_value = Path(fpath)
 
-        with patch("app.services.filesystem_service.get_filesystem_service", return_value=mock_svc):
+        with patch(
+            "app.services.filesystem_service.get_filesystem_service",
+            return_value=mock_svc,
+        ):
             res = client.get(f"/api/files/preview?path={fpath}")
             assert res.status_code == 200
             data = res.json()

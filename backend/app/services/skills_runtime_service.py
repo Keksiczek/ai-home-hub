@@ -4,6 +4,7 @@ Each skill is a lightweight async class that performs a specific action.
 Skills are registered in settings.json under 'enabled_skills' and can be
 toggled on/off from the UI.
 """
+
 import asyncio
 import logging
 import math
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 class BaseSkill:
     """Base class for all runtime skills."""
+
     name: str = ""
     description: str = ""
     icon: str = ""
@@ -36,6 +38,7 @@ class BaseSkill:
 
 class WebSearchSkill(BaseSkill):
     """Search the web via DuckDuckGo (no API key needed)."""
+
     name = "web_search"
     description = "Hledá aktuální informace, dokumentaci, ceny online"
     icon = "🌐"
@@ -43,12 +46,17 @@ class WebSearchSkill(BaseSkill):
     async def run(self, query: str, max_results: int = 5) -> List[Dict[str, Any]]:
         try:
             from duckduckgo_search import DDGS
+
             results = await asyncio.to_thread(
                 lambda: list(DDGS().text(query, max_results=max_results))
             )
             return results
         except ImportError:
-            return [{"error": "duckduckgo-search not installed. Run: pip install duckduckgo-search"}]
+            return [
+                {
+                    "error": "duckduckgo-search not installed. Run: pip install duckduckgo-search"
+                }
+            ]
         except Exception as exc:
             logger.error("WebSearchSkill error: %s", exc)
             return [{"error": str(exc)}]
@@ -56,14 +64,25 @@ class WebSearchSkill(BaseSkill):
 
 class CodeExecutionSkill(BaseSkill):
     """Run Python code in a restricted sandbox."""
+
     name = "code_exec"
     description = "Spustí Python: výpočty, data analýza, pandas/matplotlib"
     icon = "🐍"
 
     ALLOWED_MODULES = {
-        "math", "json", "datetime", "collections", "itertools",
-        "functools", "statistics", "decimal", "fractions",
-        "csv", "re", "textwrap", "string",
+        "math",
+        "json",
+        "datetime",
+        "collections",
+        "itertools",
+        "functools",
+        "statistics",
+        "decimal",
+        "fractions",
+        "csv",
+        "re",
+        "textwrap",
+        "string",
     }
 
     async def run(self, code: str, timeout: int = 10) -> Dict[str, Any]:
@@ -106,13 +125,14 @@ print(_stdout.getvalue())
 
 class CalendarSkill(BaseSkill):
     """Read macOS Calendar via osascript."""
+
     name = "calendar"
     description = "Zobrazí dnešní události, přidá reminder, plánuj meeting"
     icon = "📅"
 
     async def get_today(self) -> Dict[str, Any]:
         """Get today's calendar events via AppleScript."""
-        script = '''
+        script = """
 tell application "Calendar"
     set today to current date
     set output to ""
@@ -124,28 +144,41 @@ tell application "Calendar"
     end repeat
     return output
 end tell
-'''
+"""
         try:
             result = await asyncio.to_thread(
                 lambda: subprocess.run(
                     ["osascript", "-e", script],
-                    capture_output=True, text=True, timeout=10,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
                 )
             )
             events = [
-                line.strip() for line in result.stdout.strip().split("\n")
+                line.strip()
+                for line in result.stdout.strip().split("\n")
                 if line.strip()
             ]
-            return {"events": events, "count": len(events), "date": datetime.now().strftime("%Y-%m-%d")}
+            return {
+                "events": events,
+                "count": len(events),
+                "date": datetime.now().strftime("%Y-%m-%d"),
+            }
         except Exception as exc:
             return {"error": str(exc), "events": []}
 
-    async def add_event(self, title: str, date: str, duration: int = 60) -> Dict[str, Any]:
-        return {"status": "not_implemented", "message": "Calendar write requires additional permissions"}
+    async def add_event(
+        self, title: str, date: str, duration: int = 60
+    ) -> Dict[str, Any]:
+        return {
+            "status": "not_implemented",
+            "message": "Calendar write requires additional permissions",
+        }
 
 
 class WeatherSkill(BaseSkill):
     """Weather for Nymburk via Open-Meteo (no API key needed)."""
+
     name = "weather"
     description = "Aktuální počasí a 7-day forecast pro Nymburk"
     icon = "🌤️"
@@ -178,6 +211,7 @@ class WeatherSkill(BaseSkill):
 
 class ClipboardSkill(BaseSkill):
     """Read/write macOS clipboard via pbpaste/pbcopy."""
+
     name = "clipboard"
     description = "Přečti co je v clipboardu, zkopíruj výsledek analýzy"
     icon = "📋"
@@ -185,7 +219,9 @@ class ClipboardSkill(BaseSkill):
     async def read(self) -> Dict[str, Any]:
         try:
             result = await asyncio.to_thread(
-                lambda: subprocess.run(["pbpaste"], capture_output=True, text=True, timeout=5)
+                lambda: subprocess.run(
+                    ["pbpaste"], capture_output=True, text=True, timeout=5
+                )
             )
             return {"content": result.stdout, "length": len(result.stdout)}
         except Exception as exc:
@@ -195,7 +231,10 @@ class ClipboardSkill(BaseSkill):
         try:
             await asyncio.to_thread(
                 lambda: subprocess.run(
-                    ["pbcopy"], input=text, text=True, timeout=5,
+                    ["pbcopy"],
+                    input=text,
+                    text=True,
+                    timeout=5,
                 )
             )
             return {"status": "copied", "length": len(text)}
@@ -205,18 +244,23 @@ class ClipboardSkill(BaseSkill):
 
 class NotificationSkill(BaseSkill):
     """Send macOS system notifications via osascript."""
+
     name = "notify"
     description = "Upozorní na dokončení jobu, error, reminder"
     icon = "🔔"
 
-    async def send(self, title: str, message: str, sound: bool = True) -> Dict[str, Any]:
+    async def send(
+        self, title: str, message: str, sound: bool = True
+    ) -> Dict[str, Any]:
         sound_str = 'with sound name "default"' if sound else ""
         script = f'display notification "{message}" with title "{title}" {sound_str}'
         try:
             await asyncio.to_thread(
                 lambda: subprocess.run(
                     ["osascript", "-e", script],
-                    capture_output=True, text=True, timeout=5,
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
                 )
             )
             return {"status": "sent", "title": title}
@@ -226,16 +270,23 @@ class NotificationSkill(BaseSkill):
 
 class HTTPSkill(BaseSkill):
     """Call REST APIs or fetch web pages."""
+
     name = "http_fetch"
     description = "GET/POST na URL, scrape stránky, volej API"
     icon = "🌐"
 
-    async def get(self, url: str, headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    async def get(
+        self, url: str, headers: Optional[Dict[str, str]] = None
+    ) -> Dict[str, Any]:
         try:
             async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
                 resp = await client.get(url, headers=headers or {})
                 content_type = resp.headers.get("content-type", "")
-                body = resp.text[:5000] if "text" in content_type or "json" in content_type else f"[binary {len(resp.content)} bytes]"
+                body = (
+                    resp.text[:5000]
+                    if "text" in content_type or "json" in content_type
+                    else f"[binary {len(resp.content)} bytes]"
+                )
                 return {
                     "status_code": resp.status_code,
                     "content_type": content_type,
@@ -244,7 +295,12 @@ class HTTPSkill(BaseSkill):
         except Exception as exc:
             return {"error": str(exc)}
 
-    async def post(self, url: str, body: Optional[Dict[str, Any]] = None, headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    async def post(
+        self,
+        url: str,
+        body: Optional[Dict[str, Any]] = None,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 resp = await client.post(url, json=body or {}, headers=headers or {})
@@ -258,11 +314,29 @@ class HTTPSkill(BaseSkill):
 
 class ShellSkill(BaseSkill):
     """Run safe shell commands (whitelisted)."""
+
     name = "shell"
     description = "Spustí Mac příkazy: df, ps, git status, brew update"
     icon = "🖥️"
 
-    WHITELIST = {"df", "ps", "top", "git", "brew", "ollama", "ping", "curl", "ls", "cat", "head", "tail", "wc", "uptime", "which", "whoami"}
+    WHITELIST = {
+        "df",
+        "ps",
+        "top",
+        "git",
+        "brew",
+        "ollama",
+        "ping",
+        "curl",
+        "ls",
+        "cat",
+        "head",
+        "tail",
+        "wc",
+        "uptime",
+        "which",
+        "whoami",
+    }
 
     async def run(self, command: str, timeout: int = 15) -> Dict[str, Any]:
         # Parse command to check whitelist
@@ -272,13 +346,18 @@ class ShellSkill(BaseSkill):
 
         base_cmd = parts[0]
         if base_cmd not in self.WHITELIST:
-            return {"error": f"Command '{base_cmd}' not in whitelist. Allowed: {', '.join(sorted(self.WHITELIST))}"}
+            return {
+                "error": f"Command '{base_cmd}' not in whitelist. Allowed: {', '.join(sorted(self.WHITELIST))}"
+            }
 
         try:
             result = await asyncio.to_thread(
                 lambda: subprocess.run(
-                    command, shell=True,
-                    capture_output=True, text=True, timeout=timeout,
+                    command,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
                 )
             )
             return {
@@ -294,11 +373,14 @@ class ShellSkill(BaseSkill):
 
 class VisionSkill(BaseSkill):
     """Analyze images via llava:7b (local Ollama)."""
+
     name = "vision"
     description = "Popis obrázku, OCR textu, analýza grafu/screenshotu"
     icon = "🖼️"
 
-    async def analyze(self, image_path: str, prompt: str = "Popiš obrázek") -> Dict[str, Any]:
+    async def analyze(
+        self, image_path: str, prompt: str = "Popiš obrázek"
+    ) -> Dict[str, Any]:
         import base64
         from pathlib import Path
 
@@ -309,7 +391,11 @@ class VisionSkill(BaseSkill):
         try:
             image_data = base64.b64encode(path.read_bytes()).decode()
             settings = get_settings_service().load()
-            ollama_url = settings.get("llm", {}).get("ollama_url", "http://localhost:11434").rstrip("/")
+            ollama_url = (
+                settings.get("llm", {})
+                .get("ollama_url", "http://localhost:11434")
+                .rstrip("/")
+            )
 
             async with httpx.AsyncClient(timeout=60.0) as client:
                 resp = await client.post(
@@ -330,6 +416,7 @@ class VisionSkill(BaseSkill):
 
 class TimerSkill(BaseSkill):
     """Countdown timer with notification on completion."""
+
     name = "timer"
     description = "Pomodoro 25min, custom countdown, opakující se reminder"
     icon = "⏱️"
@@ -356,33 +443,49 @@ class TimerSkill(BaseSkill):
     def list_timers(self) -> List[Dict[str, Any]]:
         result = []
         for tid, task in list(self._active_timers.items()):
-            result.append({
-                "timer_id": tid,
-                "done": task.done(),
-            })
+            result.append(
+                {
+                    "timer_id": tid,
+                    "done": task.done(),
+                }
+            )
         return result
 
 
 class CalculatorSkill(BaseSkill):
     """Quick calculations and unit conversions."""
+
     name = "calculator"
     description = "Matematika, procenta, konverze, OEE/takt time výpočet"
     icon = "📊"
 
     # Safe math namespace
     SAFE_NAMES = {
-        "abs": abs, "round": round, "min": min, "max": max,
-        "sum": sum, "len": len, "int": int, "float": float,
-        "pow": pow, "divmod": divmod,
-        "pi": math.pi, "e": math.e,
-        "sqrt": math.sqrt, "log": math.log, "log10": math.log10,
-        "sin": math.sin, "cos": math.cos, "tan": math.tan,
-        "ceil": math.ceil, "floor": math.floor,
+        "abs": abs,
+        "round": round,
+        "min": min,
+        "max": max,
+        "sum": sum,
+        "len": len,
+        "int": int,
+        "float": float,
+        "pow": pow,
+        "divmod": divmod,
+        "pi": math.pi,
+        "e": math.e,
+        "sqrt": math.sqrt,
+        "log": math.log,
+        "log10": math.log10,
+        "sin": math.sin,
+        "cos": math.cos,
+        "tan": math.tan,
+        "ceil": math.ceil,
+        "floor": math.floor,
     }
 
     async def run(self, expression: str) -> Dict[str, Any]:
         # Sanitize: only allow safe characters
-        if re.search(r'[^\d\s\+\-\*\/\.\(\)\,\%\w]', expression):
+        if re.search(r"[^\d\s\+\-\*\/\.\(\)\,\%\w]", expression):
             return {"error": "Expression contains disallowed characters"}
 
         try:
@@ -394,6 +497,7 @@ class CalculatorSkill(BaseSkill):
 
 class SystemHealthSkill(BaseSkill):
     """Collect system health metrics via psutil."""
+
     name = "system_health"
     description = "CPU, RAM, disk usage, top processes – systémový health check"
     icon = "🖥️"
@@ -410,14 +514,19 @@ class SystemHealthSkill(BaseSkill):
         vm = psutil.virtual_memory()
         disk = psutil.disk_usage("/")
         top_procs = []
-        for p in sorted(psutil.process_iter(attrs=["pid", "name", "cpu_percent"]),
-                        key=lambda x: x.info.get("cpu_percent") or 0, reverse=True)[:5]:
+        for p in sorted(
+            psutil.process_iter(attrs=["pid", "name", "cpu_percent"]),
+            key=lambda x: x.info.get("cpu_percent") or 0,
+            reverse=True,
+        )[:5]:
             try:
-                top_procs.append({
-                    "pid": p.info["pid"],
-                    "name": p.info["name"],
-                    "cpu": round(p.info.get("cpu_percent") or 0, 1),
-                })
+                top_procs.append(
+                    {
+                        "pid": p.info["pid"],
+                        "name": p.info["name"],
+                        "cpu": round(p.info.get("cpu_percent") or 0, 1),
+                    }
+                )
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
         return {
@@ -439,15 +548,20 @@ class SystemHealthSkill(BaseSkill):
 
 class GitHubCIStatusSkill(BaseSkill):
     """Check GitHub Actions CI status for a repository."""
+
     name = "github_ci_status"
     description = "Zkontroluje GitHub Actions CI/CD status pro repozitář"
     icon = "🔄"
 
-    async def run(self, repo: str = "keksiczek/ai-home-hub", **kwargs) -> Dict[str, Any]:
+    async def run(
+        self, repo: str = "keksiczek/ai-home-hub", **kwargs
+    ) -> Dict[str, Any]:
         url = f"https://api.github.com/repos/{repo}/actions/runs?per_page=5"
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.get(url, headers={"Accept": "application/vnd.github.v3+json"})
+                resp = await client.get(
+                    url, headers={"Accept": "application/vnd.github.v3+json"}
+                )
                 if resp.status_code == 404:
                     return {"repo": repo, "error": "Repository not found or private"}
                 resp.raise_for_status()
@@ -462,8 +576,12 @@ class GitHubCIStatusSkill(BaseSkill):
             duration = ""
             if latest.get("created_at") and latest.get("updated_at"):
                 try:
-                    created = datetime.fromisoformat(latest["created_at"].replace("Z", "+00:00"))
-                    updated = datetime.fromisoformat(latest["updated_at"].replace("Z", "+00:00"))
+                    created = datetime.fromisoformat(
+                        latest["created_at"].replace("Z", "+00:00")
+                    )
+                    updated = datetime.fromisoformat(
+                        latest["updated_at"].replace("Z", "+00:00")
+                    )
                     secs = int((updated - created).total_seconds())
                     duration = f"{secs // 60}m {secs % 60}s"
                 except (ValueError, TypeError):
@@ -492,6 +610,7 @@ class GitHubCIStatusSkill(BaseSkill):
 
 class LeanMetricsSkill(BaseSkill):
     """Compute lean/operational metrics from the job queue."""
+
     name = "lean_metrics"
     description = "Jobs total, fail rate, avg time, timeout rate, RAM – lean metriky"
     icon = "📈"
@@ -499,6 +618,7 @@ class LeanMetricsSkill(BaseSkill):
     async def run(self, period: str = "24h", **kwargs) -> Dict[str, Any]:
         try:
             from app.services.job_service import get_job_service
+
             job_svc = get_job_service()
 
             hours = int(period.replace("h", "")) if "h" in period else 24
@@ -521,7 +641,11 @@ class LeanMetricsSkill(BaseSkill):
                         pass
 
             avg_time = round(sum(durations) / len(durations), 0) if durations else 0
-            timeout_count = sum(1 for j in recent if j.last_error and "timeout" in (j.last_error or "").lower())
+            timeout_count = sum(
+                1
+                for j in recent
+                if j.last_error and "timeout" in (j.last_error or "").lower()
+            )
 
             vm = psutil.virtual_memory()
 
@@ -531,7 +655,9 @@ class LeanMetricsSkill(BaseSkill):
                 "avg_job_time": f"{int(avg_time)}s",
                 "timeout_rate": round(timeout_count / total, 2) if total > 0 else 0.0,
                 "ram_avg": round(vm.used / 1024**3, 1),
-                "cycle_efficiency": round((total - failed) / total, 2) if total > 0 else 1.0,
+                "cycle_efficiency": (
+                    round((total - failed) / total, 2) if total > 0 else 1.0
+                ),
                 "period": period,
             }
         except Exception as exc:
@@ -541,6 +667,7 @@ class LeanMetricsSkill(BaseSkill):
 # ── Skills Registry ─────────────────────────────────────────────
 
 ALL_SKILLS: Dict[str, BaseSkill] = {}
+
 
 def _register_skills():
     """Initialize the global skills registry."""
@@ -562,6 +689,7 @@ def _register_skills():
         LeanMetricsSkill(),
     ]
     ALL_SKILLS = {s.name: s for s in skills}
+
 
 _register_skills()
 
@@ -634,10 +762,12 @@ def get_skill_manifest(skill_id: str) -> Optional[SkillManifest]:
     settings = get_settings_service().load()
     enabled_list = settings.get("enabled_skills", list(ALL_SKILLS.keys()))
     skill_config = settings.get("skills_config", {}).get(skill_id, {})
-    updated = manifest.model_copy(update={
-        "enabled": skill_id in enabled_list,
-        "config": skill_config,
-    })
+    updated = manifest.model_copy(
+        update={
+            "enabled": skill_id in enabled_list,
+            "config": skill_config,
+        }
+    )
     return _mask_secrets(updated)
 
 
@@ -649,10 +779,12 @@ def get_all_skill_manifests() -> List[SkillManifest]:
     result = []
     for manifest in get_all_builtin_manifests():
         skill_config = skills_config.get(manifest.id, {})
-        updated = manifest.model_copy(update={
-            "enabled": manifest.id in enabled_list,
-            "config": skill_config,
-        })
+        updated = manifest.model_copy(
+            update={
+                "enabled": manifest.id in enabled_list,
+                "config": skill_config,
+            }
+        )
         result.append(_mask_secrets(updated))
     return result
 
@@ -718,11 +850,21 @@ async def test_skill(skill_id: str) -> dict:
 
     skill = ALL_SKILLS.get(skill_id)
     if not skill:
-        return {"success": False, "output": "", "duration_ms": 0, "error": f"Skill '{skill_id}' not found"}
+        return {
+            "success": False,
+            "output": "",
+            "duration_ms": 0,
+            "error": f"Skill '{skill_id}' not found",
+        }
 
     # Skills that should be skipped
     if skill_id in ("vision", "timer"):
-        return {"success": True, "output": "Test skipped – skill requires special setup", "duration_ms": 0, "error": ""}
+        return {
+            "success": True,
+            "output": "Test skipped – skill requires special setup",
+            "duration_ms": 0,
+            "error": "",
+        }
 
     start = time.monotonic()
     try:
@@ -740,10 +882,20 @@ async def test_skill(skill_id: str) -> dict:
         }
     except asyncio.TimeoutError:
         elapsed = (time.monotonic() - start) * 1000
-        return {"success": False, "output": "", "duration_ms": round(elapsed, 1), "error": "Timeout after 30s"}
+        return {
+            "success": False,
+            "output": "",
+            "duration_ms": round(elapsed, 1),
+            "error": "Timeout after 30s",
+        }
     except Exception as exc:
         elapsed = (time.monotonic() - start) * 1000
-        return {"success": False, "output": "", "duration_ms": round(elapsed, 1), "error": str(exc)}
+        return {
+            "success": False,
+            "output": "",
+            "duration_ms": round(elapsed, 1),
+            "error": str(exc),
+        }
 
 
 async def _run_skill_test(skill_id: str, skill: BaseSkill) -> Any:

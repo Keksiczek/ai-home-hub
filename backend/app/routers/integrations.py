@@ -1,4 +1,5 @@
 """Integrations router – endpoints for all external service integrations."""
+
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -28,6 +29,7 @@ router = APIRouter()
 
 # ── Claude MCP ──────────────────────────────────────────────
 
+
 @router.post("/integrations/mcp/call-tool", tags=["integrations", "mcp"])
 async def mcp_call_tool(body: MCPCallRequest) -> Dict[str, Any]:
     """Call a Claude MCP tool directly."""
@@ -44,6 +46,7 @@ async def mcp_available_tools() -> Dict[str, Any]:
 
 # ── VS Code ─────────────────────────────────────────────────
 
+
 @router.post("/integrations/vscode/open-project", tags=["integrations", "vscode"])
 async def vscode_open_project(body: VSCodeOpenProjectRequest) -> Dict[str, Any]:
     """Open a configured project in VS Code."""
@@ -58,7 +61,9 @@ async def vscode_open_project(body: VSCodeOpenProjectRequest) -> Dict[str, Any]:
 async def vscode_open_file(body: VSCodeOpenFileRequest) -> Dict[str, Any]:
     """Open a specific file (optionally at a line number) in VS Code."""
     svc = get_vscode_service()
-    result = await svc.run_action("open_file", {"file_path": body.file_path, "line": body.line})
+    result = await svc.run_action(
+        "open_file", {"file_path": body.file_path, "line": body.line}
+    )
     return result
 
 
@@ -96,14 +101,19 @@ async def vscode_version() -> Dict[str, Any]:
 
 # ── Antigravity ─────────────────────────────────────────────
 
-@router.post("/integrations/antigravity/start-agent", tags=["integrations", "antigravity"])
+
+@router.post(
+    "/integrations/antigravity/start-agent", tags=["integrations", "antigravity"]
+)
 async def antigravity_start_agent(body: AntigravityAgentRequest) -> Dict[str, Any]:
     """Start an Antigravity agent task."""
     svc = get_antigravity_service()
     return await svc.start_agent_task(body.prompt, body.workspace)
 
 
-@router.get("/integrations/antigravity/agent-status", tags=["integrations", "antigravity"])
+@router.get(
+    "/integrations/antigravity/agent-status", tags=["integrations", "antigravity"]
+)
 async def antigravity_agent_status(task_id: str) -> Dict[str, Any]:
     """Check Antigravity agent progress."""
     svc = get_antigravity_service()
@@ -126,8 +136,12 @@ async def antigravity_health() -> Dict[str, Any]:
 
 # ── Mac OS ──────────────────────────────────────────────────
 
-@router.post("/integrations/macos/screenshot", tags=["integrations", "macos"],
-             dependencies=[Depends(verify_api_key)])
+
+@router.post(
+    "/integrations/macos/screenshot",
+    tags=["integrations", "macos"],
+    dependencies=[Depends(verify_api_key)],
+)
 async def macos_screenshot(mode: str = "clipboard") -> dict:
     """Capture a macOS screenshot (requires Screen Recording permission).
 
@@ -167,6 +181,7 @@ async def macos_running_apps() -> Dict[str, Any]:
 
 
 # ── Git ─────────────────────────────────────────────────────
+
 
 @router.get("/integrations/git/status", tags=["integrations", "git"])
 async def git_status(repo_path: str) -> Dict[str, Any]:
@@ -213,6 +228,7 @@ async def git_log(repo_path: str, count: int = 10) -> Dict[str, Any]:
 
 # ── OpenClaw ────────────────────────────────────────────────
 
+
 @router.post("/integrations/openclaw", tags=["integrations", "openclaw"])
 async def openclaw_action(action: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
     """Execute an OpenClaw action (screenshot, click, type, etc.)."""
@@ -221,6 +237,7 @@ async def openclaw_action(action: str, params: Dict[str, Any] = None) -> Dict[st
 
 
 # ── Notifications ────────────────────────────────────────────
+
 
 @router.post("/integrations/notify", tags=["integrations", "notifications"])
 async def send_notification(body: NotificationRequest) -> Dict[str, Any]:

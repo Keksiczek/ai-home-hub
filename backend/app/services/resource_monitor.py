@@ -2,6 +2,7 @@
 Resource monitor – tracks RAM/CPU of backend process and Ollama.
 Provides throttle signals to job worker and agent orchestrator.
 """
+
 import asyncio
 import logging
 import os
@@ -16,9 +17,9 @@ from app.services.metrics_service import ollama_memory_bytes
 logger = logging.getLogger(__name__)
 
 # Thresholds
-RAM_WARN_PERCENT   = 75   # % system RAM used → warn
-RAM_BLOCK_PERCENT  = 88   # % system RAM used → block new agents/jobs
-CPU_WARN_PERCENT   = 70   # % CPU (1s sample) → warn
+RAM_WARN_PERCENT = 75  # % system RAM used → warn
+RAM_BLOCK_PERCENT = 88  # % system RAM used → block new agents/jobs
+CPU_WARN_PERCENT = 70  # % CPU (1s sample) → warn
 OLLAMA_PROCESS_NAMES = {"ollama", "ollama_llama_server"}
 
 
@@ -91,14 +92,19 @@ class ResourceMonitor:
                 snap = await asyncio.to_thread(self._take_snapshot)
                 self._latest = snap
                 if snap.block:
-                    logger.warning("RESOURCE BLOCK: RAM %s%% – new agents/jobs blocked", snap.ram_used_percent)
+                    logger.warning(
+                        "RESOURCE BLOCK: RAM %s%% – new agents/jobs blocked",
+                        snap.ram_used_percent,
+                    )
                 elif snap.throttle:
                     logger.warning("RESOURCE WARN: RAM %s%%", snap.ram_used_percent)
 
                 # Broadcast resource update every 60s (every 4th tick)
                 if self._tick_count % 4 == 0 and self._broadcast_fn:
                     try:
-                        await self._broadcast_fn({"type": WS_EVENT_RESOURCE_UPDATE, **self.to_dict()})
+                        await self._broadcast_fn(
+                            {"type": WS_EVENT_RESOURCE_UPDATE, **self.to_dict()}
+                        )
                     except Exception as exc:
                         logger.debug("Resource broadcast failed: %s", exc)
             except Exception as exc:

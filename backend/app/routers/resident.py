@@ -22,6 +22,7 @@ router = APIRouter(prefix="/resident", tags=["resident"])
 
 # ── Request / Response models ────────────────────────────────
 
+
 class ResidentTaskRequest(BaseModel):
     title: str
     description: str = ""
@@ -54,6 +55,7 @@ class AgentSettingsPatch(BaseModel):
 
 
 # ── Core endpoints (unchanged) ───────────────────────────────
+
 
 @router.get("/status")
 async def resident_status() -> dict:
@@ -167,6 +169,7 @@ async def resident_steps() -> dict:
 
 # ── Task detail & chat ──────────────────────────────────────
 
+
 @router.get("/tasks/{task_id}")
 async def get_task_detail(task_id: str) -> dict:
     """Get detailed task info."""
@@ -222,7 +225,7 @@ async def task_chat(task_id: str, req: MissionChatRequest) -> dict:
 
     system_prompt = (
         f"{get_date_context()}\n"
-        f"Jsi AI agent který provedl úkol: \"{job.title}\"\n\n"
+        f'Jsi AI agent který provedl úkol: "{job.title}"\n\n'
         f"Kontext úkolu:\n"
         f"- Popis: {job.input_summary or 'žádný'}\n"
         f"- Status: {job.status}\n"
@@ -234,8 +237,7 @@ async def task_chat(task_id: str, req: MissionChatRequest) -> dict:
 
     chat_history = job.payload.get("chat_history", [])
     history_messages = [
-        {"role": m["role"], "content": m["content"]}
-        for m in chat_history[-20:]
+        {"role": m["role"], "content": m["content"]} for m in chat_history[-20:]
     ]
 
     llm_svc = get_llm_service()
@@ -261,10 +263,12 @@ async def task_chat(task_id: str, req: MissionChatRequest) -> dict:
 
 # ── Autonomy mode ────────────────────────────────────────────
 
+
 @router.get("/mode")
 async def get_resident_mode() -> dict:
     """Get current resident autonomy mode with allowed actions."""
     from app.services.resident_agent import MODE_ALLOWED_ACTIONS
+
     settings = get_settings_service().load()
     mode = settings.get("resident_mode", "advisor")
     return {
@@ -276,7 +280,11 @@ async def get_resident_mode() -> dict:
 @router.get("/mode-status")
 async def get_mode_status() -> dict:
     """Comprehensive mode status: allowed/blocked actions, tiers, history, stats."""
-    from app.services.resident_agent import MODE_ALLOWED_ACTIONS, ACTION_TIERS, ALLOWED_ACTIONS
+    from app.services.resident_agent import (
+        MODE_ALLOWED_ACTIONS,
+        ACTION_TIERS,
+        ALLOWED_ACTIONS,
+    )
     from app.services.mode_audit_service import get_mode_audit_service
 
     settings = get_settings_service().load()
@@ -341,7 +349,11 @@ async def pause_resident_mode() -> dict:
     """
     get_settings_service().update({"resident_mode": "advisor"})
     logger.warning("Resident PANIC/PAUSE – mode forced to advisor")
-    return {"status": "ok", "mode": "advisor", "message": "Autonomie pozastavena – přepnuto na advisor"}
+    return {
+        "status": "ok",
+        "mode": "advisor",
+        "message": "Autonomie pozastavena – přepnuto na advisor",
+    }
 
 
 @router.post("/mode/autonomous")
@@ -357,6 +369,7 @@ async def enable_resident_autonomous() -> dict:
 
 
 # ── Suggestions ──────────────────────────────────────────────
+
 
 @router.get("/suggestions")
 async def get_suggestions(limit: int = Query(default=10, ge=1, le=50)) -> dict:
@@ -378,10 +391,15 @@ async def accept_suggestion(suggestion_id: str, action_id: str = Query(...)) -> 
     if job_id is None:
         raise HTTPException(404, "Návrh nebo akce nenalezena")
 
-    return {"job_id": job_id, "status": "queued", "message": "Akce přijata a zařazena do fronty"}
+    return {
+        "job_id": job_id,
+        "status": "queued",
+        "message": "Akce přijata a zařazena do fronty",
+    }
 
 
 # ── Missions ─────────────────────────────────────────────────
+
 
 @router.post("/missions")
 async def create_mission(req: MissionCreateRequest) -> dict:
@@ -392,7 +410,8 @@ async def create_mission(req: MissionCreateRequest) -> dict:
     steps = await reasoner.plan_mission(req.goal, req.context)
     if not steps:
         raise HTTPException(
-            500, "Nepodařilo se naplánovat misi (LLM nedostupné nebo nevrátilo platný plán)"
+            500,
+            "Nepodařilo se naplánovat misi (LLM nedostupné nebo nevrátilo platný plán)",
         )
 
     # Store as a resident_mission job
@@ -426,15 +445,17 @@ async def list_missions(limit: int = Query(default=10, ge=1, le=50)) -> dict:
     missions = []
     for mj in mission_jobs:
         plan = mj.payload.get("plan", {})
-        missions.append({
-            "id": mj.id,
-            "goal": plan.get("goal", mj.title),
-            "status": plan.get("status", mj.status),
-            "current_step": plan.get("current_step", 0),
-            "total_steps": len(plan.get("steps", [])),
-            "progress": mj.progress,
-            "created_at": mj.created_at,
-        })
+        missions.append(
+            {
+                "id": mj.id,
+                "goal": plan.get("goal", mj.title),
+                "status": plan.get("status", mj.status),
+                "current_step": plan.get("current_step", 0),
+                "total_steps": len(plan.get("steps", [])),
+                "progress": mj.progress,
+                "created_at": mj.created_at,
+            }
+        )
     return {"missions": missions, "count": len(missions)}
 
 
@@ -579,6 +600,7 @@ async def mission_chat(mission_id: str, req: MissionChatRequest) -> dict:
 
 # ── History & Logs ────────────────────────────────────────────
 
+
 @router.get("/history")
 async def get_agent_history(limit: int = Query(default=20, ge=1, le=200)) -> dict:
     """Get recent cycle history."""
@@ -608,6 +630,7 @@ async def clear_agent_logs() -> dict:
 
 
 # ── Pause / Resume / Run Now / Reset ─────────────────────────
+
 
 @router.post("/pause")
 async def agent_pause() -> dict:
@@ -651,13 +674,17 @@ async def agent_restart() -> dict:
             await asyncio.sleep(1)
         result = await agent.start()
         logger.info("Resident agent restarted")
-        return {"status": "restarted", "message": "Agent restartován s novým nastavením."}
+        return {
+            "status": "restarted",
+            "message": "Agent restartován s novým nastavením.",
+        }
     except Exception as exc:
         logger.error("Resident agent restart failed: %s", exc)
         raise HTTPException(500, f"Restart selhal: {exc}")
 
 
 # ── Agent Settings ────────────────────────────────────────────
+
 
 @router.get("/agent-settings")
 async def get_agent_settings() -> dict:
@@ -678,6 +705,7 @@ async def patch_agent_settings(req: AgentSettingsPatch) -> dict:
 
 # ── Agent Memory ──────────────────────────────────────────────
 
+
 @router.get("/agent-memory")
 async def get_agent_memory(limit: int = Query(default=50, ge=1, le=200)) -> dict:
     """Get agent memory entries."""
@@ -694,6 +722,7 @@ async def clear_agent_memory() -> dict:
 
 
 # ── Reflections ──────────────────────────────────────────────
+
 
 @router.get("/reflections")
 async def get_reflections(limit: int = Query(default=20, ge=1, le=100)) -> dict:
@@ -739,6 +768,7 @@ async def trigger_reasoning_cycle() -> dict:
 
 # ── Mission proposals ────────────────────────────────────────
 
+
 @router.get("/proposals")
 async def get_proposals(status: Optional[str] = Query(default=None)) -> dict:
     """Get mission proposals (optionally filtered by status)."""
@@ -766,7 +796,11 @@ async def approve_proposal(proposal_id: str) -> dict:
     job_id = await agent.approve_proposal(proposal_id)
     if job_id is None:
         raise HTTPException(404, "Návrh nenalezen nebo již zpracován")
-    return {"status": "approved", "job_id": job_id, "message": "Mise schválena a zařazena do fronty"}
+    return {
+        "status": "approved",
+        "job_id": job_id,
+        "message": "Mise schválena a zařazena do fronty",
+    }
 
 
 @router.post("/proposals/{proposal_id}/reject")
@@ -781,6 +815,7 @@ async def reject_proposal(proposal_id: str) -> dict:
 
 # ── SSE stream for live agent thoughts ───────────────────────
 
+
 @router.get("/stream")
 async def resident_stream(request: Request):
     """SSE stream – sends live thoughts and actions of the Resident agent."""
@@ -791,7 +826,9 @@ async def resident_stream(request: Request):
             if await request.is_disconnected():
                 break
             try:
-                thought = await asyncio.wait_for(agent.thought_queue.get(), timeout=30.0)
+                thought = await asyncio.wait_for(
+                    agent.thought_queue.get(), timeout=30.0
+                )
                 event_type = thought.get("type", "thinking")
                 data = json.dumps(thought, ensure_ascii=False)
                 yield f"event: {event_type}\ndata: {data}\n\n"
@@ -812,8 +849,10 @@ async def resident_stream(request: Request):
 
 # ── Control Room: Mission Templates ───────────────────────────
 
+
 class MissionRequest(BaseModel):
     """Optional metadata for template runs."""
+
     context: str = ""
 
 
@@ -852,10 +891,14 @@ async def get_templates() -> List[Dict[str, Any]]:
 
 
 @router.post("/run-template/{template_id}")
-async def run_template(template_id: str, req: MissionRequest = MissionRequest()) -> dict:
+async def run_template(
+    template_id: str, req: MissionRequest = MissionRequest()
+) -> dict:
     """Queue a resident task from a predefined mission template."""
     if template_id not in _TEMPLATE_PROMPTS:
-        raise HTTPException(status_code=404, detail=f"Template '{template_id}' nenalezen")
+        raise HTTPException(
+            status_code=404, detail=f"Template '{template_id}' nenalezen"
+        )
 
     prompt = _TEMPLATE_PROMPTS[template_id]
     if req.context:
@@ -869,10 +912,16 @@ async def run_template(template_id: str, req: MissionRequest = MissionRequest())
         payload={},
         priority="normal",
     )
-    return {"job_id": job.id, "status": "queued", "template_id": template_id, "title": template_id}
+    return {
+        "job_id": job.id,
+        "status": "queued",
+        "template_id": template_id,
+        "title": template_id,
+    }
 
 
 # ── Control Room: Debug Export ─────────────────────────────────
+
 
 @router.post("/export-debug")
 async def export_debug() -> JSONResponse:

@@ -1,4 +1,5 @@
 """Tests for extended health check endpoints (4C)."""
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest

@@ -1,4 +1,5 @@
 """Tests for conversation summarization in SessionService."""
+
 import json
 import tempfile
 from pathlib import Path
@@ -15,11 +16,13 @@ def _make_session(tmpdir: str, session_id: str, num_messages: int) -> Path:
     messages = []
     for i in range(num_messages):
         role = "user" if i % 2 == 0 else "assistant"
-        messages.append({
-            "role": role,
-            "content": f"Message {i}",
-            "timestamp": f"2026-01-01T00:00:{i:02d}Z",
-        })
+        messages.append(
+            {
+                "role": role,
+                "content": f"Message {i}",
+                "timestamp": f"2026-01-01T00:00:{i:02d}Z",
+            }
+        )
     data = {
         "session_id": session_id,
         "created_at": "2026-01-01T00:00:00Z",
@@ -38,7 +41,9 @@ def test_short_session_returns_full_history():
         _make_session(tmpdir, "short", 10)
         with patch("app.services.session_service.SESSIONS_DIR", Path(tmpdir)):
             svc = SessionService()
-            history = svc.get_history_for_llm("short", limit=20, max_messages_before_summary=20)
+            history = svc.get_history_for_llm(
+                "short", limit=20, max_messages_before_summary=20
+            )
 
     assert len(history) == 10
     assert all(m["role"] in ("user", "assistant") for m in history)
@@ -50,7 +55,9 @@ def test_long_session_returns_summary_plus_recent():
         _make_session(tmpdir, "long", 30)
         with patch("app.services.session_service.SESSIONS_DIR", Path(tmpdir)):
             svc = SessionService()
-            history = svc.get_history_for_llm("long", limit=20, max_messages_before_summary=20)
+            history = svc.get_history_for_llm(
+                "long", limit=20, max_messages_before_summary=20
+            )
 
     # Should have 1 summary message + 20 recent messages
     assert len(history) == 21
@@ -65,7 +72,9 @@ def test_cached_summary_is_reused():
     with tempfile.TemporaryDirectory() as tmpdir:
         sessions_dir = Path(tmpdir)
         session_id = "cached"
-        messages = [{"role": "user", "content": f"Msg {i}", "timestamp": "t"} for i in range(25)]
+        messages = [
+            {"role": "user", "content": f"Msg {i}", "timestamp": "t"} for i in range(25)
+        ]
         data = {
             "session_id": session_id,
             "created_at": "2026-01-01T00:00:00Z",
@@ -77,7 +86,9 @@ def test_cached_summary_is_reused():
 
         with patch("app.services.session_service.SESSIONS_DIR", sessions_dir):
             svc = SessionService()
-            history = svc.get_history_for_llm(session_id, limit=20, max_messages_before_summary=20)
+            history = svc.get_history_for_llm(
+                session_id, limit=20, max_messages_before_summary=20
+            )
 
     assert history[0]["role"] == "system"
     assert "Cached summary of conversation." in history[0]["content"]
@@ -88,7 +99,9 @@ def test_summary_is_regenerated_when_stale():
     with tempfile.TemporaryDirectory() as tmpdir:
         sessions_dir = Path(tmpdir)
         session_id = "stale"
-        messages = [{"role": "user", "content": f"Msg {i}", "timestamp": "t"} for i in range(35)]
+        messages = [
+            {"role": "user", "content": f"Msg {i}", "timestamp": "t"} for i in range(35)
+        ]
         data = {
             "session_id": session_id,
             "created_at": "2026-01-01T00:00:00Z",
@@ -100,7 +113,9 @@ def test_summary_is_regenerated_when_stale():
 
         with patch("app.services.session_service.SESSIONS_DIR", sessions_dir):
             svc = SessionService()
-            history = svc.get_history_for_llm(session_id, limit=20, max_messages_before_summary=20)
+            history = svc.get_history_for_llm(
+                session_id, limit=20, max_messages_before_summary=20
+            )
 
     # Should NOT use the old summary – new one generated
     assert history[0]["role"] == "system"
@@ -126,7 +141,9 @@ def test_disabled_summarization_returns_all():
         _make_session(tmpdir, "nosumm", 30)
         with patch("app.services.session_service.SESSIONS_DIR", Path(tmpdir)):
             svc = SessionService()
-            history = svc.get_history_for_llm("nosumm", limit=50, max_messages_before_summary=None)
+            history = svc.get_history_for_llm(
+                "nosumm", limit=50, max_messages_before_summary=None
+            )
 
     # No summarization – all messages returned (capped by limit)
     assert all("Summary" not in m.get("content", "") for m in history)

@@ -1,9 +1,9 @@
 """Tests for KB incremental ingest and file-deletion operations."""
+
 import os
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -22,12 +22,10 @@ def temp_kb_dir(tmp_path):
 def mock_vector_store(monkeypatch):
     """Replace get_vector_store_service with a MagicMock."""
     vs = MagicMock()
-    vs.add_documents.return_value = None
-    vs.delete_by_file_path.return_value = 0
+    vs.add_documents = AsyncMock(return_value=None)
+    vs.delete_by_file_path = AsyncMock(return_value=0)
     vs.get_stats.return_value = {"total_chunks": 0, "collection_name": "knowledge_base"}
-    monkeypatch.setattr(
-        "app.routers.knowledge.get_vector_store_service", lambda: vs
-    )
+    monkeypatch.setattr("app.routers.knowledge.get_vector_store_service", lambda: vs)
     return vs
 
 
@@ -36,13 +34,11 @@ def mock_embeddings(monkeypatch):
     """Replace get_embeddings_service with an AsyncMock returning fake vectors."""
     svc = AsyncMock()
     # Return one fake embedding per chunk so the ingest pipeline succeeds.
-    svc.generate_embeddings_batch.side_effect = (
-        lambda chunks: [[0.1, 0.2, 0.3] for _ in chunks]
-    )
+    svc.generate_embeddings_batch.side_effect = lambda chunks: [
+        [0.1, 0.2, 0.3] for _ in chunks
+    ]
     svc.generate_embedding.return_value = [0.1, 0.2, 0.3]
-    monkeypatch.setattr(
-        "app.routers.knowledge.get_embeddings_service", lambda: svc
-    )
+    monkeypatch.setattr("app.routers.knowledge.get_embeddings_service", lambda: svc)
     return svc
 
 
@@ -165,9 +161,7 @@ def test_ingest_job_completed_after_background_task(
     """After background task finishes, job status must be 'completed'."""
     _, txt_file, _ = temp_kb_dir
 
-    job = _post_and_get_job(
-        client, "/api/knowledge/ingest", json=None
-    )
+    job = _post_and_get_job(client, "/api/knowledge/ingest", json=None)
 
     # job may be completed (files scanned from scan endpoint returning nothing)
     # or completed with result — what matters is it's not stuck in 'pending'

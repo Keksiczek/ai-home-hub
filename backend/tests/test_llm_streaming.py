@@ -1,4 +1,5 @@
 """Tests for LLM streaming – generate_stream() yields tokens from Ollama NDJSON."""
+
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -25,8 +26,11 @@ def _patch_settings():
     mock_cb.record_failure = AsyncMock()
     mock_cb.recovery_timeout = 30.0
 
-    with patch("app.services.llm_service.get_settings_service", return_value=mock_svc), \
-         patch("app.services.llm_service.get_ollama_circuit_breaker", return_value=mock_cb):
+    with patch(
+        "app.services.llm_service.get_settings_service", return_value=mock_svc
+    ), patch(
+        "app.services.llm_service.get_ollama_circuit_breaker", return_value=mock_cb
+    ):
         yield mock_svc
 
 
@@ -127,4 +131,8 @@ async def test_generate_stream_fallback_on_connect_error():
             collected.append(token)
 
     assert len(collected) == 1
-    assert "Stub" in collected[0] or "not reachable" in collected[0].lower() or "stub" in collected[0].lower()
+    assert (
+        "Stub" in collected[0]
+        or "not reachable" in collected[0].lower()
+        or "stub" in collected[0].lower()
+    )

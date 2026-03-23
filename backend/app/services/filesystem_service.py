@@ -1,4 +1,5 @@
 """Filesystem service – secure file operations with whitelist enforcement."""
+
 import asyncio
 import fnmatch
 import logging
@@ -43,8 +44,12 @@ class FilesystemService:
                 p.relative_to(Path(d).resolve())
                 # Path is under this allowed dir – now check blacklist
                 for pattern in self._blacklist_patterns():
-                    if fnmatch.fnmatch(str(p), f"*{pattern}") or fnmatch.fnmatch(p.name, pattern):
-                        raise PermissionError(f"Path matches blacklist pattern: {pattern}")
+                    if fnmatch.fnmatch(str(p), f"*{pattern}") or fnmatch.fnmatch(
+                        p.name, pattern
+                    ):
+                        raise PermissionError(
+                            f"Path matches blacklist pattern: {pattern}"
+                        )
                 return p
             except ValueError:
                 continue  # Not under this allowed dir, try next
@@ -94,7 +99,9 @@ class FilesystemService:
         p = self._assert_allowed(path)
         p.parent.mkdir(parents=True, exist_ok=True)
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, lambda: p.write_text(content, encoding=encoding))
+        await loop.run_in_executor(
+            None, lambda: p.write_text(content, encoding=encoding)
+        )
         return f"Written {len(content)} characters to {path}"
 
     async def delete_file(self, path: str) -> str:
@@ -118,6 +125,7 @@ class FilesystemService:
         src_p = self._assert_allowed(src)
         dst_p = self._assert_allowed(dst)
         import shutil
+
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, lambda: shutil.move(str(src_p), str(dst_p)))
         return f"Moved {src} → {dst}"
@@ -127,6 +135,7 @@ class FilesystemService:
         src_p = self._assert_allowed(src)
         dst_p = self._assert_allowed(dst)
         import shutil
+
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, lambda: shutil.copy2(str(src_p), str(dst_p)))
         return f"Copied {src} → {dst}"

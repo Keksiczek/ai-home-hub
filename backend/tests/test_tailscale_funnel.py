@@ -2,6 +2,7 @@
 
 All subprocess interactions are mocked so tests run without tailscale installed.
 """
+
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
 
@@ -9,8 +10,8 @@ import pytest
 
 from app.services.tailscale_service import TailscaleFunnelService
 
-
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
 
 def _make_settings(enable_funnel: bool = False, port: int = 8000, timeout: int = 300):
     """Return a SettingsService mock with given tailscale config."""
@@ -38,6 +39,7 @@ def _make_process(returncode=None, pid=12345):
 
 # ── Tests: disabled state ─────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_health_disabled_when_not_enabled():
     """Service reports 'disabled' when enable_funnel=False."""
@@ -50,7 +52,9 @@ async def test_health_disabled_when_not_enabled():
 async def test_on_start_does_not_launch_when_disabled():
     """_on_start() must not spawn a subprocess when enable_funnel=False."""
     svc = TailscaleFunnelService(_make_settings(enable_funnel=False))
-    with patch("app.services.tailscale_service.shutil.which", return_value="/usr/bin/tailscale"):
+    with patch(
+        "app.services.tailscale_service.shutil.which", return_value="/usr/bin/tailscale"
+    ):
         with patch("asyncio.create_subprocess_exec") as mock_exec:
             await svc._on_start()
     mock_exec.assert_not_called()
@@ -58,6 +62,7 @@ async def test_on_start_does_not_launch_when_disabled():
 
 
 # ── Tests: tailscale CLI not found ────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_start_funnel_graceful_when_tailscale_missing():
@@ -85,18 +90,19 @@ async def test_health_error_shows_message():
 
 # ── Tests: successful start / stop ────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_funnel_start_sets_process():
     """_start_funnel() assigns self._process when subprocess starts successfully."""
     proc = _make_process(returncode=None)
     status_proc = _make_process(returncode=0)
-    status_proc.communicate = AsyncMock(
-        return_value=(b"https://myhost.ts.net/\n", b"")
-    )
+    status_proc.communicate = AsyncMock(return_value=(b"https://myhost.ts.net/\n", b""))
 
-    with patch("app.services.tailscale_service.shutil.which", return_value="/usr/bin/tailscale"), \
-         patch("asyncio.create_subprocess_exec", side_effect=[proc, status_proc]), \
-         patch("asyncio.sleep", new_callable=AsyncMock):
+    with patch(
+        "app.services.tailscale_service.shutil.which", return_value="/usr/bin/tailscale"
+    ), patch("asyncio.create_subprocess_exec", side_effect=[proc, status_proc]), patch(
+        "asyncio.sleep", new_callable=AsyncMock
+    ):
         svc = TailscaleFunnelService(_make_settings(enable_funnel=True))
         await svc._start_funnel({"port": 8000})
 
@@ -116,8 +122,9 @@ async def test_funnel_url_parsed_from_status():
     status_proc = _make_process(returncode=0)
     status_proc.communicate = AsyncMock(return_value=(status_output, b""))
 
-    with patch("app.services.tailscale_service.shutil.which", return_value="/usr/bin/tailscale"), \
-         patch("asyncio.create_subprocess_exec", return_value=status_proc):
+    with patch(
+        "app.services.tailscale_service.shutil.which", return_value="/usr/bin/tailscale"
+    ), patch("asyncio.create_subprocess_exec", return_value=status_proc):
         svc = TailscaleFunnelService(_make_settings(enable_funnel=True))
         svc._enabled = True
         svc._process = _make_process(returncode=None)
@@ -137,8 +144,9 @@ async def test_funnel_stop_terminates_process():
     reset_proc = _make_process(returncode=0)
     reset_proc.wait = AsyncMock(return_value=0)
 
-    with patch("app.services.tailscale_service.shutil.which", return_value="/usr/bin/tailscale"), \
-         patch("asyncio.create_subprocess_exec", return_value=reset_proc):
+    with patch(
+        "app.services.tailscale_service.shutil.which", return_value="/usr/bin/tailscale"
+    ), patch("asyncio.create_subprocess_exec", return_value=reset_proc):
         svc = TailscaleFunnelService(_make_settings(enable_funnel=True))
         svc._enabled = True
         svc._process = proc
@@ -161,6 +169,7 @@ async def test_health_stopped_when_no_process():
 
 # ── Tests: not logged in ──────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_refresh_url_handles_not_logged_in():
     """_refresh_url() sets 'tailscale: not logged in' error when stderr contains hint."""
@@ -168,8 +177,9 @@ async def test_refresh_url_handles_not_logged_in():
     status_proc = _make_process(returncode=1)
     status_proc.communicate = AsyncMock(return_value=(b"", err_output))
 
-    with patch("app.services.tailscale_service.shutil.which", return_value="/usr/bin/tailscale"), \
-         patch("asyncio.create_subprocess_exec", return_value=status_proc):
+    with patch(
+        "app.services.tailscale_service.shutil.which", return_value="/usr/bin/tailscale"
+    ), patch("asyncio.create_subprocess_exec", return_value=status_proc):
         svc = TailscaleFunnelService(_make_settings(enable_funnel=True))
         svc._enabled = True
         svc._process = _make_process(returncode=None)
@@ -181,6 +191,7 @@ async def test_refresh_url_handles_not_logged_in():
 
 # ── Tests: tick-based settings reload ────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_tick_starts_funnel_when_newly_enabled():
     """_tick() starts the funnel when settings change from disabled to enabled."""
@@ -188,8 +199,9 @@ async def test_tick_starts_funnel_when_newly_enabled():
     svc = TailscaleFunnelService(settings)
     svc._enabled = False  # was disabled
 
-    with patch.object(svc, "_start_funnel", new_callable=AsyncMock) as mock_start, \
-         patch("asyncio.sleep", new_callable=AsyncMock):
+    with patch.object(
+        svc, "_start_funnel", new_callable=AsyncMock
+    ) as mock_start, patch("asyncio.sleep", new_callable=AsyncMock):
         await svc._tick()
 
     mock_start.assert_called_once()
@@ -204,8 +216,9 @@ async def test_tick_stops_funnel_when_newly_disabled():
     svc._enabled = True  # was enabled
     svc._process = _make_process(returncode=None)
 
-    with patch.object(svc, "_stop_funnel", new_callable=AsyncMock) as mock_stop, \
-         patch("asyncio.sleep", new_callable=AsyncMock):
+    with patch.object(svc, "_stop_funnel", new_callable=AsyncMock) as mock_stop, patch(
+        "asyncio.sleep", new_callable=AsyncMock
+    ):
         await svc._tick()
 
     mock_stop.assert_called_once()
@@ -214,6 +227,7 @@ async def test_tick_stops_funnel_when_newly_disabled():
 
 # ── Tests: health endpoint integration ───────────────────────────────────────
 
+
 def test_health_endpoint_includes_tailscale_funnel():
     """GET /api/health must include 'tailscale_funnel' key with a valid status."""
     from unittest.mock import patch, AsyncMock
@@ -221,7 +235,11 @@ def test_health_endpoint_includes_tailscale_funnel():
     from app.main import app
 
     # Patch startup checks so the TestClient doesn't need a real Ollama instance
-    with patch("app.services.startup_checks.check_ollama", new_callable=AsyncMock, return_value=["llama3.2"]) as mock_checks:
+    with patch(
+        "app.services.startup_checks.check_ollama",
+        new_callable=AsyncMock,
+        return_value=["llama3.2"],
+    ) as mock_checks:
         with TestClient(app) as tc:
             resp = tc.get("/api/health")
 

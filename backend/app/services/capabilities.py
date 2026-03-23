@@ -19,7 +19,9 @@ from typing import Any, Dict, List, Optional
 
 # ── Master switch ────────────────────────────────────────────────────────────
 
-AUTONOMY_ACCESS_ENABLED: bool = os.getenv("AUTONOMY_ACCESS_ENABLED", "false").lower() == "true"
+AUTONOMY_ACCESS_ENABLED: bool = (
+    os.getenv("AUTONOMY_ACCESS_ENABLED", "false").lower() == "true"
+)
 
 # ── Risk tiers ───────────────────────────────────────────────────────────────
 
@@ -62,14 +64,36 @@ class CapabilityDef:
 # ── Cross-platform shell whitelists ─────────────────────────────────────────
 
 _SHELL_WHITELIST_UNIX = [
-    "ls", "pwd", "ps", "ps aux", "top -l 1", "df", "df -h",
-    "git status", "git log --oneline -10", "uptime", "whoami", "date",
-    "cat", "head", "tail", "wc", "du -sh", "echo",
+    "ls",
+    "pwd",
+    "ps",
+    "ps aux",
+    "top -l 1",
+    "df",
+    "df -h",
+    "git status",
+    "git log --oneline -10",
+    "uptime",
+    "whoami",
+    "date",
+    "cat",
+    "head",
+    "tail",
+    "wc",
+    "du -sh",
+    "echo",
 ]
 
 _SHELL_WHITELIST_WINDOWS = [
-    "dir", "cd", "tasklist", "type", "systeminfo",
-    "git status", "git log --oneline -10", "whoami", "date /t",
+    "dir",
+    "cd",
+    "tasklist",
+    "type",
+    "systeminfo",
+    "git status",
+    "git log --oneline -10",
+    "whoami",
+    "date /t",
 ]
 
 
@@ -170,6 +194,7 @@ DEFAULT_CAPABILITIES: Dict[str, CapabilityDef] = {
 
 # ── Capability Registry (runtime singleton) ─────────────────────────────────
 
+
 class CapabilityRegistry:
     """Runtime registry that manages capability definitions and approval state."""
 
@@ -213,6 +238,7 @@ class CapabilityRegistry:
     def request_approval(self, cap_name: str, params: Dict[str, Any]) -> str:
         """Queue a capability for human approval. Returns an approval ID."""
         import uuid
+
         approval_id = str(uuid.uuid4())[:8]
         self._pending_approvals[approval_id] = {
             "cap_name": cap_name,

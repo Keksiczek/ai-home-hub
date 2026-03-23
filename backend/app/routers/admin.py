@@ -34,6 +34,7 @@ _DEV_SH = str((Path(__file__).parents[3] / "scripts" / "dev.sh").resolve())
 
 # ── Internal helper ────────────────────────────────────────────────────────────
 
+
 async def _run_dev_command(cmd: str) -> None:
     """Fire-and-forget: spawn  bash scripts/dev.sh <cmd>  in the background.
 
@@ -45,21 +46,28 @@ async def _run_dev_command(cmd: str) -> None:
         return
     try:
         proc = await asyncio.create_subprocess_exec(
-            "bash", _DEV_SH, cmd,
+            "bash",
+            _DEV_SH,
+            cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await proc.communicate()
         if stdout:
-            logger.info("dev.sh %s stdout: %s", cmd, stdout.decode(errors="replace")[:500])
+            logger.info(
+                "dev.sh %s stdout: %s", cmd, stdout.decode(errors="replace")[:500]
+            )
         if stderr:
-            logger.warning("dev.sh %s stderr: %s", cmd, stderr.decode(errors="replace")[:500])
+            logger.warning(
+                "dev.sh %s stderr: %s", cmd, stderr.decode(errors="replace")[:500]
+            )
         logger.info("dev.sh %s finished with return code %s", cmd, proc.returncode)
     except Exception as exc:  # noqa: BLE001
         logger.error("dev.sh %s raised an exception: %s", cmd, exc)
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
+
 
 @router.post("/restart")
 async def admin_restart(_auth: bool = Depends(verify_api_key)) -> dict:
@@ -102,6 +110,7 @@ async def admin_shutdown(_auth: bool = Depends(verify_api_key)) -> dict:
     # 1. Stop resident agent gracefully (saves memory)
     try:
         from app.services.resident_agent import get_resident_agent
+
         agent = get_resident_agent()
         if agent.get_state().get("is_running"):
             await agent.stop()
@@ -111,6 +120,7 @@ async def admin_shutdown(_auth: bool = Depends(verify_api_key)) -> dict:
     # 2. Persist settings (flush any in-memory changes)
     try:
         from app.services.settings_service import get_settings_service
+
         get_settings_service().load()  # ensure file is up to date
     except Exception as exc:
         logger.error("Shutdown: settings save failed: %s", exc)

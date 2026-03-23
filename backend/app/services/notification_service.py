@@ -1,4 +1,5 @@
 """Notification service – push notifications via ntfy.sh."""
+
 import logging
 from typing import Optional
 
@@ -50,7 +51,9 @@ class NotificationService:
             logger.warning("Notification failed: %s", exc)
             return False
 
-    async def notify_task_complete(self, task_name: str, result: str = "completed") -> bool:
+    async def notify_task_complete(
+        self, task_name: str, result: str = "completed"
+    ) -> bool:
         return await self.send(
             title=f"Task {result}",
             message=f"'{task_name}' {result}",

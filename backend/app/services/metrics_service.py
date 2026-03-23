@@ -1,4 +1,5 @@
 """Prometheus metrics service – centralized metric definitions for AI Home Hub."""
+
 import platform
 
 from prometheus_client import Counter, Gauge, Histogram, Info
@@ -200,18 +201,22 @@ safe_mode_enabled = Gauge(
 
 def init_app_info(version: str = "0.5.0") -> None:
     """Set static application info labels."""
-    app_info.info({
-        "version": version,
-        "environment": "development",
-        "python_version": platform.python_version(),
-    })
+    app_info.info(
+        {
+            "version": version,
+            "environment": "development",
+            "python_version": platform.python_version(),
+        }
+    )
 
 
 def update_job_queue_metrics_from_list(jobs: list) -> None:
     """Update job queue depth gauges from a list of job dicts/objects."""
     counts: dict[str, int] = {}
     for j in jobs:
-        status = j.get("status") if isinstance(j, dict) else getattr(j, "status", "unknown")
+        status = (
+            j.get("status") if isinstance(j, dict) else getattr(j, "status", "unknown")
+        )
         counts[status] = counts.get(status, 0) + 1
     for status in ("queued", "running", "succeeded", "failed", "cancelled"):
         job_queue_depth.labels(status=status).set(counts.get(status, 0))

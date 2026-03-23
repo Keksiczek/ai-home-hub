@@ -1,4 +1,5 @@
 """Tests for the skills runtime API endpoints."""
+
 import pytest
 
 
@@ -28,11 +29,14 @@ def test_skills_enabled(client):
 
 def test_execute_calculator(client):
     """POST /api/skills-runtime/execute calculator skill."""
-    resp = client.post("/api/skills-runtime/execute", json={
-        "skill_name": "calculator",
-        "method": "run",
-        "params": {"expression": "2 + 2"},
-    })
+    resp = client.post(
+        "/api/skills-runtime/execute",
+        json={
+            "skill_name": "calculator",
+            "method": "run",
+            "params": {"expression": "2 + 2"},
+        },
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["skill"] == "calculator"
@@ -41,29 +45,38 @@ def test_execute_calculator(client):
 
 def test_execute_nonexistent_skill(client):
     """POST /api/skills-runtime/execute with bad skill returns 404."""
-    resp = client.post("/api/skills-runtime/execute", json={
-        "skill_name": "nonexistent",
-        "method": "run",
-        "params": {},
-    })
+    resp = client.post(
+        "/api/skills-runtime/execute",
+        json={
+            "skill_name": "nonexistent",
+            "method": "run",
+            "params": {},
+        },
+    )
     assert resp.status_code == 404
 
 
 def test_execute_bad_method(client):
     """POST /api/skills-runtime/execute with bad method returns 400."""
-    resp = client.post("/api/skills-runtime/execute", json={
-        "skill_name": "calculator",
-        "method": "nonexistent_method",
-        "params": {},
-    })
+    resp = client.post(
+        "/api/skills-runtime/execute",
+        json={
+            "skill_name": "calculator",
+            "method": "nonexistent_method",
+            "params": {},
+        },
+    )
     assert resp.status_code == 400
 
 
 def test_toggle_skills(client):
     """POST /api/skills-runtime/toggle updates enabled skills."""
-    resp = client.post("/api/skills-runtime/toggle", json={
-        "enabled_skills": ["web_search", "calculator", "weather"],
-    })
+    resp = client.post(
+        "/api/skills-runtime/toggle",
+        json={
+            "enabled_skills": ["web_search", "calculator", "weather"],
+        },
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["count"] == 3

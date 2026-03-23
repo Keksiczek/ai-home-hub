@@ -41,7 +41,9 @@ logger = logging.getLogger(__name__)
 class ExecutionResult:
     """Result of a capability execution."""
 
-    status: str  # ok | error | blocked | timeout | permission_denied | blocked_human_review
+    status: (
+        str  # ok | error | blocked | timeout | permission_denied | blocked_human_review
+    )
     capability: str = ""
     output: str = ""
     error: str = ""
@@ -92,8 +94,17 @@ class SandboxExecutor:
         # Capability exists?
         cap = registry.get(cap_name)
         if cap is None:
-            audit.log(capability=cap_name, params=params, result_status="error", error="Unknown capability")
-            return ExecutionResult(status="error", capability=cap_name, error=f"Unknown capability: {cap_name}")
+            audit.log(
+                capability=cap_name,
+                params=params,
+                result_status="error",
+                error="Unknown capability",
+            )
+            return ExecutionResult(
+                status="error",
+                capability=cap_name,
+                error=f"Unknown capability: {cap_name}",
+            )
 
         # High-risk approval gate
         if registry.requires_approval(cap_name):
@@ -118,27 +129,48 @@ class SandboxExecutor:
         except TimeoutError:
             elapsed = (time.monotonic() - start) * 1000
             audit.log(
-                capability=cap_name, params=params,
-                result_status="timeout", error="Execution timed out",
-                duration_ms=elapsed, risk_tier=cap.risk,
+                capability=cap_name,
+                params=params,
+                result_status="timeout",
+                error="Execution timed out",
+                duration_ms=elapsed,
+                risk_tier=cap.risk,
             )
-            return ExecutionResult(status="timeout", capability=cap_name, error="Execution timed out", duration_ms=elapsed)
+            return ExecutionResult(
+                status="timeout",
+                capability=cap_name,
+                error="Execution timed out",
+                duration_ms=elapsed,
+            )
         except PermissionError as e:
             elapsed = (time.monotonic() - start) * 1000
             audit.log(
-                capability=cap_name, params=params,
-                result_status="permission_denied", error=str(e),
-                duration_ms=elapsed, risk_tier=cap.risk,
+                capability=cap_name,
+                params=params,
+                result_status="permission_denied",
+                error=str(e),
+                duration_ms=elapsed,
+                risk_tier=cap.risk,
             )
-            return ExecutionResult(status="permission_denied", capability=cap_name, error=str(e), duration_ms=elapsed)
+            return ExecutionResult(
+                status="permission_denied",
+                capability=cap_name,
+                error=str(e),
+                duration_ms=elapsed,
+            )
         except Exception as e:
             elapsed = (time.monotonic() - start) * 1000
             audit.log(
-                capability=cap_name, params=params,
-                result_status="error", error=str(e),
-                duration_ms=elapsed, risk_tier=cap.risk,
+                capability=cap_name,
+                params=params,
+                result_status="error",
+                error=str(e),
+                duration_ms=elapsed,
+                risk_tier=cap.risk,
             )
-            return ExecutionResult(status="error", capability=cap_name, error=str(e), duration_ms=elapsed)
+            return ExecutionResult(
+                status="error", capability=cap_name, error=str(e), duration_ms=elapsed
+            )
 
         elapsed = (time.monotonic() - start) * 1000
         result.duration_ms = elapsed
@@ -170,7 +202,9 @@ class SandboxExecutor:
 
     # ── Dispatch ─────────────────────────────────────────────────
 
-    def _dispatch(self, cap_name: str, cap: CapabilityDef, params: Dict[str, Any]) -> ExecutionResult:
+    def _dispatch(
+        self, cap_name: str, cap: CapabilityDef, params: Dict[str, Any]
+    ) -> ExecutionResult:
         handlers = {
             "shell": self._exec_shell,
             "file_read": self._exec_file_read,
@@ -184,15 +218,23 @@ class SandboxExecutor:
         }
         handler = handlers.get(cap_name)
         if handler is None:
-            return ExecutionResult(status="error", capability=cap_name, error=f"No handler for capability: {cap_name}")
+            return ExecutionResult(
+                status="error",
+                capability=cap_name,
+                error=f"No handler for capability: {cap_name}",
+            )
         return handler(cap, params)
 
     # ── Shell ────────────────────────────────────────────────────
 
-    def _exec_shell(self, cap: CapabilityDef, params: Dict[str, Any]) -> ExecutionResult:
+    def _exec_shell(
+        self, cap: CapabilityDef, params: Dict[str, Any]
+    ) -> ExecutionResult:
         command = params.get("command", "")
         if not command:
-            return ExecutionResult(status="error", capability="shell", error="No command provided")
+            return ExecutionResult(
+                status="error", capability="shell", error="No command provided"
+            )
 
         # Validate against whitelist
         if not self._is_command_whitelisted(command, cap.whitelist):
@@ -204,8 +246,10 @@ class SandboxExecutor:
 
         # Sanitize environment – remove sensitive vars
         safe_env = {
-            k: v for k, v in os.environ.items()
-            if k not in ("HOME", "SSH_AUTH_SOCK", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN")
+            k: v
+            for k, v in os.environ.items()
+            if k
+            not in ("HOME", "SSH_AUTH_SOCK", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN")
         }
 
         try:
@@ -218,7 +262,9 @@ class SandboxExecutor:
                 cwd=str(self._sandbox_root),
                 env=safe_env,
             )
-            self._running_processes = [p for p in self._running_processes if p.poll() is None]
+            self._running_processes = [
+                p for p in self._running_processes if p.poll() is None
+            ]
 
             output = proc.stdout[:4096] if proc.stdout else ""
             error = proc.stderr[:2048] if proc.stderr else ""
@@ -245,25 +291,38 @@ class SandboxExecutor:
 
     # ── File Read ────────────────────────────────────────────────
 
-    def _exec_file_read(self, cap: CapabilityDef, params: Dict[str, Any]) -> ExecutionResult:
+    def _exec_file_read(
+        self, cap: CapabilityDef, params: Dict[str, Any]
+    ) -> ExecutionResult:
         path_str = params.get("path", "")
         if not path_str:
-            return ExecutionResult(status="error", capability="file_read", error="No path provided")
+            return ExecutionResult(
+                status="error", capability="file_read", error="No path provided"
+            )
 
         resolved = Path(path_str).expanduser().resolve()
         if not self._is_path_allowed(resolved, cap.allowed_paths):
             return ExecutionResult(
-                status="permission_denied", capability="file_read",
+                status="permission_denied",
+                capability="file_read",
                 error=f"Path not in allowed directories: {path_str}",
             )
 
         if not resolved.exists():
-            return ExecutionResult(status="error", capability="file_read", error=f"File not found: {path_str}")
+            return ExecutionResult(
+                status="error",
+                capability="file_read",
+                error=f"File not found: {path_str}",
+            )
 
         try:
-            content = resolved.read_text(encoding="utf-8", errors="replace")[:cap.max_size_kb * 1024]
+            content = resolved.read_text(encoding="utf-8", errors="replace")[
+                : cap.max_size_kb * 1024
+            ]
             return ExecutionResult(
-                status="ok", capability="file_read", output=content,
+                status="ok",
+                capability="file_read",
+                output=content,
                 metadata={"path": str(resolved), "size_bytes": resolved.stat().st_size},
             )
         except Exception as e:
@@ -271,16 +330,21 @@ class SandboxExecutor:
 
     # ── File Write ───────────────────────────────────────────────
 
-    def _exec_file_write(self, cap: CapabilityDef, params: Dict[str, Any]) -> ExecutionResult:
+    def _exec_file_write(
+        self, cap: CapabilityDef, params: Dict[str, Any]
+    ) -> ExecutionResult:
         path_str = params.get("path", "")
         content = params.get("content", "")
         if not path_str:
-            return ExecutionResult(status="error", capability="file_write", error="No path provided")
+            return ExecutionResult(
+                status="error", capability="file_write", error="No path provided"
+            )
 
         resolved = Path(path_str).expanduser().resolve()
         if not self._is_path_allowed(resolved, cap.allowed_paths):
             return ExecutionResult(
-                status="permission_denied", capability="file_write",
+                status="permission_denied",
+                capability="file_write",
                 error=f"Path not in allowed directories: {path_str}",
             )
 
@@ -288,7 +352,8 @@ class SandboxExecutor:
         content_size_kb = len(content.encode("utf-8")) / 1024
         if content_size_kb > cap.max_size_kb:
             return ExecutionResult(
-                status="error", capability="file_write",
+                status="error",
+                capability="file_write",
                 error=f"Content size {content_size_kb:.1f}KB exceeds limit {cap.max_size_kb}KB",
             )
 
@@ -296,38 +361,54 @@ class SandboxExecutor:
             resolved.parent.mkdir(parents=True, exist_ok=True)
             resolved.write_text(content, encoding="utf-8")
             return ExecutionResult(
-                status="ok", capability="file_write",
+                status="ok",
+                capability="file_write",
                 output=f"Written {len(content)} bytes to {resolved}",
-                metadata={"path": str(resolved), "size_bytes": len(content.encode("utf-8"))},
+                metadata={
+                    "path": str(resolved),
+                    "size_bytes": len(content.encode("utf-8")),
+                },
             )
         except Exception as e:
-            return ExecutionResult(status="error", capability="file_write", error=str(e))
+            return ExecutionResult(
+                status="error", capability="file_write", error=str(e)
+            )
 
     # ── File List ────────────────────────────────────────────────
 
-    def _exec_file_list(self, cap: CapabilityDef, params: Dict[str, Any]) -> ExecutionResult:
+    def _exec_file_list(
+        self, cap: CapabilityDef, params: Dict[str, Any]
+    ) -> ExecutionResult:
         path_str = params.get("path", ".")
         resolved = Path(path_str).expanduser().resolve()
 
         if not self._is_path_allowed(resolved, cap.allowed_paths):
             return ExecutionResult(
-                status="permission_denied", capability="file_list",
+                status="permission_denied",
+                capability="file_list",
                 error=f"Path not in allowed directories: {path_str}",
             )
 
         if not resolved.is_dir():
-            return ExecutionResult(status="error", capability="file_list", error=f"Not a directory: {path_str}")
+            return ExecutionResult(
+                status="error",
+                capability="file_list",
+                error=f"Not a directory: {path_str}",
+            )
 
         try:
             entries = []
             for entry in sorted(resolved.iterdir()):
-                entries.append({
-                    "name": entry.name,
-                    "is_dir": entry.is_dir(),
-                    "size": entry.stat().st_size if entry.is_file() else 0,
-                })
+                entries.append(
+                    {
+                        "name": entry.name,
+                        "is_dir": entry.is_dir(),
+                        "size": entry.stat().st_size if entry.is_file() else 0,
+                    }
+                )
             return ExecutionResult(
-                status="ok", capability="file_list",
+                status="ok",
+                capability="file_list",
                 output="\n".join(e["name"] for e in entries[:100]),
                 metadata={"path": str(resolved), "entries": entries[:100]},
             )
@@ -336,48 +417,71 @@ class SandboxExecutor:
 
     # ── File Delete ──────────────────────────────────────────────
 
-    def _exec_file_delete(self, cap: CapabilityDef, params: Dict[str, Any]) -> ExecutionResult:
+    def _exec_file_delete(
+        self, cap: CapabilityDef, params: Dict[str, Any]
+    ) -> ExecutionResult:
         path_str = params.get("path", "")
         if not path_str:
-            return ExecutionResult(status="error", capability="file_delete", error="No path provided")
+            return ExecutionResult(
+                status="error", capability="file_delete", error="No path provided"
+            )
 
         resolved = Path(path_str).expanduser().resolve()
         if not self._is_path_allowed(resolved, cap.allowed_paths):
             return ExecutionResult(
-                status="permission_denied", capability="file_delete",
+                status="permission_denied",
+                capability="file_delete",
                 error=f"Path not in allowed directories: {path_str}",
             )
 
         if not resolved.exists():
-            return ExecutionResult(status="error", capability="file_delete", error=f"File not found: {path_str}")
+            return ExecutionResult(
+                status="error",
+                capability="file_delete",
+                error=f"File not found: {path_str}",
+            )
 
         if resolved.is_dir():
-            return ExecutionResult(status="error", capability="file_delete", error="Cannot delete directories (safety)")
+            return ExecutionResult(
+                status="error",
+                capability="file_delete",
+                error="Cannot delete directories (safety)",
+            )
 
         try:
             size = resolved.stat().st_size
             resolved.unlink()
             return ExecutionResult(
-                status="ok", capability="file_delete",
+                status="ok",
+                capability="file_delete",
                 output=f"Deleted {resolved} ({size} bytes)",
                 metadata={"path": str(resolved), "size_bytes": size},
             )
         except Exception as e:
-            return ExecutionResult(status="error", capability="file_delete", error=str(e))
+            return ExecutionResult(
+                status="error", capability="file_delete", error=str(e)
+            )
 
     # ── Browser ──────────────────────────────────────────────────
 
-    def _exec_browser_open(self, cap: CapabilityDef, params: Dict[str, Any]) -> ExecutionResult:
+    def _exec_browser_open(
+        self, cap: CapabilityDef, params: Dict[str, Any]
+    ) -> ExecutionResult:
         url = params.get("url", "")
         if not url:
-            return ExecutionResult(status="error", capability="browser_open", error="No URL provided")
+            return ExecutionResult(
+                status="error", capability="browser_open", error="No URL provided"
+            )
 
         # Domain whitelist check
         parsed = urlparse(url)
         domain = parsed.hostname or ""
-        if not any(domain == d or domain.endswith("." + d) for d in cap.allowed_domains):
+        if not any(
+            domain == d or domain.endswith("." + d) for d in cap.allowed_domains
+        ):
             return ExecutionResult(
-                status="permission_denied", capability="browser_open",
+                status="permission_denied",
+                capability="browser_open",
                 error=f"Domain not whitelisted: {domain}",
             )
 
@@ -385,7 +489,8 @@ class SandboxExecutor:
             from playwright.sync_api import sync_playwright
         except ImportError:
             return ExecutionResult(
-                status="error", capability="browser_open",
+                status="error",
+                capability="browser_open",
                 error="Playwright not installed. Run: pip install playwright && playwright install chromium",
             )
 
@@ -399,65 +504,99 @@ class SandboxExecutor:
                 browser.close()
 
             return ExecutionResult(
-                status="ok", capability="browser_open",
+                status="ok",
+                capability="browser_open",
                 output=content,
                 metadata={"url": url, "title": title},
             )
         except Exception as e:
-            return ExecutionResult(status="error", capability="browser_open", error=str(e))
+            return ExecutionResult(
+                status="error", capability="browser_open", error=str(e)
+            )
 
     # ── App Launch ───────────────────────────────────────────────
 
-    def _exec_app_launch(self, cap: CapabilityDef, params: Dict[str, Any]) -> ExecutionResult:
+    def _exec_app_launch(
+        self, cap: CapabilityDef, params: Dict[str, Any]
+    ) -> ExecutionResult:
         app_name = params.get("app", "")
         if not app_name:
-            return ExecutionResult(status="error", capability="app_launch", error="No app name provided")
+            return ExecutionResult(
+                status="error", capability="app_launch", error="No app name provided"
+            )
 
         if app_name.lower() not in [w.lower() for w in cap.whitelist]:
             return ExecutionResult(
-                status="permission_denied", capability="app_launch",
+                status="permission_denied",
+                capability="app_launch",
                 error=f"App not whitelisted: {app_name}",
             )
 
         try:
             sys_name = platform.system()
             if sys_name == "Darwin":
-                proc = subprocess.Popen(["open", "-a", app_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                proc = subprocess.Popen(
+                    ["open", "-a", app_name],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
             elif sys_name == "Windows":
-                proc = subprocess.Popen(["start", app_name], shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                proc = subprocess.Popen(
+                    ["start", app_name],
+                    shell=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
             else:
-                proc = subprocess.Popen([app_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                proc = subprocess.Popen(
+                    [app_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                )
 
             self._running_processes.append(proc)
             return ExecutionResult(
-                status="ok", capability="app_launch",
+                status="ok",
+                capability="app_launch",
                 output=f"Launched {app_name} (pid={proc.pid})",
                 metadata={"app": app_name, "pid": proc.pid},
             )
         except Exception as e:
-            return ExecutionResult(status="error", capability="app_launch", error=str(e))
+            return ExecutionResult(
+                status="error", capability="app_launch", error=str(e)
+            )
 
     # ── Screenshot ───────────────────────────────────────────────
 
-    def _exec_screenshot(self, cap: CapabilityDef, params: Dict[str, Any]) -> ExecutionResult:
+    def _exec_screenshot(
+        self, cap: CapabilityDef, params: Dict[str, Any]
+    ) -> ExecutionResult:
         output_path = self._sandbox_root / "screenshot.png"
         try:
             from PIL import ImageGrab
+
             img = ImageGrab.grab()
             img.save(str(output_path))
             return ExecutionResult(
-                status="ok", capability="screenshot",
+                status="ok",
+                capability="screenshot",
                 output=f"Screenshot saved to {output_path}",
                 metadata={"path": str(output_path), "size": output_path.stat().st_size},
             )
         except ImportError:
-            return ExecutionResult(status="error", capability="screenshot", error="Pillow ImageGrab not available")
+            return ExecutionResult(
+                status="error",
+                capability="screenshot",
+                error="Pillow ImageGrab not available",
+            )
         except Exception as e:
-            return ExecutionResult(status="error", capability="screenshot", error=str(e))
+            return ExecutionResult(
+                status="error", capability="screenshot", error=str(e)
+            )
 
     # ── System Monitor ───────────────────────────────────────────
 
-    def _exec_system_monitor(self, cap: CapabilityDef, params: Dict[str, Any]) -> ExecutionResult:
+    def _exec_system_monitor(
+        self, cap: CapabilityDef, params: Dict[str, Any]
+    ) -> ExecutionResult:
         try:
             cpu_percent = psutil.cpu_percent(interval=1)
             mem = psutil.virtual_memory()
@@ -485,12 +624,15 @@ class SandboxExecutor:
             )
 
             return ExecutionResult(
-                status="ok", capability="system_monitor",
+                status="ok",
+                capability="system_monitor",
                 output=summary,
                 metadata=info,
             )
         except Exception as e:
-            return ExecutionResult(status="error", capability="system_monitor", error=str(e))
+            return ExecutionResult(
+                status="error", capability="system_monitor", error=str(e)
+            )
 
     # ── Path validation helper ───────────────────────────────────
 

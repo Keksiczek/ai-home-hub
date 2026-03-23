@@ -10,6 +10,7 @@ Covers:
 - POST /api/jobs/{id}/retry creates a new queued job from failed/cancelled
 - POST /api/jobs/{id}/retry rejects succeeded jobs
 """
+
 import sys
 from typing import Dict, Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -40,15 +41,23 @@ def client() -> TestClient:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _create_job(client, type_: str = "dummy_long_task", title: str = "Test job",
-                priority: str = "normal") -> Dict[str, Any]:
+
+def _create_job(
+    client,
+    type_: str = "dummy_long_task",
+    title: str = "Test job",
+    priority: str = "normal",
+) -> Dict[str, Any]:
     """Create a job via the API and return the response JSON."""
-    resp = client.post("/api/jobs", json={
-        "type": type_,
-        "title": title,
-        "input_summary": "Created by test",
-        "priority": priority,
-    })
+    resp = client.post(
+        "/api/jobs",
+        json={
+            "type": type_,
+            "title": title,
+            "input_summary": "Created by test",
+            "priority": priority,
+        },
+    )
     assert resp.status_code == 200, resp.text
     return resp.json()
 
@@ -63,6 +72,7 @@ def _force_status(job_id: str, status: str) -> None:
 
 
 # ── Create ────────────────────────────────────────────────────────────────────
+
 
 class TestCreateJob:
     def test_create_returns_200(self, client):
@@ -90,6 +100,7 @@ class TestCreateJob:
 
 
 # ── List + filters ────────────────────────────────────────────────────────────
+
 
 class TestListJobs:
     def test_list_returns_jobs_key_and_count(self, client):
@@ -142,6 +153,7 @@ class TestListJobs:
 
 # ── Get single job ────────────────────────────────────────────────────────────
 
+
 class TestGetJob:
     def test_get_job_returns_correct_id(self, client):
         job = _create_job(client)
@@ -156,12 +168,22 @@ class TestGetJob:
     def test_get_job_has_all_fields(self, client):
         job = _create_job(client)
         data = client.get(f"/api/jobs/{job['id']}").json()
-        for field in ("id", "type", "title", "status", "progress", "created_at",
-                      "priority", "payload", "meta"):
+        for field in (
+            "id",
+            "type",
+            "title",
+            "status",
+            "progress",
+            "created_at",
+            "priority",
+            "payload",
+            "meta",
+        ):
             assert field in data, f"Missing field: {field}"
 
 
 # ── Cancel ────────────────────────────────────────────────────────────────────
+
 
 class TestCancelJob:
     def test_cancel_queued_job(self, client):
@@ -203,6 +225,7 @@ class TestCancelJob:
 
 
 # ── Retry ─────────────────────────────────────────────────────────────────────
+
 
 class TestRetryJob:
     def test_retry_failed_job_creates_new_queued_job(self, client):

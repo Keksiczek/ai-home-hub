@@ -1,4 +1,5 @@
 """WhisperService – local audio/video transcription via faster-whisper or openai-whisper."""
+
 import asyncio
 import logging
 import os
@@ -28,6 +29,7 @@ def _detect_backend() -> str:
 
     try:
         import faster_whisper  # noqa: F401
+
         _backend = "faster-whisper"
         logger.info("Whisper backend: faster-whisper")
         return _backend
@@ -36,6 +38,7 @@ def _detect_backend() -> str:
 
     try:
         import whisper  # noqa: F401
+
         _backend = "openai-whisper"
         logger.info("Whisper backend: openai-whisper")
         return _backend
@@ -57,6 +60,7 @@ def _check_ffmpeg() -> bool:
 
 class TranscriptResult(BaseModel):
     """Result of a transcription."""
+
     text: str
     segments: List[Dict[str, Any]]
     language: str
@@ -89,7 +93,9 @@ async def transcribe(
 
     suffix = path.suffix.lower()
     if suffix not in SUPPORTED_FORMATS:
-        raise ValueError(f"Unsupported format: {suffix}. Supported: {', '.join(sorted(SUPPORTED_FORMATS))}")
+        raise ValueError(
+            f"Unsupported format: {suffix}. Supported: {', '.join(sorted(SUPPORTED_FORMATS))}"
+        )
 
     # Load settings for model config
     settings = get_settings_service().load()
@@ -113,20 +119,37 @@ async def transcribe(
         logger.info("Extracting audio from video: %s -> %s", file_path, audio_path)
 
         proc = await asyncio.create_subprocess_exec(
-            "ffmpeg", "-i", file_path, "-vn", "-acodec", "pcm_s16le",
-            "-ar", "16000", "-ac", "1", "-y", audio_path,
+            "ffmpeg",
+            "-i",
+            file_path,
+            "-vn",
+            "-acodec",
+            "pcm_s16le",
+            "-ar",
+            "16000",
+            "-ac",
+            "1",
+            "-y",
+            audio_path,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )
         await proc.wait()
         if proc.returncode != 0:
             _cleanup_temp(tmp_wav)
-            raise RuntimeError(f"ffmpeg audio extraction failed (exit code {proc.returncode})")
+            raise RuntimeError(
+                f"ffmpeg audio extraction failed (exit code {proc.returncode})"
+            )
 
     try:
         if backend == "faster-whisper":
             result = await _transcribe_faster_whisper(
-                audio_path, model_name, device, compute_type, language, progress_callback
+                audio_path,
+                model_name,
+                device,
+                compute_type,
+                language,
+                progress_callback,
             )
         else:
             result = await _transcribe_openai_whisper(
@@ -162,8 +185,15 @@ async def _transcribe_faster_whisper(
 
     def _run():
         t0 = time.monotonic()
-        logger.info("Loading faster-whisper model '%s' (device=%s, compute=%s)", model_name, device, compute_type)
-        whisper_model = WhisperModel(model_name, device=device, compute_type=compute_type)
+        logger.info(
+            "Loading faster-whisper model '%s' (device=%s, compute=%s)",
+            model_name,
+            device,
+            compute_type,
+        )
+        whisper_model = WhisperModel(
+            model_name, device=device, compute_type=compute_type
+        )
         load_time = time.monotonic() - t0
         logger.info("Model loaded in %.1fs", load_time)
 
@@ -179,11 +209,13 @@ async def _transcribe_faster_whisper(
         duration = info.duration if info.duration else 0.0
 
         for seg in segments_iter:
-            segments.append({
-                "start": round(seg.start, 2),
-                "end": round(seg.end, 2),
-                "text": seg.text.strip(),
-            })
+            segments.append(
+                {
+                    "start": round(seg.start, 2),
+                    "end": round(seg.end, 2),
+                    "text": seg.text.strip(),
+                }
+            )
             full_text_parts.append(seg.text.strip())
 
             # Report progress based on segment end vs total duration
@@ -192,7 +224,11 @@ async def _transcribe_faster_whisper(
                 asyncio.run_coroutine_threadsafe(progress_callback(pct), loop)
 
         transcription_time = time.monotonic() - t1
-        logger.info("Transcription completed in %.1fs (%.1fs audio)", transcription_time, duration)
+        logger.info(
+            "Transcription completed in %.1fs (%.1fs audio)",
+            transcription_time,
+            duration,
+        )
 
         return TranscriptResult(
             text=" ".join(full_text_parts),
@@ -239,15 +275,21 @@ async def _transcribe_openai_whisper(
 
         segments = []
         for seg in result.get("segments", []):
-            segments.append({
-                "start": round(seg["start"], 2),
-                "end": round(seg["end"], 2),
-                "text": seg["text"].strip(),
-            })
+            segments.append(
+                {
+                    "start": round(seg["start"], 2),
+                    "end": round(seg["end"], 2),
+                    "text": seg["text"].strip(),
+                }
+            )
 
         duration = segments[-1]["end"] if segments else 0.0
         transcription_time = time.monotonic() - t1
-        logger.info("Transcription completed in %.1fs (%.1fs audio)", transcription_time, duration)
+        logger.info(
+            "Transcription completed in %.1fs (%.1fs audio)",
+            transcription_time,
+            duration,
+        )
 
         detected_lang = result.get("language", "unknown")
 

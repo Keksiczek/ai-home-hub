@@ -1,4 +1,5 @@
 """Agent orchestrator – multi-agent spawning, monitoring, artifact generation, KB search, and sub-agents."""
+
 import asyncio
 import json
 import logging
@@ -142,12 +143,20 @@ class AgentRecord:
             "updated_at": self.updated_at,
             "depth": self.depth,
             "parent_agent_id": self.parent_agent_id,
-            "guardrails": {
-                "max_steps": self.guardrails.max_steps if self.guardrails else None,
-                "steps_used": self.guardrails.steps_used if self.guardrails else 0,
-                "max_total_tokens": self.guardrails.max_total_tokens if self.guardrails else None,
-                "tokens_used": self.guardrails.tokens_used if self.guardrails else 0,
-            } if self.guardrails else None,
+            "guardrails": (
+                {
+                    "max_steps": self.guardrails.max_steps if self.guardrails else None,
+                    "steps_used": self.guardrails.steps_used if self.guardrails else 0,
+                    "max_total_tokens": (
+                        self.guardrails.max_total_tokens if self.guardrails else None
+                    ),
+                    "tokens_used": (
+                        self.guardrails.tokens_used if self.guardrails else 0
+                    ),
+                }
+                if self.guardrails
+                else None
+            ),
         }
 
 
@@ -198,18 +207,21 @@ class AgentOrchestrator:
         from app.services.metrics_service import agent_spawn_blocked_total
 
         active_count = sum(
-            1 for a in self._agents.values()
+            1
+            for a in self._agents.values()
             if a.status in (AGENT_STATUS_PENDING, AGENT_STATUS_RUNNING)
         )
         if active_count >= max_concurrent:
             agent_spawn_blocked_total.labels(reason="concurrent_limit").inc()
             logger.debug(
                 "Agent spawn blocked: concurrent_limit (%d/%d)",
-                active_count, max_concurrent,
+                active_count,
+                max_concurrent,
             )
             raise AgentSpawnError("concurrent_limit")
 
         from app.services.resource_monitor import get_resource_monitor
+
         monitor = get_resource_monitor()
         if monitor.is_blocked():
             agent_spawn_blocked_total.labels(reason="resource").inc()
@@ -230,13 +242,19 @@ class AgentOrchestrator:
         # Inject agent type system prompt
         type_prompt = AGENT_TYPE_PROMPTS.get(agent_type, AGENT_TYPE_PROMPTS["general"])
         existing_skill_prompt = task.get("_skill_prompt", "")
-        task["_skill_prompt"] = type_prompt + ("\n\n" + existing_skill_prompt if existing_skill_prompt else "")
+        task["_skill_prompt"] = type_prompt + (
+            "\n\n" + existing_skill_prompt if existing_skill_prompt else ""
+        )
 
         # Load CRUD-based skills and build system prompt additions
         if skill_ids:
             skills_svc = get_skills_service()
             skills = skills_svc.get_by_ids(skill_ids)
-            skill_prompts = [s.get("system_prompt_addition", "") for s in skills if s.get("system_prompt_addition")]
+            skill_prompts = [
+                s.get("system_prompt_addition", "")
+                for s in skills
+                if s.get("system_prompt_addition")
+            ]
             if skill_prompts:
                 task["_skill_prompt"] = "\n\n".join(skill_prompts)
 
@@ -244,7 +262,8 @@ class AgentOrchestrator:
         if skill_names:
             agent_skills_svc = get_agent_skills_service()
             agent_skills_section = agent_skills_svc.build_system_prompt_section(
-                skill_names, include_instructions=True,
+                skill_names,
+                include_instructions=True,
             )
             if agent_skills_section:
                 existing = task.get("_skill_prompt", "")
@@ -258,7 +277,10 @@ class AgentOrchestrator:
 
         agent_id = str(uuid.uuid4())[:8]
         record = AgentRecord(
-            agent_id, agent_type, task, workspace,
+            agent_id,
+            agent_type,
+            task,
+            workspace,
             skill_ids=skill_ids,
             parent_agent_id=parent_agent_id,
             depth=depth,
@@ -276,10 +298,14 @@ class AgentOrchestrator:
 
         # Start agent coroutine
         timeout_min = cfg.get("timeout_minutes", 30)
-        record._asyncio_task = asyncio.create_task(
-            self._run_agent(record, timeout_min)
+        record._asyncio_task = asyncio.create_task(self._run_agent(record, timeout_min))
+        logger.info(
+            "Spawned agent %s (%s) depth=%d parent=%s",
+            agent_id,
+            agent_type,
+            depth,
+            parent_agent_id,
         )
-        logger.info("Spawned agent %s (%s) depth=%d parent=%s", agent_id, agent_type, depth, parent_agent_id)
         await self._broadcast(record)
         return agent_id
 
@@ -315,6 +341,7 @@ class AgentOrchestrator:
             # Store agent run in memory
             try:
                 from app.services.memory_service import get_memory_service
+
                 mem = get_memory_service()
                 goal = record.task.get("goal", "unknown")
                 result_summary = record.message or ""
@@ -352,7 +379,9 @@ class AgentOrchestrator:
                 ok, reason = record.guardrails.check_and_increment()
                 if not ok:
                     record.message = f"[GUARDRAIL] Stopped: {reason}"
-                    logger.warning("Agent %s stopped by guardrail: %s", record.agent_id, reason)
+                    logger.warning(
+                        "Agent %s stopped by guardrail: %s", record.agent_id, reason
+                    )
                     raise RuntimeError(f"Guardrail triggered: {reason}")
 
             step_timeout = record.guardrails.step_timeout_s if record.guardrails else 30
@@ -371,7 +400,8 @@ class AgentOrchestrator:
                         web_search_results = await self.web_search(goal, max_results=5)
                         logger.info(
                             "Agent %s web_search returned %d results",
-                            record.agent_id, len(web_search_results),
+                            record.agent_id,
+                            len(web_search_results),
                         )
                     else:
                         await asyncio.sleep(0.5)
@@ -394,9 +424,14 @@ class AgentOrchestrator:
             except asyncio.TimeoutError:
                 logger.warning(
                     "Agent %s step %r timed out after %ds (type=%s)",
-                    record.agent_id, phase_name, step_timeout, agent_type,
+                    record.agent_id,
+                    phase_name,
+                    step_timeout,
+                    agent_type,
                 )
-                record.message = f"[TIMEOUT] Step '{phase_name}' exceeded {step_timeout}s"
+                record.message = (
+                    f"[TIMEOUT] Step '{phase_name}' exceeded {step_timeout}s"
+                )
                 raise
 
     def _get_agent_phases(self, agent_type: str) -> List[tuple]:
@@ -511,7 +546,12 @@ class AgentOrchestrator:
         with open(artifact_path, "w", encoding="utf-8") as f:
             json.dump(artifact, f, indent=2, ensure_ascii=False)
 
-        logger.info("Artifact %s (%s) created for agent %s", artifact_id, artifact_type, agent_id)
+        logger.info(
+            "Artifact %s (%s) created for agent %s",
+            artifact_id,
+            artifact_type,
+            agent_id,
+        )
         return artifact_id
 
     def get_artifact(self, artifact_id: str) -> Optional[Dict[str, Any]]:
@@ -542,9 +582,6 @@ class AgentOrchestrator:
                 artifacts.append(art)
         return artifacts
 
-
-
-
     # ── Control ────────────────────────────────────────────────
 
     async def interrupt_agent(self, agent_id: str) -> bool:
@@ -570,8 +607,10 @@ class AgentOrchestrator:
     def cleanup_finished(self) -> int:
         """Remove completed/failed agents. Returns count removed."""
         done = [
-            aid for aid, a in self._agents.items()
-            if a.status in (AGENT_STATUS_COMPLETED, AGENT_STATUS_FAILED, AGENT_STATUS_INTERRUPTED)
+            aid
+            for aid, a in self._agents.items()
+            if a.status
+            in (AGENT_STATUS_COMPLETED, AGENT_STATUS_FAILED, AGENT_STATUS_INTERRUPTED)
         ]
         for aid in done:
             del self._agents[aid]
@@ -579,7 +618,9 @@ class AgentOrchestrator:
 
     # ── Agent tools: Web Search ───────────────────────────────
 
-    async def web_search(self, query: str, max_results: int = 5) -> List[Dict[str, Any]]:
+    async def web_search(
+        self, query: str, max_results: int = 5
+    ) -> List[Dict[str, Any]]:
         """
         Tool for agents to search the web via DuckDuckGo (no API key needed).
 
@@ -591,24 +632,31 @@ class AgentOrchestrator:
         """
         try:
             from app.services.skills_runtime_service import WebSearchSkill
+
             skill = WebSearchSkill()
             results = await skill.run(query=query, max_results=max_results)
             # Normalise to uniform schema: {title, snippet, url, source}
             normalised = []
             for r in results:
-                normalised.append({
-                    "title": r.get("title", r.get("text", "")[:80]),
-                    "snippet": r.get("body", r.get("text", r.get("snippet", ""))),
-                    "url": r.get("href", r.get("url", "")),
-                    "source": "DuckDuckGo",
-                })
+                normalised.append(
+                    {
+                        "title": r.get("title", r.get("text", "")[:80]),
+                        "snippet": r.get("body", r.get("text", r.get("snippet", ""))),
+                        "url": r.get("href", r.get("url", "")),
+                        "source": "DuckDuckGo",
+                    }
+                )
             return normalised
         except Exception as exc:
-            logger.warning("web_search via WebSearchSkill failed (%s), falling back to DDG API", exc)
+            logger.warning(
+                "web_search via WebSearchSkill failed (%s), falling back to DDG API",
+                exc,
+            )
 
         # Fallback: DuckDuckGo Instant Answer API (no extra library needed)
         try:
             import httpx
+
             async with httpx.AsyncClient(timeout=10) as client:
                 resp = await client.get(
                     "https://api.duckduckgo.com/",
@@ -624,28 +672,36 @@ class AgentOrchestrator:
 
             results: List[Dict[str, Any]] = []
             if data.get("Abstract"):
-                results.append({
-                    "title": data.get("Heading", query),
-                    "snippet": data["Abstract"][:500],
-                    "url": data.get("AbstractURL", ""),
-                    "source": "DDG Abstract",
-                })
+                results.append(
+                    {
+                        "title": data.get("Heading", query),
+                        "snippet": data["Abstract"][:500],
+                        "url": data.get("AbstractURL", ""),
+                        "source": "DDG Abstract",
+                    }
+                )
             for topic in data.get("RelatedTopics", [])[:max_results]:
                 if isinstance(topic, dict) and topic.get("Text"):
-                    results.append({
-                        "title": topic.get("Text", "")[:80],
-                        "snippet": topic.get("Text", ""),
-                        "url": topic.get("FirstURL", ""),
-                        "source": "DDG Related",
-                    })
+                    results.append(
+                        {
+                            "title": topic.get("Text", "")[:80],
+                            "snippet": topic.get("Text", ""),
+                            "url": topic.get("FirstURL", ""),
+                            "source": "DDG Related",
+                        }
+                    )
             return results[:max_results]
         except Exception as exc2:
             logger.error("web_search fallback also failed: %s", exc2)
-            return [{"title": "Chyba", "snippet": str(exc2), "url": "", "source": "error"}]
+            return [
+                {"title": "Chyba", "snippet": str(exc2), "url": "", "source": "error"}
+            ]
 
     # ── Agent tools: KB Search ────────────────────────────────
 
-    async def search_knowledge_base(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
+    async def search_knowledge_base(
+        self, query: str, top_k: int = 3
+    ) -> List[Dict[str, Any]]:
         """
         Tool for agents to search the knowledge base.
 
@@ -680,26 +736,32 @@ class AgentOrchestrator:
                 score = round(1 - distance, 4)
                 if score < MIN_KB_SEARCH_SCORE:
                     continue
-                results.append({
-                    "text": doc,
-                    "file_name": metadata.get("file_name", ""),
-                    "file_path": metadata.get("file_path", ""),
-                    "score": score,
-                })
+                results.append(
+                    {
+                        "text": doc,
+                        "file_name": metadata.get("file_name", ""),
+                        "file_path": metadata.get("file_path", ""),
+                        "score": score,
+                    }
+                )
 
             if results:
                 from app.services.kb_context_filter import filter_kb_results
                 from app.services.llm_service import get_llm_service
+
                 llm_svc = get_llm_service()
                 filtered_summary = await filter_kb_results(results, query, llm_svc)
                 if filtered_summary:
-                    results.insert(0, {
-                        "text": filtered_summary,
-                        "file_name": "[KB Summary]",
-                        "file_path": "",
-                        "score": 1.0,
-                        "filtered": True,
-                    })
+                    results.insert(
+                        0,
+                        {
+                            "text": filtered_summary,
+                            "file_name": "[KB Summary]",
+                            "file_path": "",
+                            "score": 1.0,
+                            "filtered": True,
+                        },
+                    )
 
             return results
         except Exception as exc:
@@ -727,7 +789,8 @@ class AgentOrchestrator:
         if parent.depth >= MAX_SUB_AGENT_DEPTH:
             logger.warning(
                 "Sub-agent depth limit (%d) reached for agent %s",
-                MAX_SUB_AGENT_DEPTH, parent_agent_id,
+                MAX_SUB_AGENT_DEPTH,
+                parent_agent_id,
             )
             return None
 
@@ -742,11 +805,13 @@ class AgentOrchestrator:
         # Broadcast sub-agent creation
         if self._broadcast_fn:
             try:
-                await self._broadcast_fn({
-                    "type": "agent_update",
-                    "agent_id": sub_agent_id,
-                    "parent_id": parent_agent_id,
-                })
+                await self._broadcast_fn(
+                    {
+                        "type": "agent_update",
+                        "agent_id": sub_agent_id,
+                        "parent_id": parent_agent_id,
+                    }
+                )
             except Exception:
                 pass
 
@@ -772,15 +837,20 @@ class AgentOrchestrator:
             # Generate preview based on type
             preview_info = self._generate_preview(content, artifact_type, artifact_id)
 
-            artifacts.append({
-                **art,
-                **preview_info,
-            })
+            artifacts.append(
+                {
+                    **art,
+                    **preview_info,
+                }
+            )
 
         return artifacts
 
     def _generate_preview(
-        self, content: Any, artifact_type: str, artifact_id: str,
+        self,
+        content: Any,
+        artifact_type: str,
+        artifact_id: str,
     ) -> Dict[str, Any]:
         """Generate preview metadata for an artifact."""
         if isinstance(content, dict):
@@ -814,7 +884,11 @@ class AgentOrchestrator:
                 "download_url": f"/api/agents/artifacts/{artifact_id}",
             }
         else:
-            preview = text_content[:500] if text_content else json.dumps(content, default=str)[:500]
+            preview = (
+                text_content[:500]
+                if text_content
+                else json.dumps(content, default=str)[:500]
+            )
             return {
                 "filename": filename,
                 "type": file_type,

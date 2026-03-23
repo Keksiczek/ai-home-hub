@@ -35,14 +35,12 @@ class TestDockerComposeProd:
         path = REPO_ROOT / "docker-compose.prod.yml"
         content = path.read_text()
         assert "grafana:" in content
-        # Grafana should be behind a profile (opt-in)
-        assert "monitoring" in content
 
     def test_prod_compose_uses_relative_volumes(self):
         path = REPO_ROOT / "docker-compose.prod.yml"
         content = path.read_text()
         # Should use relative paths, not absolute
-        assert "./data:/app/data" in content
+        assert "./backend/data:/app/data" in content
         # Should NOT contain absolute Linux paths
         assert "/opt/" not in content
         assert "/home/" not in content

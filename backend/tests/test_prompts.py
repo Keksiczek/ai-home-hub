@@ -1,4 +1,5 @@
 """Tests for POST /api/prompts/generate."""
+
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -34,6 +35,7 @@ def _llm_patch(reply="Vygenerovaný testovací prompt.", status="ok"):
 # ---------------------------------------------------------------------------
 # Basic happy-path
 # ---------------------------------------------------------------------------
+
 
 def test_generate_prompt_returns_200(client):
     """POST /api/prompts/generate returns 200 with generated_prompt."""
@@ -93,6 +95,7 @@ def test_generate_prompt_all_tones_accepted(client):
 # Validation
 # ---------------------------------------------------------------------------
 
+
 def test_generate_prompt_invalid_task_type_returns_422(client):
     """Unknown task_type triggers a validation error."""
     resp = client.post(
@@ -123,6 +126,7 @@ def test_generate_prompt_context_too_long_returns_422(client):
 # ---------------------------------------------------------------------------
 # Error paths
 # ---------------------------------------------------------------------------
+
 
 def test_generate_prompt_llm_unavailable_returns_503(client):
     """When LLM reports unavailable status, endpoint returns 503."""

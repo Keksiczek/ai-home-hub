@@ -2511,6 +2511,8 @@ async function loadSettings() {
     tailscaleRefreshStatus();
     // Load cleanup settings
     loadCleanupSettings();
+    // Load CORS settings
+    loadCorsSettings();
   } catch (err) {
     showToast(`${t('settings_load_error')}: ${err.message}`, 'error');
   }
@@ -10774,5 +10776,46 @@ async function runCleanupNow() {
     showToast(`Chyba: ${err.message}`, 'error');
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '🚀 Spustit nyní'; }
+  }
+}
+
+// ── CORS / Access Settings ─────────────────────────────────────────────────
+
+async function loadCorsSettings() {
+  try {
+    const res = await fetch('/api/settings/cors');
+    if (!res.ok) return;
+    const data = await res.json();
+    const ta = document.getElementById('cors-origins-textarea');
+    if (ta) ta.value = (data.allowed_origins || []).join('\n');
+  } catch (err) {
+    console.warn('CORS settings load error:', err);
+  }
+}
+
+async function saveCorsSettings() {
+  const btn = document.getElementById('cors-save-btn');
+  const statusEl = document.getElementById('cors-status');
+  if (btn) btn.disabled = true;
+  try {
+    const raw = document.getElementById('cors-origins-textarea')?.value ?? '';
+    const origins = raw.split('\n').map(s => s.trim()).filter(Boolean);
+    const res = await fetch('/api/settings/cors', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ allowed_origins: origins }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showToast(`Chyba: ${data.detail || res.status}`, 'error');
+      if (statusEl) statusEl.textContent = `Chyba: ${data.detail || res.status}`;
+      return;
+    }
+    showToast('CORS origins uloženy (restart nutný pro projevení změn)', 'success');
+    if (statusEl) statusEl.textContent = `Uloženo ${data.allowed_origins?.length ?? 0} origin(s)`;
+  } catch (err) {
+    showToast(`Chyba: ${err.message}`, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }

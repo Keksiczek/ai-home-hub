@@ -1,4 +1,5 @@
 """Settings router – CRUD for application settings and quick actions."""
+
 import asyncio
 import logging
 import subprocess
@@ -7,7 +8,11 @@ from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException
 
-from app.models.schemas import OllamaPerformanceUpdate, SettingsResponse, UpdateSettingsRequest
+from app.models.schemas import (
+    OllamaPerformanceUpdate,
+    SettingsResponse,
+    UpdateSettingsRequest,
+)
 from app.services.settings_service import get_settings_service
 
 logger = logging.getLogger(__name__)
@@ -44,10 +49,22 @@ async def get_settings_schema() -> Dict[str, Any]:
                 "type": "object",
                 "title": "LLM Configuration",
                 "properties": {
-                    "provider": {"type": "string", "enum": ["ollama", "stub"], "default": "ollama"},
+                    "provider": {
+                        "type": "string",
+                        "enum": ["ollama", "stub"],
+                        "default": "ollama",
+                    },
                     "model": {"type": "string", "default": "llama3.2"},
-                    "temperature": {"type": "number", "minimum": 0, "maximum": 2, "default": 0.7},
-                    "ollama_url": {"type": "string", "default": "http://localhost:11434"},
+                    "temperature": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 2,
+                        "default": 0.7,
+                    },
+                    "ollama_url": {
+                        "type": "string",
+                        "default": "http://localhost:11434",
+                    },
                 },
             },
             "integrations": {
@@ -76,7 +93,10 @@ async def get_settings_schema() -> Dict[str, Any]:
                         "type": "object",
                         "properties": {
                             "enabled": {"type": "boolean"},
-                            "connection_type": {"type": "string", "enum": ["stdio", "http"]},
+                            "connection_type": {
+                                "type": "string",
+                                "enum": ["stdio", "http"],
+                            },
                             "stdio_path": {"type": "string"},
                         },
                     },
@@ -100,7 +120,10 @@ async def get_settings_schema() -> Dict[str, Any]:
                     },
                     "require_confirmation": {
                         "type": "array",
-                        "items": {"type": "string", "enum": ["read", "write", "delete"]},
+                        "items": {
+                            "type": "string",
+                            "enum": ["read", "write", "delete"],
+                        },
                     },
                 },
             },
@@ -118,7 +141,11 @@ async def get_settings_schema() -> Dict[str, Any]:
                 "title": "Agent Limits",
                 "properties": {
                     "max_concurrent": {"type": "integer", "minimum": 1, "maximum": 10},
-                    "timeout_minutes": {"type": "integer", "minimum": 5, "maximum": 120},
+                    "timeout_minutes": {
+                        "type": "integer",
+                        "minimum": 5,
+                        "maximum": 120,
+                    },
                 },
             },
             "system_prompts": {
@@ -138,6 +165,7 @@ async def get_settings_schema() -> Dict[str, Any]:
 async def check_ollama_health() -> Dict[str, Any]:
     """Check if Ollama is running and list available models."""
     from app.services.llm_service import get_llm_service
+
     svc = get_llm_service()
     return await svc.check_ollama_health()
 
@@ -148,7 +176,9 @@ async def list_ollama_models() -> Dict[str, Any]:
     import httpx
 
     settings_svc = get_settings_service()
-    ollama_url = settings_svc.get_llm_config().get("ollama_url", "http://localhost:11434")
+    ollama_url = settings_svc.get_llm_config().get(
+        "ollama_url", "http://localhost:11434"
+    )
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -159,14 +189,19 @@ async def list_ollama_models() -> Dict[str, Any]:
         return {"models": [], "error": str(exc)}
 
     # Known embedding model prefixes to filter from chat model list
-    embedding_prefixes = ("nomic-embed", "all-minilm", "mxbai-embed", "snowflake-arctic-embed")
+    embedding_prefixes = (
+        "nomic-embed",
+        "all-minilm",
+        "mxbai-embed",
+        "snowflake-arctic-embed",
+    )
 
     chat_models = []
     embedding_models = []
     for m in data.get("models", []):
         name = m.get("name", "")
         size_bytes = m.get("size", 0)
-        size_gb = round(size_bytes / (1024 ** 3), 1)
+        size_gb = round(size_bytes / (1024**3), 1)
         modified = m.get("modified_at", "")
 
         name_lower = name.lower()
@@ -294,7 +329,9 @@ async def update_llm_performance(body: OllamaPerformanceUpdate) -> Dict[str, Any
     svc = get_settings_service()
     settings = svc.load()
 
-    perf: Dict[str, Any] = settings.get("llm", {}).get("ollama_performance", dict(_PERF_DEFAULTS))
+    perf: Dict[str, Any] = settings.get("llm", {}).get(
+        "ollama_performance", dict(_PERF_DEFAULTS)
+    )
 
     if body.context_length is not None:
         perf["context_length"] = body.context_length
@@ -322,13 +359,16 @@ async def update_llm_performance(body: OllamaPerformanceUpdate) -> Dict[str, Any
             subprocess.Popen(["pkill", "-f", "ollama serve"])
             await asyncio.sleep(2)
             env_vars = {
-                "OLLAMA_FLASH_ATTENTION": "1" if perf.get("flash_attention", True) else "0",
+                "OLLAMA_FLASH_ATTENTION": (
+                    "1" if perf.get("flash_attention", True) else "0"
+                ),
                 "OLLAMA_KV_CACHE_TYPE": perf.get("kv_cache_type", "q8_0"),
                 "OLLAMA_NUM_PARALLEL": str(perf.get("num_parallel", 1)),
                 "OLLAMA_CONTEXT_LENGTH": str(perf.get("context_length", 4096)),
                 "OLLAMA_KEEP_ALIVE": perf.get("keep_alive", "5m"),
             }
             import os
+
             env = {**os.environ, **env_vars}
             subprocess.Popen(["ollama", "serve"], env=env)
             restarted = True
@@ -384,6 +424,7 @@ async def set_safe_mode(body: Dict[str, Any]) -> Dict[str, Any]:
     # Update safe_mode metric
     try:
         from app.services.metrics_service import safe_mode_enabled
+
         safe_mode_enabled.set(1 if enabled else 0)
     except Exception:
         pass
@@ -401,6 +442,7 @@ async def set_safe_mode(body: Dict[str, Any]) -> Dict[str, Any]:
 async def get_safe_mode() -> Dict[str, Any]:
     """Return current Safe Mode status."""
     from app.core.settings import get_guardrail_settings
+
     gs = get_guardrail_settings()
     return {
         "safe_mode": gs.safe_mode,
@@ -416,12 +458,11 @@ async def get_safe_mode() -> Dict[str, Any]:
 async def get_guardrails() -> Dict[str, Any]:
     """Return current guardrail configuration."""
     from app.core.settings import get_guardrail_settings
+
     gs = get_guardrail_settings()
     return {
         "safe_mode": gs.safe_mode,
-        "agent_guardrails": {
-            k: v.model_dump() for k, v in gs.agent_guardrails.items()
-        },
+        "agent_guardrails": {k: v.model_dump() for k, v in gs.agent_guardrails.items()},
         "resident": gs.resident.model_dump(),
         "effective_autonomy": gs.effective_resident_autonomy(),
     }
@@ -450,6 +491,7 @@ async def update_guardrails(body: Dict[str, Any]) -> Dict[str, Any]:
     existing_guardrails = settings.get("guardrails", {})
     # Deep merge new values
     from app.services.settings_service import _deep_merge  # type: ignore[attr-defined]
+
     merged = _deep_merge(existing_guardrails, body)
     settings["guardrails"] = merged
 
@@ -461,6 +503,7 @@ async def update_guardrails(body: Dict[str, Any]) -> Dict[str, Any]:
     svc.save(settings)
 
     from app.core.settings import get_guardrail_settings
+
     gs = get_guardrail_settings()
     return {
         "safe_mode": gs.safe_mode,
@@ -475,11 +518,13 @@ async def get_guardrail_runtime_status() -> Dict[str, Any]:
     """Return runtime guardrail state from the resident agent (cooldowns, budgets)."""
     try:
         from app.services.resident_agent import get_resident_agent
+
         agent = get_resident_agent()
         return agent.get_guardrail_status()
     except Exception as exc:
         logger.debug("Could not fetch resident guardrail status: %s", exc)
         from app.core.settings import get_guardrail_settings
+
         gs = get_guardrail_settings()
         return {
             "safe_mode": gs.safe_mode,
@@ -488,6 +533,43 @@ async def get_guardrail_runtime_status() -> Dict[str, Any]:
             "daily_action_budgets": gs.resident.max_daily_actions,
             "cooldowns": {},
         }
+
+
+@router.get("/settings/cors", tags=["settings"])
+async def get_cors_settings() -> Dict[str, Any]:
+    """Return current CORS allowed_origins list."""
+    svc = get_settings_service()
+    cors_cfg = svc.load().get("cors", {})
+    return {"allowed_origins": cors_cfg.get("allowed_origins", [])}
+
+
+@router.patch("/settings/cors", tags=["settings"])
+async def update_cors_settings(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Replace the CORS allowed_origins list.
+
+    Expects ``{"allowed_origins": ["https://example.com", ...]}``.
+    Each entry must be a valid http/https URL or ``"*"``.
+    """
+    import re
+
+    _URL_RE = re.compile(r"^(\*|https?://[a-zA-Z0-9._~:@!$&'()*+,;=/?#\[\]-]+)$")
+
+    raw = body.get("allowed_origins")
+    if not isinstance(raw, list):
+        raise HTTPException(status_code=400, detail="allowed_origins must be a list")
+
+    origins: List[str] = []
+    for entry in raw:
+        if not isinstance(entry, str) or not _URL_RE.match(entry.strip()):
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid origin: {entry!r}. Must be http/https URL or '*'.",
+            )
+        origins.append(entry.strip())
+
+    svc = get_settings_service()
+    svc.update({"cors": {"allowed_origins": origins}})
+    return {"allowed_origins": origins, "updated": True}
 
 
 def _mask_secrets(settings: Dict[str, Any]) -> None:

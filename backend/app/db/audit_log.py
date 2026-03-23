@@ -176,13 +176,21 @@ class AuditLogDB:
     def prune_old(self, retention_days: int = DEFAULT_RETENTION_DAYS) -> int:
         """Delete entries older than retention_days. Returns count deleted."""
         try:
-            cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).isoformat()
+            cutoff = (
+                datetime.now(timezone.utc) - timedelta(days=retention_days)
+            ).isoformat()
             conn = self._get_conn()
-            cursor = conn.execute("DELETE FROM audit_log WHERE timestamp < ?", (cutoff,))
+            cursor = conn.execute(
+                "DELETE FROM audit_log WHERE timestamp < ?", (cutoff,)
+            )
             deleted = cursor.rowcount
             conn.commit()
             conn.close()
-            logger.info("AuditLogDB pruned %d entries older than %d days", deleted, retention_days)
+            logger.info(
+                "AuditLogDB pruned %d entries older than %d days",
+                deleted,
+                retention_days,
+            )
             return deleted
         except Exception as exc:
             logger.error("Failed to prune audit log: %s", exc)

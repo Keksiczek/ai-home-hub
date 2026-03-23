@@ -7,6 +7,7 @@ Covers:
 - History CSV download
 - Graceful shutdown endpoint
 """
+
 import csv
 import io
 import json
@@ -24,8 +25,8 @@ for _mod_name in ("chromadb", "chromadb.config"):
 from fastapi.testclient import TestClient  # noqa: E402
 from app.main import app  # noqa: E402
 
-
 # ── Shared fixture ────────────────────────────────────────────
+
 
 @pytest.fixture
 def client():
@@ -41,6 +42,7 @@ def client():
 # ═══════════════════════════════════════════════════════════════
 # 1. Slack webhook endpoint formats correctly
 # ═══════════════════════════════════════════════════════════════
+
 
 class TestSlackWebhookEndpointFormatsCorrectly:
     """POST /api/alerts/slack – skips send when no webhook URL, returns correct shape."""
@@ -76,12 +78,16 @@ class TestSlackWebhookEndpointFormatsCorrectly:
         mock_response.raise_for_status.return_value = None
 
         mock_client_ctx = AsyncMock()
-        mock_client_ctx.__aenter__ = AsyncMock(return_value=AsyncMock(
-            post=AsyncMock(return_value=mock_response)
-        ))
+        mock_client_ctx.__aenter__ = AsyncMock(
+            return_value=AsyncMock(post=AsyncMock(return_value=mock_response))
+        )
         mock_client_ctx.__aexit__ = AsyncMock(return_value=False)
 
-        with patch.dict("os.environ", {"SLACK_WEBHOOK_URL": "https://hooks.slack.com/test"}, clear=False):
+        with patch.dict(
+            "os.environ",
+            {"SLACK_WEBHOOK_URL": "https://hooks.slack.com/test"},
+            clear=False,
+        ):
             with patch("httpx.AsyncClient", return_value=mock_client_ctx):
                 payload = {"status": "resolved", "alerts": []}
                 resp = client.post("/api/alerts/slack", json=payload)
@@ -98,7 +104,11 @@ class TestSlackWebhookEndpointFormatsCorrectly:
                 "status": "firing",
                 "alerts": [
                     {
-                        "labels": {"alertname": "A1", "severity": "critical", "instance": "hub"},
+                        "labels": {
+                            "alertname": "A1",
+                            "severity": "critical",
+                            "instance": "hub",
+                        },
                         "annotations": {"summary": "S1", "description": "D1"},
                         "generatorURL": "http://g/1",
                     },
@@ -133,7 +143,10 @@ class TestSlackWebhookEndpointFormatsCorrectly:
 
 DASHBOARD_PATH = (
     Path(__file__).parent.parent.parent
-    / "grafana" / "provisioning" / "dashboards" / "ai-home-hub.json"
+    / "grafana"
+    / "provisioning"
+    / "dashboards"
+    / "ai-home-hub.json"
 )
 
 
@@ -186,14 +199,19 @@ class TestGrafanaDashboardJsonValid:
                     all_exprs.append(expr)
 
         # At least some resident_cycles_total expressions present
-        assert any("resident_cycles" in e for e in all_exprs), "Missing resident_cycles metric"
-        assert any("agent_memory" in e for e in all_exprs), "Missing agent_memory metric"
+        assert any(
+            "resident_cycles" in e for e in all_exprs
+        ), "Missing resident_cycles metric"
+        assert any(
+            "agent_memory" in e for e in all_exprs
+        ), "Missing agent_memory metric"
         assert any("kb_reindex" in e for e in all_exprs), "Missing kb_reindex metric"
 
 
 # ═══════════════════════════════════════════════════════════════
 # 3. Force cycle triggers immediately
 # ═══════════════════════════════════════════════════════════════
+
 
 class TestForceCycleTriggersImmediately:
     """POST /api/control/resident/force-cycle"""
@@ -211,7 +229,9 @@ class TestForceCycleTriggersImmediately:
 
     def test_force_cycle_returns_triggered(self, client: TestClient):
         agent = self._running_agent()
-        with patch("app.services.resident_agent.get_resident_agent", return_value=agent):
+        with patch(
+            "app.services.resident_agent.get_resident_agent", return_value=agent
+        ):
             with patch("app.routers.control.get_resident_agent", return_value=agent):
                 resp = client.post("/api/control/resident/force-cycle")
         assert resp.status_code == 200
@@ -251,6 +271,7 @@ class TestForceCycleTriggersImmediately:
 # 4. History CSV download no errors
 # ═══════════════════════════════════════════════════════════════
 
+
 class TestHistoryCsvDownloadNoErrors:
     """GET /api/control/resident/history/csv"""
 
@@ -262,10 +283,16 @@ class TestHistoryCsvDownloadNoErrors:
     def test_csv_download_returns_200(self, client: TestClient):
         rows = [
             {
-                "id": 1, "timestamp": "2024-01-01T00:00:00Z",
-                "cycle_id": "c1", "cycle_number": 1, "status": "success",
-                "action_type": "kb_reindex", "action_target": "", "output_preview": "ok",
-                "duration_ms": 1234.5, "error": "",
+                "id": 1,
+                "timestamp": "2024-01-01T00:00:00Z",
+                "cycle_id": "c1",
+                "cycle_number": 1,
+                "status": "success",
+                "action_type": "kb_reindex",
+                "action_target": "",
+                "output_preview": "ok",
+                "duration_ms": 1234.5,
+                "error": "",
             }
         ]
         db = self._mock_db(rows)
@@ -285,9 +312,18 @@ class TestHistoryCsvDownloadNoErrors:
 
     def test_csv_content_has_data_rows(self, client: TestClient):
         rows = [
-            {"id": i, "timestamp": f"2024-01-0{i}T00:00:00Z", "cycle_id": f"c{i}",
-             "cycle_number": i, "status": "success", "action_type": "", "action_target": "",
-             "output_preview": "", "duration_ms": 100.0, "error": ""}
+            {
+                "id": i,
+                "timestamp": f"2024-01-0{i}T00:00:00Z",
+                "cycle_id": f"c{i}",
+                "cycle_number": i,
+                "status": "success",
+                "action_type": "",
+                "action_target": "",
+                "output_preview": "",
+                "duration_ms": 100.0,
+                "error": "",
+            }
             for i in range(1, 4)
         ]
         db = self._mock_db(rows)
@@ -317,12 +353,15 @@ class TestHistoryCsvDownloadNoErrors:
 # 5. Graceful shutdown waits for jobs
 # ═══════════════════════════════════════════════════════════════
 
+
 class TestGracefulShutdownWaitsForJobs:
     """POST /api/control/shutdown-graceful"""
 
     def test_graceful_shutdown_schedules_sigterm(self, client: TestClient):
         """Endpoint returns shutdown_scheduled and does not immediately kill."""
-        with patch.dict("os.environ", {"ENABLE_GRACEFUL_SHUTDOWN": "true"}, clear=False):
+        with patch.dict(
+            "os.environ", {"ENABLE_GRACEFUL_SHUTDOWN": "true"}, clear=False
+        ):
             with patch("app.routers.control.asyncio.create_task") as mock_task:
                 resp = client.post(
                     "/api/control/shutdown-graceful",
@@ -337,9 +376,12 @@ class TestGracefulShutdownWaitsForJobs:
         mock_task.assert_called_once()
 
     def test_graceful_shutdown_disabled_returns_403(self, client: TestClient):
-        with patch.dict("os.environ", {"ENABLE_GRACEFUL_SHUTDOWN": "false"}, clear=False):
+        with patch.dict(
+            "os.environ", {"ENABLE_GRACEFUL_SHUTDOWN": "false"}, clear=False
+        ):
             # Need to reload the module to pick up env change
             import app.routers.control as ctrl_module
+
             original = ctrl_module.GRACEFUL_SHUTDOWN_ENABLED
             ctrl_module.GRACEFUL_SHUTDOWN_ENABLED = False
             try:
@@ -370,6 +412,7 @@ class TestGracefulShutdownWaitsForJobs:
         mock_path.exists.return_value = False  # no file to delete
 
         import app.routers.control as ctrl_mod
+
         original = ctrl_mod._kb_stats_cache_mod.CACHE_FILE
         ctrl_mod._kb_stats_cache_mod.CACHE_FILE = mock_path
         try:

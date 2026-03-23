@@ -3,6 +3,7 @@
 Provides async access via aiosqlite. Falls back gracefully if aiosqlite
 is not installed – the rest of the app keeps working with the JSON job service.
 """
+
 import json
 import logging
 import sqlite3
@@ -95,8 +96,16 @@ class JobsDB:
 
     def update_job(self, job_id: str, updates: Dict[str, Any]) -> None:
         """Update specific fields of a job."""
-        allowed = {"status", "output_summary", "full_output", "execution_time",
-                   "model_used", "ram_usage", "input_summary", "title"}
+        allowed = {
+            "status",
+            "output_summary",
+            "full_output",
+            "execution_time",
+            "model_used",
+            "ram_usage",
+            "input_summary",
+            "title",
+        }
         sets = []
         vals = []
         for k, v in updates.items():
@@ -166,19 +175,29 @@ class JobsDB:
                 where = " WHERE created_at >= ?"
                 params = [since]
 
-            total = conn.execute(f"SELECT COUNT(*) FROM jobs{where}", params).fetchone()[0]
-            failed = conn.execute(
-                f"SELECT COUNT(*) FROM jobs{where}{' AND' if where else ' WHERE'} status = 'failed'",
-                params + (["failed"] if not where else []),
-            ).fetchone()[0] if where else conn.execute(
-                "SELECT COUNT(*) FROM jobs WHERE status = 'failed'" + (f" AND created_at >= ?" if since else ""),
-                [since] if since else [],
+            total = conn.execute(
+                f"SELECT COUNT(*) FROM jobs{where}", params
             ).fetchone()[0]
+            failed = (
+                conn.execute(
+                    f"SELECT COUNT(*) FROM jobs{where}{' AND' if where else ' WHERE'} status = 'failed'",
+                    params + (["failed"] if not where else []),
+                ).fetchone()[0]
+                if where
+                else conn.execute(
+                    "SELECT COUNT(*) FROM jobs WHERE status = 'failed'"
+                    + (f" AND created_at >= ?" if since else ""),
+                    [since] if since else [],
+                ).fetchone()[0]
+            )
 
-            avg_time = conn.execute(
-                f"SELECT AVG(execution_time) FROM jobs{where}{' AND' if where else ' WHERE'} execution_time > 0",
-                params,
-            ).fetchone()[0] or 0
+            avg_time = (
+                conn.execute(
+                    f"SELECT AVG(execution_time) FROM jobs{where}{' AND' if where else ' WHERE'} execution_time > 0",
+                    params,
+                ).fetchone()[0]
+                or 0
+            )
 
             return {
                 "total": total,
@@ -200,7 +219,9 @@ class JobsDB:
     def count_by_status(self) -> Dict[str, int]:
         conn = self._get_conn()
         try:
-            rows = conn.execute("SELECT status, COUNT(*) as cnt FROM jobs GROUP BY status").fetchall()
+            rows = conn.execute(
+                "SELECT status, COUNT(*) as cnt FROM jobs GROUP BY status"
+            ).fetchall()
             return {r["status"]: r["cnt"] for r in rows}
         finally:
             conn.close()

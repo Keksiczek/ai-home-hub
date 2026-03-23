@@ -1,4 +1,5 @@
 """Knowledge base router – external storage scan, ingestion, search, incremental indexing, export."""
+
 import asyncio
 import csv
 import io
@@ -10,7 +11,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Body, Depends, File, Form, HTTPException, UploadFile
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Body,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+)
 
 from app.utils.auth import verify_api_key
 
@@ -20,7 +30,11 @@ from app.services.file_parser_service import get_file_parser_service
 from app.services.settings_service import get_settings_service
 from app.services.vector_store_service import get_vector_store_service
 from app.services.ws_manager import get_ws_manager
-from app.utils.constants import DEFAULT_CHUNK_OVERLAP, DEFAULT_CHUNK_SIZE, MIN_KB_SEARCH_SCORE
+from app.utils.constants import (
+    DEFAULT_CHUNK_OVERLAP,
+    DEFAULT_CHUNK_SIZE,
+    MIN_KB_SEARCH_SCORE,
+)
 from app.utils.text_chunker import chunk_text
 
 logger = logging.getLogger(__name__)
@@ -50,7 +64,9 @@ async def initialize_knowledge_base(body: Dict[str, Any] = Body(...)) -> Dict[st
 
     sources = body.get("sources", [])
     if not sources:
-        raise HTTPException(status_code=400, detail="'sources' list is required and must not be empty")
+        raise HTTPException(
+            status_code=400, detail="'sources' list is required and must not be empty"
+        )
 
     collection = body.get("collection", "knowledge_base")
     kb_svc = get_knowledge_service()
@@ -80,6 +96,7 @@ async def get_kb_stats() -> Dict[str, Any]:
         "file_types": stats.get("file_types", {}),
         "last_updated": datetime.now(timezone.utc).isoformat(),
     }
+
 
 # ── In-memory job store ───────────────────────────────────────────
 # Maps job_id -> IngestJob dict.  Sufficient for single-process deployments;
@@ -154,13 +171,15 @@ async def scan_external_storage(
                         )
                         limit_reached = True
                         break
-                    discovered.append({
-                        "path": str(file),
-                        "name": file.name,
-                        "size_bytes": file.stat().st_size,
-                        "extension": file.suffix.lower(),
-                        "modified": file.stat().st_mtime,
-                    })
+                    discovered.append(
+                        {
+                            "path": str(file),
+                            "name": file.name,
+                            "size_bytes": file.stat().st_size,
+                            "extension": file.suffix.lower(),
+                            "modified": file.stat().st_mtime,
+                        }
+                    )
         except Exception as exc:
             errors.append(f"Scan error in {path_str}: {exc}")
             logger.error("Scan error: %s", exc)
@@ -232,7 +251,9 @@ async def _run_ingest_core(
                 failed_count += 1
                 continue
 
-            chunks = chunk_text(text, chunk_size=DEFAULT_CHUNK_SIZE, overlap=DEFAULT_CHUNK_OVERLAP)
+            chunks = chunk_text(
+                text, chunk_size=DEFAULT_CHUNK_SIZE, overlap=DEFAULT_CHUNK_OVERLAP
+            )
             embeddings = await embeddings_svc.generate_embeddings_batch(chunks)
 
             valid_items = [
@@ -275,14 +296,16 @@ async def _run_ingest_core(
             if job is not None:
                 job["progress"] = {"current": file_idx + 1, "total": total_files}
 
-            await ws_manager.broadcast({
-                "type": "ingest_progress",
-                "current": file_idx + 1,
-                "total": total_files,
-                "file": file_path.name,
-                "ingested": ingested_count,
-                "chunks": total_chunks,
-            })
+            await ws_manager.broadcast(
+                {
+                    "type": "ingest_progress",
+                    "current": file_idx + 1,
+                    "total": total_files,
+                    "file": file_path.name,
+                    "ingested": ingested_count,
+                    "chunks": total_chunks,
+                }
+            )
 
         except Exception as exc:
             logger.error("Failed to ingest %s: %s", file_path, exc)
@@ -370,13 +393,15 @@ async def search_knowledge(
         score = round(1 - distance, 4)
         if score < MIN_KB_SEARCH_SCORE:
             continue
-        results.append({
-            "text": doc,
-            "file_name": metadata.get("file_name", ""),
-            "file_path": metadata.get("file_path", ""),
-            "score": score,
-            "metadata": metadata,
-        })
+        results.append(
+            {
+                "text": doc,
+                "file_name": metadata.get("file_name", ""),
+                "file_path": metadata.get("file_path", ""),
+                "score": score,
+                "metadata": metadata,
+            }
+        )
 
     return {
         "results": results,
@@ -522,7 +547,9 @@ async def list_kb_files(
                 "chunk_count": 0,
                 "page_count": meta.get("page_count", 1),
                 "media_type": FileParserService.MEDIA_TYPES.get(ext, "text"),
-                "filetype": FileParserService.MIME_TYPES.get(ext, "application/octet-stream"),
+                "filetype": FileParserService.MIME_TYPES.get(
+                    ext, "application/octet-stream"
+                ),
                 "mtime": meta.get("mtime"),
                 "preview": "",
                 "size_bytes": 0,
@@ -538,9 +565,11 @@ async def list_kb_files(
             file_map[fp]["preview"] = (documents[idx] or "")[:500]
 
     # Sort by mtime descending (newest first)
-    all_files = sorted(file_map.values(), key=lambda f: f.get("mtime") or 0, reverse=True)
+    all_files = sorted(
+        file_map.values(), key=lambda f: f.get("mtime") or 0, reverse=True
+    )
     total = len(all_files)
-    paginated = all_files[offset: offset + limit]
+    paginated = all_files[offset : offset + limit]
 
     return {"files": paginated, "total": total}
 
@@ -548,8 +577,11 @@ async def list_kb_files(
 # ── File deletion ────────────────────────────────────────────────
 
 
-@router.delete("/knowledge/files/{file_id:path}", tags=["knowledge"],
-               dependencies=[Depends(verify_api_key)])
+@router.delete(
+    "/knowledge/files/{file_id:path}",
+    tags=["knowledge"],
+    dependencies=[Depends(verify_api_key)],
+)
 async def delete_kb_file_by_id(file_id: str) -> Dict[str, Any]:
     """Remove all indexed chunks for a file. Also deletes the upload if in data/uploads/kb/."""
     vector_store = get_vector_store_service()
@@ -569,8 +601,9 @@ async def delete_kb_file_by_id(file_id: str) -> Dict[str, Any]:
     return {"file_id": file_id, "deleted_chunks": deleted_chunks}
 
 
-@router.delete("/knowledge/files", tags=["knowledge"],
-               dependencies=[Depends(verify_api_key)])
+@router.delete(
+    "/knowledge/files", tags=["knowledge"], dependencies=[Depends(verify_api_key)]
+)
 async def delete_kb_file(path: str) -> Dict[str, Any]:
     """
     Remove all indexed chunks for a specific file path.
@@ -590,8 +623,9 @@ async def delete_kb_file(path: str) -> Dict[str, Any]:
 # ── Reindex ───────────────────────────────────────────────────────
 
 
-@router.post("/knowledge/reindex", tags=["knowledge"],
-             dependencies=[Depends(verify_api_key)])
+@router.post(
+    "/knowledge/reindex", tags=["knowledge"], dependencies=[Depends(verify_api_key)]
+)
 async def reindex_file(body: ReindexFileRequest) -> Dict[str, Any]:
     """
     Re-index a single file: delete its existing chunks then re-ingest.
@@ -697,10 +731,29 @@ async def _job_upload_index(
             if parsed.get("error") and not parsed.get("text"):
                 ext = file_path.suffix.lower()
                 code_exts = {
-                    ".py", ".js", ".ts", ".jsx", ".tsx", ".json",
-                    ".yaml", ".yml", ".toml", ".sh", ".bash", ".zsh",
-                    ".html", ".css", ".sql", ".rs", ".go", ".java",
-                    ".c", ".cpp", ".h", ".rb", ".php",
+                    ".py",
+                    ".js",
+                    ".ts",
+                    ".jsx",
+                    ".tsx",
+                    ".json",
+                    ".yaml",
+                    ".yml",
+                    ".toml",
+                    ".sh",
+                    ".bash",
+                    ".zsh",
+                    ".html",
+                    ".css",
+                    ".sql",
+                    ".rs",
+                    ".go",
+                    ".java",
+                    ".c",
+                    ".cpp",
+                    ".h",
+                    ".rb",
+                    ".php",
                 }
                 if ext in code_exts:
                     text = file_path.read_text(encoding="utf-8", errors="ignore")
@@ -710,7 +763,9 @@ async def _job_upload_index(
                         "page_count": 1,
                     }
                 else:
-                    errors.append(f"{file_path.name}: {parsed.get('error', 'parse error')}")
+                    errors.append(
+                        f"{file_path.name}: {parsed.get('error', 'parse error')}"
+                    )
                     failed += 1
                     continue
 
@@ -720,7 +775,9 @@ async def _job_upload_index(
                 failed += 1
                 continue
 
-            chunks = chunk_text(text, chunk_size=DEFAULT_CHUNK_SIZE, overlap=DEFAULT_CHUNK_OVERLAP)
+            chunks = chunk_text(
+                text, chunk_size=DEFAULT_CHUNK_SIZE, overlap=DEFAULT_CHUNK_OVERLAP
+            )
             embeddings = await embeddings_svc.generate_embeddings_batch(chunks)
 
             valid_items = [
@@ -765,13 +822,15 @@ async def _job_upload_index(
             failed += 1
         finally:
             job["progress"] = {"current": idx + 1, "total": total}
-            await ws_manager.broadcast({
-                "type": "kb_upload_progress",
-                "current": idx + 1,
-                "total": total,
-                "file": file_path.name,
-                "ingested": ingested,
-            })
+            await ws_manager.broadcast(
+                {
+                    "type": "kb_upload_progress",
+                    "current": idx + 1,
+                    "total": total,
+                    "file": file_path.name,
+                    "ingested": ingested,
+                }
+            )
 
     result = {
         "ingested_count": ingested,
@@ -801,7 +860,10 @@ async def batch_upload(
     Supported file types: PDF, DOCX, XLSX, TXT, MD, images (OCR), and
     common code files (PY, JS, TS, …).
     """
-    from app.services.file_handler_service import get_file_handler_service, SUPPORTED_EXTENSIONS
+    from app.services.file_handler_service import (
+        get_file_handler_service,
+        SUPPORTED_EXTENSIONS,
+    )
 
     _UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     handler = get_file_handler_service()
@@ -812,10 +874,12 @@ async def batch_upload(
         for upload in files:
             suffix = Path(upload.filename or "file").suffix.lower()
             if suffix not in SUPPORTED_EXTENSIONS:
-                results.append({
-                    "file": upload.filename,
-                    "error": f"Unsupported file type: {suffix}",
-                })
+                results.append(
+                    {
+                        "file": upload.filename,
+                        "error": f"Unsupported file type: {suffix}",
+                    }
+                )
                 continue
             dest = _UPLOADS_DIR / f"{uuid.uuid4()}{suffix}"
             try:
@@ -838,16 +902,23 @@ async def batch_upload(
             if "saved_as" in r:
                 r["job_id"] = job_id
 
-        return {"results": results, "job_id": job_id, "mode": mode, "collection": collection}
+        return {
+            "results": results,
+            "job_id": job_id,
+            "mode": mode,
+            "collection": collection,
+        }
 
     # mode == "analyze"
     for upload in files:
         suffix = Path(upload.filename or "file").suffix.lower()
         if suffix not in SUPPORTED_EXTENSIONS:
-            results.append({
-                "file": upload.filename,
-                "error": f"Unsupported file type: {suffix}",
-            })
+            results.append(
+                {
+                    "file": upload.filename,
+                    "error": f"Unsupported file type: {suffix}",
+                }
+            )
             continue
 
         tmp_path = _UPLOADS_DIR / f"analyze_{uuid.uuid4()}{suffix}"
@@ -856,13 +927,15 @@ async def batch_upload(
                 shutil.copyfileobj(upload.file, f)
 
             result = await handler.process_file(str(tmp_path), "analyze")
-            results.append({
-                "file": upload.filename,
-                "preview": result.get("text_preview", ""),
-                "summary": result.get("summary", ""),
-                "char_count": result.get("char_count", 0),
-                "page_count": result.get("page_count", 1),
-            })
+            results.append(
+                {
+                    "file": upload.filename,
+                    "preview": result.get("text_preview", ""),
+                    "summary": result.get("summary", ""),
+                    "char_count": result.get("char_count", 0),
+                    "page_count": result.get("page_count", 1),
+                }
+            )
         except Exception as exc:
             results.append({"file": upload.filename, "error": str(exc)})
         finally:
@@ -975,11 +1048,15 @@ async def get_retention_config() -> Dict[str, Any]:
     }
 
 
-@router.post("/knowledge/retention/run", tags=["knowledge"],
-             dependencies=[Depends(verify_api_key)])
+@router.post(
+    "/knowledge/retention/run",
+    tags=["knowledge"],
+    dependencies=[Depends(verify_api_key)],
+)
 async def run_retention_job() -> Dict[str, Any]:
     """Manually trigger KB retention cleanup (delete old / oversized data)."""
     from app.services.kb_retention_service import run_kb_retention
+
     result = await run_kb_retention()
     return result
 
@@ -996,7 +1073,9 @@ async def list_kb_collections() -> Dict[str, Any]:
 
 
 @router.post("/kb/collections", tags=["knowledge"])
-async def create_kb_collection(body: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
+async def create_kb_collection(
+    body: Dict[str, Any] = Body(default={}),
+) -> Dict[str, Any]:
     """Create a new KB collection.
 
     Body (all optional)::
@@ -1010,14 +1089,17 @@ async def create_kb_collection(body: Dict[str, Any] = Body(default={})) -> Dict[
     tags: List[str] = body.get("tags", [])
     vector_store = get_vector_store_service()
     try:
-        result = await vector_store.create_collection(name=name, description=description, tags=tags)
+        result = await vector_store.create_collection(
+            name=name, description=description, tags=tags
+        )
         return result
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@router.delete("/kb/collections/{name}", tags=["knowledge"],
-               dependencies=[Depends(verify_api_key)])
+@router.delete(
+    "/kb/collections/{name}", tags=["knowledge"], dependencies=[Depends(verify_api_key)]
+)
 async def delete_kb_collection(name: str) -> Dict[str, Any]:
     """Delete a KB collection by name."""
     vector_store = get_vector_store_service()
@@ -1047,7 +1129,9 @@ async def add_tags_to_kb_document(
         raise HTTPException(status_code=400, detail="'doc_id' is required")
     vector_store = get_vector_store_service()
     try:
-        await vector_store.add_tags_to_document(collection=name, doc_id=doc_id, tags=tags)
+        await vector_store.add_tags_to_document(
+            collection=name, doc_id=doc_id, tags=tags
+        )
         return {"collection": name, "doc_id": doc_id, "tags": tags}
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -1084,7 +1168,9 @@ async def kb_search_with_filters(
 
     # Semantic search
     if not q.strip():
-        raise HTTPException(status_code=400, detail="'q' or 'tag' parameter is required")
+        raise HTTPException(
+            status_code=400, detail="'q' or 'tag' parameter is required"
+        )
 
     embeddings_svc = get_embeddings_service()
     query_embedding = await embeddings_svc.generate_embedding(q)
@@ -1102,9 +1188,14 @@ async def kb_search_with_filters(
     else:
         try:
             import asyncio as _asyncio
-            col_obj = await _asyncio.to_thread(vector_store.client.get_collection, col_name)
+
+            col_obj = await _asyncio.to_thread(
+                vector_store.client.get_collection, col_name
+            )
         except Exception:
-            raise HTTPException(status_code=404, detail=f"Collection '{col_name}' not found")
+            raise HTTPException(
+                status_code=404, detail=f"Collection '{col_name}' not found"
+            )
 
     from app.utils.constants import MIN_KB_SEARCH_SCORE
     import time as _time
@@ -1112,8 +1203,14 @@ async def kb_search_with_filters(
     # Guard: ChromaDB raises if n_results > collection size or collection is empty
     col_count = await asyncio.to_thread(col_obj.count)
     if col_count == 0:
-        return {"results": [], "query": q, "collection": col_name, "tag": tag, "total": 0,
-                "message": "Znalostní báze je prázdná – nejprve přidej dokumenty."}
+        return {
+            "results": [],
+            "query": q,
+            "collection": col_name,
+            "tag": tag,
+            "total": 0,
+            "message": "Znalostní báze je prázdná – nejprve přidej dokumenty.",
+        }
 
     kwargs: Dict[str, Any] = {
         "query_embeddings": [query_embedding],
@@ -1122,8 +1219,19 @@ async def kb_search_with_filters(
     try:
         raw = await asyncio.to_thread(col_obj.query, **kwargs)
     except Exception as exc:
-        logger.warning("KB search query failed (collection=%s, count=%d): %s", col_name, col_count, exc)
-        return {"results": [], "query": q, "collection": col_name, "tag": tag, "total": 0}
+        logger.warning(
+            "KB search query failed (collection=%s, count=%d): %s",
+            col_name,
+            col_count,
+            exc,
+        )
+        return {
+            "results": [],
+            "query": q,
+            "collection": col_name,
+            "tag": tag,
+            "total": 0,
+        }
 
     docs = raw["documents"][0] if raw.get("documents") else []
     metas = raw["metadatas"][0] if raw.get("metadatas") else []
@@ -1137,16 +1245,18 @@ async def kb_search_with_filters(
         # Apply tag filter post-hoc if needed
         if tag:
             import json as _json
+
             doc_tags = _json.loads((meta or {}).get("tags", "[]"))
             if tag not in doc_tags:
                 continue
-        results.append({
-            "text": doc,
-            "file_name": (meta or {}).get("file_name", ""),
-            "file_path": (meta or {}).get("file_path", ""),
-            "score": score,
-            "metadata": meta,
-        })
+        results.append(
+            {
+                "text": doc,
+                "file_name": (meta or {}).get("file_name", ""),
+                "file_path": (meta or {}).get("file_path", ""),
+                "score": score,
+                "metadata": meta,
+            }
+        )
 
     return {"results": results, "query": q, "collection": col_name, "tag": tag}
-

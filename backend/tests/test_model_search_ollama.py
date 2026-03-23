@@ -1,4 +1,5 @@
 """Tests for GET /api/models/search/ollama – Ollama library search."""
+
 import pytest
 
 

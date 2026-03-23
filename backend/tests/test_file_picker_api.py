@@ -1,4 +1,5 @@
 """Tests for file picker API – file tree, preview, and action endpoints."""
+
 import pytest
 
 
@@ -22,7 +23,9 @@ def test_file_preview_requires_path(client):
 
 def test_file_action_unknown_type(client):
     """POST /api/files/action with unknown type returns 400."""
-    resp = client.post("/api/files/action", params={"type": "unknown", "path": "/tmp/test"})
+    resp = client.post(
+        "/api/files/action", params={"type": "unknown", "path": "/tmp/test"}
+    )
     assert resp.status_code in (400, 403)
 
 

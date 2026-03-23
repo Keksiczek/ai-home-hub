@@ -17,6 +17,7 @@ router = APIRouter(prefix="/capabilities", tags=["capabilities"])
 
 # ── Request models ───────────────────────────────────────────
 
+
 class CapabilityExecuteRequest(BaseModel):
     capability: str = Field(..., min_length=1, max_length=50)
     params: Dict[str, Any] = {}
@@ -32,6 +33,7 @@ class KillswitchRequest(BaseModel):
 
 
 # ── Registry endpoints ───────────────────────────────────────
+
 
 @router.get("/registry")
 async def get_registry() -> dict:
@@ -55,6 +57,7 @@ async def get_capability(cap_name: str) -> dict:
 
 # ── Execution endpoint ──────────────────────────────────────
 
+
 @router.post("/execute")
 async def execute_capability(req: CapabilityExecuteRequest) -> dict:
     """Execute a capability through the sandbox executor.
@@ -73,6 +76,7 @@ async def execute_capability(req: CapabilityExecuteRequest) -> dict:
 
 
 # ── Approval management ─────────────────────────────────────
+
 
 @router.get("/approvals")
 async def get_pending_approvals() -> dict:
@@ -116,6 +120,7 @@ async def handle_approval(approval_id: str, req: ApprovalActionRequest) -> dict:
 
 # ── Audit trail ──────────────────────────────────────────────
 
+
 @router.get("/audit")
 async def get_audit_trail(
     limit: int = Query(default=50, ge=1, le=500),
@@ -124,7 +129,9 @@ async def get_audit_trail(
 ) -> dict:
     """Get recent audit log entries."""
     audit = get_audit_log_db()
-    entries = audit.get_entries(limit=limit, capability=capability, result_status=status)
+    entries = audit.get_entries(
+        limit=limit, capability=capability, result_status=status
+    )
     return {"entries": entries, "count": len(entries)}
 
 
@@ -136,6 +143,7 @@ async def get_audit_stats() -> dict:
 
 
 # ── Killswitch ───────────────────────────────────────────────
+
 
 @router.post("/killswitch")
 async def killswitch(req: KillswitchRequest) -> dict:
@@ -157,7 +165,9 @@ async def killswitch(req: KillswitchRequest) -> dict:
             risk_tier="high",
             approved_by="user",
         )
-        logger.warning("KILLSWITCH ACTIVATED: %s (killed %d processes)", req.reason, killed)
+        logger.warning(
+            "KILLSWITCH ACTIVATED: %s (killed %d processes)", req.reason, killed
+        )
         return {
             "status": "stopped",
             "killed_processes": killed,
@@ -188,6 +198,7 @@ async def killswitch_status() -> dict:
 
 
 # ── System info (for autonomous goal generation) ─────────────
+
 
 @router.get("/system-state")
 async def get_system_state() -> dict:

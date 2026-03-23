@@ -1,11 +1,15 @@
 """Unit tests for ModeAuditService."""
 
 import pytest
-from app.services.mode_audit_service import ModeAuditService, ModeChangeRecord, get_mode_audit_service
+from app.services.mode_audit_service import (
+    ModeAuditService,
+    ModeChangeRecord,
+    get_mode_audit_service,
+)
 from app.services import mode_audit_service as _module
 
-
 # ── Fixture: fresh service for each test ─────────────────────────────────────
+
 
 @pytest.fixture(autouse=True)
 def reset_singleton():
@@ -17,10 +21,13 @@ def reset_singleton():
 
 # ── Tests for record_change ───────────────────────────────────────────────────
 
+
 def test_record_change_stores_correctly():
     """record_change() persists all fields and returns them via get_history()."""
     svc = ModeAuditService()
-    svc.record_change(from_mode="observer", to_mode="advisor", changed_by="user", reason="test")
+    svc.record_change(
+        from_mode="observer", to_mode="advisor", changed_by="user", reason="test"
+    )
 
     history = svc.get_history()
     assert len(history) == 1
@@ -68,6 +75,7 @@ def test_get_history_limit():
 
 # ── Tests for ring buffer (max 50) ───────────────────────────────────────────
 
+
 def test_ring_buffer_does_not_exceed_50():
     """The deque never holds more than 50 entries regardless of how many are added."""
     svc = ModeAuditService()
@@ -91,6 +99,7 @@ def test_ring_buffer_keeps_most_recent():
 
 
 # ── Tests for singleton ───────────────────────────────────────────────────────
+
 
 def test_get_mode_audit_service_returns_singleton():
     """get_mode_audit_service() always returns the same instance."""

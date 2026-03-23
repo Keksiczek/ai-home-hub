@@ -10,6 +10,7 @@ Failure modes handled:
 - Port already in use (funnel up) → OK, `tailscale funnel status` returns URL
 - enable_funnel=False             → status "disabled", no subprocess started
 """
+
 import asyncio
 import contextlib
 import logging
@@ -103,7 +104,9 @@ class TailscaleFunnelService(BackgroundService):
         port = str(cfg.get("port", 8000))
         try:
             self._process = await asyncio.create_subprocess_exec(
-                "tailscale", "funnel", port,
+                "tailscale",
+                "funnel",
+                port,
                 stdout=PIPE,
                 stderr=PIPE,
             )
@@ -135,7 +138,9 @@ class TailscaleFunnelService(BackgroundService):
         if shutil.which("tailscale"):
             try:
                 reset = await asyncio.create_subprocess_exec(
-                    "tailscale", "funnel", "reset",
+                    "tailscale",
+                    "funnel",
+                    "reset",
                     stdout=PIPE,
                     stderr=PIPE,
                 )
@@ -150,7 +155,9 @@ class TailscaleFunnelService(BackgroundService):
             return
         try:
             proc = await asyncio.create_subprocess_exec(
-                "tailscale", "funnel", "status",
+                "tailscale",
+                "funnel",
+                "status",
                 stdout=PIPE,
                 stderr=PIPE,
             )
@@ -160,10 +167,15 @@ class TailscaleFunnelService(BackgroundService):
 
             if proc.returncode != 0:
                 combined = (out + err).lower()
-                if "not logged in" in combined or "needs to be authenticated" in combined:
+                if (
+                    "not logged in" in combined
+                    or "needs to be authenticated" in combined
+                ):
                     self._last_error = "tailscale: not logged in"
                 else:
-                    self._last_error = (err.strip() or out.strip())[:200] or "tailscale funnel status failed"
+                    self._last_error = (err.strip() or out.strip())[
+                        :200
+                    ] or "tailscale funnel status failed"
                 return
 
             match = _URL_RE.search(out)
@@ -186,5 +198,6 @@ def get_tailscale_service() -> TailscaleFunnelService:
     global _instance
     if _instance is None:
         from app.services.settings_service import get_settings_service
+
         _instance = TailscaleFunnelService(get_settings_service())
     return _instance

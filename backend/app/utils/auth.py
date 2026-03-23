@@ -5,6 +5,7 @@ endpoint must include a matching ``X-API-Key`` header.  If the setting is
 absent or empty, authentication is disabled and all requests are allowed
 (localhost / trusted-network mode).
 """
+
 from fastapi import Header, HTTPException
 
 from app.services.settings_service import get_settings_service

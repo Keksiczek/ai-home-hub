@@ -1,4 +1,5 @@
 """WebSocket router – real-time updates for agents, tasks, and notifications."""
+
 import asyncio
 import json
 import logging
@@ -59,6 +60,7 @@ async def ws_activity_endpoint(websocket: WebSocket) -> None:
     await websocket.accept()
     try:
         from app.services.activity_service import get_activity_service
+
         activity = get_activity_service()
         while True:
             snapshot = activity.get_snapshot()
@@ -106,19 +108,22 @@ async def ws_agent_status_endpoint(websocket: WebSocket) -> None:
     await websocket.accept()
     try:
         from app.services.resident_agent import get_resident_agent
+
         agent = get_resident_agent()
         while True:
             state = agent.get_state()
-            await websocket.send_json({
-                "type": "agent_status",
-                "status": state.get("status", "idle"),
-                "current_thought": state.get("current_thought", ""),
-                "last_action": state.get("last_action"),
-                "cycle_count": state.get("tick_count", 0),
-                "next_run_in": state.get("next_run_in", 0),
-                "last_heartbeat": state.get("last_heartbeat"),
-                "is_running": state.get("is_running", False),
-            })
+            await websocket.send_json(
+                {
+                    "type": "agent_status",
+                    "status": state.get("status", "idle"),
+                    "current_thought": state.get("current_thought", ""),
+                    "last_action": state.get("last_action"),
+                    "cycle_count": state.get("tick_count", 0),
+                    "next_run_in": state.get("next_run_in", 0),
+                    "last_heartbeat": state.get("last_heartbeat"),
+                    "is_running": state.get("is_running", False),
+                }
+            )
             await asyncio.sleep(5)
     except WebSocketDisconnect:
         pass

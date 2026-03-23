@@ -1,4 +1,5 @@
 """System router – OS-level utilities (screenshot, boost-priority, file picker, etc.)."""
+
 import base64
 import os
 import platform
@@ -16,6 +17,7 @@ router = APIRouter()
 class PickPathRequest(BaseModel):
     type: str = "folder"  # "file" or "folder"
     extensions: Optional[List[str]] = None  # e.g. ["py", "md"]
+
 
 # Absolute path to the scripts/ directory (two levels up from this file)
 _SCRIPTS_DIR = Path(__file__).parent.parent.parent.parent / "scripts"
@@ -138,6 +140,7 @@ async def reset_boost_priority() -> dict:
 
 
 # ── Control Room supporting endpoints ─────────────────────────
+
 
 def _get_dir_size_mb(path: str) -> float:
     """Return directory size in MB, or -1 if not accessible."""

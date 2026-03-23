@@ -3,6 +3,7 @@
 These tests verify the data contract between the backend WebSocket
 broadcasts and the frontend activity bar + tooltip rendering.
 """
+
 import pytest
 
 

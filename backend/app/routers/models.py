@@ -1,4 +1,5 @@
 """Models & LLM Settings router – model lifecycle, search, and LLM configuration."""
+
 import asyncio
 import json
 import logging
@@ -49,7 +50,9 @@ async def search_ollama_models(q: str = Query(..., min_length=1)) -> Dict[str, A
 
 
 @router.get("/models/search/huggingface", tags=["models"])
-async def search_huggingface_models(q: str = Query(..., min_length=1)) -> Dict[str, Any]:
+async def search_huggingface_models(
+    q: str = Query(..., min_length=1)
+) -> Dict[str, Any]:
     """Search HuggingFace for GGUF models."""
     svc = get_model_manager_service()
     try:
@@ -83,7 +86,9 @@ async def delete_model(name: str) -> Dict[str, Any]:
     svc = get_model_manager_service()
     success = await svc.delete_model(name)
     if not success:
-        raise HTTPException(status_code=404, detail=f"Model '{name}' not found or delete failed")
+        raise HTTPException(
+            status_code=404, detail=f"Model '{name}' not found or delete failed"
+        )
     return {"status": "ok", "deleted": name}
 
 
@@ -106,6 +111,7 @@ async def get_llm_settings() -> Dict[str, Any]:
 
     # Resolve active model assignments
     from app.services.llm_service import MODEL_ROUTING
+
     active_models = {
         "chat": MODEL_ROUTING.get("general", "llama3.2"),
         "vision": MODEL_ROUTING.get("vision", "llava:7b"),
@@ -136,6 +142,7 @@ async def update_llm_settings(body: LLMSettingsUpdate) -> Dict[str, Any]:
     if body.active_models is not None:
         # Update MODEL_ROUTING in-memory for hot-reload
         from app.services.llm_service import MODEL_ROUTING
+
         mapping = {
             "chat": "general",
             "vision": "vision",
@@ -163,7 +170,9 @@ async def test_llm_connection() -> Dict[str, Any]:
     """Test Ollama connection and return status."""
     settings_svc = get_settings_service()
     settings = settings_svc.load()
-    ollama_url = settings.get("llm", {}).get("ollama_url", "http://localhost:11434").rstrip("/")
+    ollama_url = (
+        settings.get("llm", {}).get("ollama_url", "http://localhost:11434").rstrip("/")
+    )
 
     try:
         async with httpx.AsyncClient(timeout=5) as client:

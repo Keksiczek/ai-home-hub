@@ -1,4 +1,5 @@
 """Tests for circuit breaker (4A)."""
+
 import pytest
 
 from app.utils.circuit_breaker import CircuitBreaker, CircuitState
@@ -28,6 +29,7 @@ async def test_circuit_half_open_after_timeout():
     assert cb.state == CircuitState.OPEN
 
     import asyncio
+
     await asyncio.sleep(0.02)
 
     assert cb.state == CircuitState.HALF_OPEN
@@ -42,6 +44,7 @@ async def test_circuit_closes_on_success():
     assert cb.state == CircuitState.OPEN
 
     import asyncio
+
     await asyncio.sleep(0.02)
 
     await cb.record_success()

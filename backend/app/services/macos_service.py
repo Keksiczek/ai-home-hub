@@ -1,4 +1,5 @@
 """Mac OS service – AppleScript automation and system control."""
+
 import asyncio
 import logging
 import shlex
@@ -15,7 +16,9 @@ class MacOSService:
     async def _run_applescript(self, script: str) -> str:
         """Execute an AppleScript and return stdout."""
         proc = await asyncio.create_subprocess_exec(
-            "osascript", "-e", script,
+            "osascript",
+            "-e",
+            script,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -52,7 +55,7 @@ class MacOSService:
 
     async def mail_send(self, to: str, subject: str, body: str) -> str:
         """Send an email via Mail.app."""
-        script = f'''
+        script = f"""
             tell application "Mail"
                 set newMessage to make new outgoing message with properties {{
                     subject: "{subject}",
@@ -64,13 +67,15 @@ class MacOSService:
                 end tell
                 send newMessage
             end tell
-        '''
+        """
         await self._run_applescript(script)
         return f"Email sent to {to}"
 
-    async def calendar_create_event(self, title: str, start_iso: str, duration_minutes: int = 60) -> str:
+    async def calendar_create_event(
+        self, title: str, start_iso: str, duration_minutes: int = 60
+    ) -> str:
         """Create a Calendar event."""
-        script = f'''
+        script = f"""
             tell application "Calendar"
                 tell calendar 1
                     make new event with properties {{
@@ -79,7 +84,7 @@ class MacOSService:
                     }}
                 end tell
             end tell
-        '''
+        """
         await self._run_applescript(script)
         return f"Calendar event '{title}' created"
 
@@ -129,7 +134,9 @@ class MacOSService:
 
     # ── Notifications ──────────────────────────────────────────
 
-    async def show_notification(self, title: str, message: str, subtitle: str = "") -> str:
+    async def show_notification(
+        self, title: str, message: str, subtitle: str = ""
+    ) -> str:
         """Show a macOS notification banner."""
         subtitle_part = f', subtitle:"{subtitle}"' if subtitle else ""
         script = f'display notification "{message}"{subtitle_part} with title "{title}"'

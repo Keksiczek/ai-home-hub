@@ -1,4 +1,5 @@
 """Vector store service – ChromaDB persistence for document embeddings."""
+
 import asyncio
 import json
 import logging
@@ -13,7 +14,10 @@ from typing import Any, Callable, Dict, List, Optional
 import chromadb
 from chromadb.config import Settings
 
-from app.services.metrics_service import chromadb_documents_total, chromadb_query_duration
+from app.services.metrics_service import (
+    chromadb_documents_total,
+    chromadb_query_duration,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -84,8 +88,12 @@ class VectorStoreService:
                 documents=documents,
                 metadatas=safe_metadatas,
             )
-            chromadb_query_duration.labels(operation="add").observe(time.monotonic() - t0)
-            chromadb_documents_total.labels(collection=self.COLLECTION_NAME).set(self.collection.count())
+            chromadb_query_duration.labels(operation="add").observe(
+                time.monotonic() - t0
+            )
+            chromadb_documents_total.labels(collection=self.COLLECTION_NAME).set(
+                self.collection.count()
+            )
             logger.info("Added %d documents to vector store", len(ids))
         except Exception as exc:
             logger.error("Failed to add documents: %s", exc)
@@ -117,7 +125,9 @@ class VectorStoreService:
 
             t0 = time.monotonic()
             results = self.collection.query(**kwargs)
-            chromadb_query_duration.labels(operation="query").observe(time.monotonic() - t0)
+            chromadb_query_duration.labels(operation="query").observe(
+                time.monotonic() - t0
+            )
 
             return {
                 "ids": results["ids"][0] if results["ids"] else [],
@@ -138,8 +148,12 @@ class VectorStoreService:
             if results and results["ids"]:
                 t0 = time.monotonic()
                 await self._safe_write(self.collection.delete, ids=results["ids"])
-                chromadb_query_duration.labels(operation="delete").observe(time.monotonic() - t0)
-                chromadb_documents_total.labels(collection=self.COLLECTION_NAME).set(self.collection.count())
+                chromadb_query_duration.labels(operation="delete").observe(
+                    time.monotonic() - t0
+                )
+                chromadb_documents_total.labels(collection=self.COLLECTION_NAME).set(
+                    self.collection.count()
+                )
                 logger.info("Deleted %d chunks for %s", len(results["ids"]), file_path)
                 return len(results["ids"])
             return 0
@@ -147,7 +161,9 @@ class VectorStoreService:
             logger.error("Failed to delete file chunks: %s", exc)
             return 0
 
-    def get_stats(self, detailed: bool = True, sample_limit: int = 10_000) -> Dict[str, Any]:
+    def get_stats(
+        self, detailed: bool = True, sample_limit: int = 10_000
+    ) -> Dict[str, Any]:
         """Get collection statistics.
 
         For large collections (>100k chunks), ``detailed=True`` analyses only
@@ -208,22 +224,25 @@ class VectorStoreService:
             source_chunks[file_path] = source_chunks.get(file_path, 0) + 1
 
         unique_files = len(source_chunks)
-        top_sources = sorted(source_chunks.items(), key=lambda x: x[1], reverse=True)[:20]
+        top_sources = sorted(source_chunks.items(), key=lambda x: x[1], reverse=True)[
+            :20
+        ]
 
-        base.update({
-            "total_documents": unique_files,
-            "file_types": file_types,
-            "top_sources": [{"path": p, "chunks": c} for p, c in top_sources],
-            "sample_size": len(metadatas),
-            "sampled": sampled,
-        })
+        base.update(
+            {
+                "total_documents": unique_files,
+                "file_types": file_types,
+                "top_sources": [{"path": p, "chunks": c} for p, c in top_sources],
+                "sample_size": len(metadatas),
+                "sampled": sampled,
+            }
+        )
         if sampled:
             base["warning"] = (
                 f"Stats are based on a sample of {len(metadatas):,} / {total_chunks:,} chunks. "
                 "Re-index to get exact file counts."
             )
         return base
-
 
     # ── Multi-KB collection management ──────────────────────────────────────
 
@@ -236,11 +255,13 @@ class VectorStoreService:
                 count = await asyncio.to_thread(c.count)
             except Exception:
                 count = 0
-            result.append({
-                "name": c.name,
-                "count": count,
-                "metadata": c.metadata or {},
-            })
+            result.append(
+                {
+                    "name": c.name,
+                    "count": count,
+                    "metadata": c.metadata or {},
+                }
+            )
         return result
 
     async def create_collection(
@@ -310,7 +331,11 @@ class VectorStoreService:
                 matched_docs.append(doc)
                 matched_meta.append(meta)
 
-        return {"ids": matched_ids, "documents": matched_docs, "metadatas": matched_meta}
+        return {
+            "ids": matched_ids,
+            "documents": matched_docs,
+            "metadatas": matched_meta,
+        }
 
 
 def _sanitize_metadata(meta: Dict[str, Any]) -> Dict[str, Any]:

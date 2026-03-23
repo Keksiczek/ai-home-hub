@@ -1,4 +1,5 @@
 """Model Manager service – Ollama model lifecycle + HuggingFace GGUF search."""
+
 import json
 import logging
 import shutil
@@ -15,7 +16,12 @@ logger = logging.getLogger(__name__)
 RECOMMENDED_MODELS_8GB: List[Dict[str, Any]] = [
     {"name": "llama3.2:3b", "size_gb": 2.0, "type": "chat", "label": "Nejlepší chat"},
     {"name": "llava:7b", "size_gb": 4.7, "type": "vision", "label": "Nejlepší vision"},
-    {"name": "qwen2.5-coder:3b", "size_gb": 1.9, "type": "code", "label": "Nejlepší kód"},
+    {
+        "name": "qwen2.5-coder:3b",
+        "size_gb": 1.9,
+        "type": "code",
+        "label": "Nejlepší kód",
+    },
     {"name": "phi3:mini", "size_gb": 2.3, "type": "chat", "label": "Doporučujeme"},
     {"name": "tinyllama:1b", "size_gb": 0.6, "type": "chat", "label": "Rychlý"},
     {"name": "qwen2.5:3b", "size_gb": 1.9, "type": "chat", "label": "Multilingual"},
@@ -65,7 +71,9 @@ class ModelManagerService:
 
     # ── Pull (stream) ───────────────────────────────────────────
 
-    async def pull_model_stream(self, name: str) -> AsyncGenerator[Dict[str, Any], None]:
+    async def pull_model_stream(
+        self, name: str
+    ) -> AsyncGenerator[Dict[str, Any], None]:
         """Pull a model from Ollama registry, yielding progress dicts via SSE."""
         url = self._ollama_url()
         last_time = time.monotonic()
@@ -89,7 +97,11 @@ class ModelManagerService:
                     now = time.monotonic()
                     delta_t = now - last_time
                     delta_bytes = completed - last_completed
-                    speed_mbps = (delta_bytes / max(delta_t, 0.001)) / (1024 * 1024) if delta_t > 0 else 0
+                    speed_mbps = (
+                        (delta_bytes / max(delta_t, 0.001)) / (1024 * 1024)
+                        if delta_t > 0
+                        else 0
+                    )
                     last_time = now
                     last_completed = completed
 
@@ -130,8 +142,18 @@ class ModelManagerService:
             {"name": "llava:7b", "size_gb": 4.7, "pulls": "1.5M", "type": "vision"},
             {"name": "codellama:7b", "size_gb": 3.8, "pulls": "600k", "type": "code"},
             {"name": "tinyllama:1b", "size_gb": 0.6, "pulls": "400k", "type": "chat"},
-            {"name": "dolphin-llama3:8b", "size_gb": 4.7, "pulls": "300k", "type": "chat"},
-            {"name": "nomic-embed-text", "size_gb": 0.3, "pulls": "2M", "type": "embedding"},
+            {
+                "name": "dolphin-llama3:8b",
+                "size_gb": 4.7,
+                "pulls": "300k",
+                "type": "chat",
+            },
+            {
+                "name": "nomic-embed-text",
+                "size_gb": 0.3,
+                "pulls": "2M",
+                "type": "embedding",
+            },
             {"name": "starcoder2:3b", "size_gb": 1.7, "pulls": "200k", "type": "code"},
         ]
         q = query.lower()
@@ -192,10 +214,12 @@ class ModelManagerService:
 
         results = []
         for m in RECOMMENDED_MODELS_8GB:
-            results.append({
-                **m,
-                "installed": m["name"] in installed_names,
-            })
+            results.append(
+                {
+                    **m,
+                    "installed": m["name"] in installed_names,
+                }
+            )
         return results
 
 

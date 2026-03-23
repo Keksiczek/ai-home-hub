@@ -1,4 +1,5 @@
 """Skills router – CRUD for agent skills + Marketplace API."""
+
 import logging
 import os
 import time
@@ -45,7 +46,9 @@ async def create_skill(body: Dict[str, Any]) -> Dict[str, Any]:
     required = ["name", "description"]
     for field in required:
         if field not in body:
-            raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
+            raise HTTPException(
+                status_code=400, detail=f"Missing required field: {field}"
+            )
     skill = svc.create(body)
     return skill
 
@@ -80,6 +83,7 @@ async def list_tags() -> Dict[str, Any]:
 
 # ── Marketplace endpoints ──────────────────────────────────────
 
+
 @router.get("/skills/marketplace", tags=["skills-marketplace"])
 async def marketplace_list() -> Dict[str, Any]:
     """List all skill manifests for the marketplace."""
@@ -95,9 +99,18 @@ async def marketplace_categories() -> Dict[str, Any]:
 
 
 RELEVANT_TOPICS = {
-    "ollama", "ai-agent", "openai", "langchain", "fastapi",
-    "mcp", "openclaw", "ai-home-hub", "llm", "llm-tool",
-    "model-context-protocol", "ai-skill",
+    "ollama",
+    "ai-agent",
+    "openai",
+    "langchain",
+    "fastapi",
+    "mcp",
+    "openclaw",
+    "ai-home-hub",
+    "llm",
+    "llm-tool",
+    "model-context-protocol",
+    "ai-skill",
 }
 
 
@@ -138,7 +151,11 @@ async def marketplace_discover(
     if not github_token:
         try:
             settings = get_settings_service().load()
-            github_token = settings.get("skills_config", {}).get("github_ci_status", {}).get("github_token", "")
+            github_token = (
+                settings.get("skills_config", {})
+                .get("github_ci_status", {})
+                .get("github_token", "")
+            )
         except Exception:
             pass
 
@@ -181,7 +198,9 @@ async def marketplace_discover(
 
                         # Filter: skip repos with <2 stars unless query matches name
                         stars = item.get("stargazers_count", 0)
-                        if stars < 2 and (not query or query.lower() not in item["name"].lower()):
+                        if stars < 2 and (
+                            not query or query.lower() not in item["name"].lower()
+                        ):
                             continue
 
                         topics = item.get("topics", [])
@@ -241,7 +260,9 @@ async def fetch_readme(url: str = Query(..., description="Raw README URL")) -> d
 
     # Security: pouze GitHub raw URLs povoleny
     if not url.startswith("https://raw.githubusercontent.com/"):
-        raise HTTPException(status_code=400, detail="Only raw.githubusercontent.com URLs allowed")
+        raise HTTPException(
+            status_code=400, detail="Only raw.githubusercontent.com URLs allowed"
+        )
 
     # Cache
     cache_key = f"readme:{url}"

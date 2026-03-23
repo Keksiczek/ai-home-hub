@@ -1,4 +1,5 @@
 """VS Code service – programmatic control via the `code` CLI."""
+
 import asyncio
 import json
 import logging
@@ -26,7 +27,8 @@ class VSCodeService:
     async def _run(self, *args: str, cwd: Optional[str] = None) -> str:
         """Run the VS Code CLI and return stdout."""
         proc = await asyncio.create_subprocess_exec(
-            self._binary(), *args,
+            self._binary(),
+            *args,
             cwd=cwd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -50,7 +52,9 @@ class VSCodeService:
         await self._run(target)
         return f"Opened project '{project_key}' in VS Code"
 
-    async def open_file_at_line(self, file_path: str, line: Optional[int] = None) -> str:
+    async def open_file_at_line(
+        self, file_path: str, line: Optional[int] = None
+    ) -> str:
         """Open a file, optionally jumping to a specific line."""
         target = f"{file_path}:{line}" if line else file_path
         await self._run("--goto", target)
@@ -161,7 +165,10 @@ class VSCodeService:
         except asyncio.TimeoutError:
             return {"status": "error", "detail": "VS Code CLI timed out"}
         except FileNotFoundError:
-            return {"status": "error", "detail": "VS Code CLI not found. Check binary_path in settings."}
+            return {
+                "status": "error",
+                "detail": "VS Code CLI not found. Check binary_path in settings.",
+            }
         except Exception as exc:
             logger.error("VS Code action error: %s", exc)
             return {"status": "error", "detail": str(exc)}

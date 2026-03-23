@@ -1,4 +1,5 @@
 """Resident agent task engine."""
+
 import logging
 from typing import Any, Dict
 
@@ -8,12 +9,15 @@ from .coding_engine import ProgressCallback
 logger = logging.getLogger(__name__)
 
 
-async def run_resident_task(job: Job, progress_callback: ProgressCallback) -> Dict[str, Any]:
+async def run_resident_task(
+    job: Job, progress_callback: ProgressCallback
+) -> Dict[str, Any]:
     """
     Deleguje resident_task na ResidentAgent._execute_with_llm().
     Job.payload may contain: action_type, steps, mission_id, step_index, auto_executed, from_suggestion
     """
     from app.services.resident_agent import get_resident_agent
+
     agent = get_resident_agent()
 
     task = {
@@ -29,13 +33,16 @@ async def run_resident_task(job: Job, progress_callback: ProgressCallback) -> Di
     return result
 
 
-async def run_resident_mission(job: Job, progress_callback: ProgressCallback) -> Dict[str, Any]:
+async def run_resident_mission(
+    job: Job, progress_callback: ProgressCallback
+) -> Dict[str, Any]:
     """
     Deleguje resident_mission na ResidentAgent._advance_mission().
     Fallback engine for manually triggered mission jobs.
     """
     from app.services.resident_agent import get_resident_agent
     from app.services.job_service import get_job_service
+
     agent = get_resident_agent()
     job_svc = get_job_service()
 

@@ -111,7 +111,9 @@ async def file_tree(
             return []
         entries = []
         try:
-            for child in sorted(dir_path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
+            for child in sorted(
+                dir_path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())
+            ):
                 if child.name.startswith("."):
                     continue
                 entry = _build_tree_entry(child)
@@ -170,9 +172,27 @@ async def file_preview(
 
     # Text files – return content preview
     text_extensions = {
-        ".txt", ".md", ".py", ".js", ".ts", ".json", ".yaml", ".yml",
-        ".csv", ".html", ".css", ".xml", ".sh", ".bash", ".toml", ".ini",
-        ".cfg", ".log", ".env.example", ".gitignore", ".dockerfile",
+        ".txt",
+        ".md",
+        ".py",
+        ".js",
+        ".ts",
+        ".json",
+        ".yaml",
+        ".yml",
+        ".csv",
+        ".html",
+        ".css",
+        ".xml",
+        ".sh",
+        ".bash",
+        ".toml",
+        ".ini",
+        ".cfg",
+        ".log",
+        ".env.example",
+        ".gitignore",
+        ".dockerfile",
     }
     if ext in text_extensions or stat.st_size < max_size:
         try:
@@ -258,7 +278,9 @@ async def file_action(
         if not resolved.exists():
             raise HTTPException(status_code=404, detail="File not found")
         if resolved.is_dir():
-            raise HTTPException(status_code=400, detail="Cannot delete directories via this endpoint")
+            raise HTTPException(
+                status_code=400, detail="Cannot delete directories via this endpoint"
+            )
         resolved.unlink()
         return {"status": "deleted", "path": str(resolved)}
 

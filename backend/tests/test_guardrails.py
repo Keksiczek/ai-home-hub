@@ -8,6 +8,7 @@ Covers:
 - Daily budget exhaustion
 - Settings migration compatibility
 """
+
 import sys
 import time
 from typing import Any, Dict
@@ -36,7 +37,6 @@ from app.services.resident_agent import (  # noqa: E402
     ACTION_TIERS,
     ResidentAgent,
 )
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -124,7 +124,9 @@ class TestSafeModeEffects:
     def test_safe_mode_tightens_agent_guardrails(self):
         gs = GlobalGuardrailSettings(
             safe_mode=True,
-            agent_guardrails={"code": AgentGuardrailsConfig(max_steps=20, max_total_tokens=40_000)},
+            agent_guardrails={
+                "code": AgentGuardrailsConfig(max_steps=20, max_total_tokens=40_000)
+            },
         )
         effective = gs.effective_agent_guardrails("code")
         assert effective.max_steps <= 8  # safe mode cap
@@ -144,33 +146,45 @@ class TestSafeModeEffects:
 
 class TestResidentObserverBlocked:
     def test_observer_blocks_dangerous_actions(self, agent: ResidentAgent):
-        update_guardrail_settings({"guardrails": {"resident": {"autonomy_level": "observer"}}})
+        update_guardrail_settings(
+            {"guardrails": {"resident": {"autonomy_level": "observer"}}}
+        )
         with pytest.raises(ActionBlockedError):
             agent.check_action_allowed("git_operations")
 
     def test_observer_blocks_medium_actions(self, agent: ResidentAgent):
-        update_guardrail_settings({"guardrails": {"resident": {"autonomy_level": "observer"}}})
+        update_guardrail_settings(
+            {"guardrails": {"resident": {"autonomy_level": "observer"}}}
+        )
         with pytest.raises(ActionBlockedError):
             agent.check_action_allowed("spawn_specialist")
 
     def test_observer_allows_safe_actions(self, agent: ResidentAgent):
-        update_guardrail_settings({"guardrails": {"resident": {"autonomy_level": "observer"}}})
+        update_guardrail_settings(
+            {"guardrails": {"resident": {"autonomy_level": "observer"}}}
+        )
         # Should NOT raise
         agent.check_action_allowed("system_health")
         agent.check_action_allowed("no_op")
 
     def test_advisor_blocks_dangerous(self, agent: ResidentAgent):
-        update_guardrail_settings({"guardrails": {"resident": {"autonomy_level": "advisor"}}})
+        update_guardrail_settings(
+            {"guardrails": {"resident": {"autonomy_level": "advisor"}}}
+        )
         with pytest.raises(ActionBlockedError):
             agent.check_action_allowed("spawn_devops_agent")
 
     def test_advisor_allows_medium(self, agent: ResidentAgent):
-        update_guardrail_settings({"guardrails": {"resident": {"autonomy_level": "advisor"}}})
+        update_guardrail_settings(
+            {"guardrails": {"resident": {"autonomy_level": "advisor"}}}
+        )
         # Should NOT raise (no cooldown yet, budget not exhausted)
         agent.check_action_allowed("kb_search")
 
     def test_autonomous_allows_dangerous(self, agent: ResidentAgent):
-        update_guardrail_settings({"guardrails": {"resident": {"autonomy_level": "autonomous"}}})
+        update_guardrail_settings(
+            {"guardrails": {"resident": {"autonomy_level": "autonomous"}}}
+        )
         # git_operations is dangerous – should pass tier check (may fail cooldown)
         # Manually bypass cooldown by using a fresh agent with no history
         agent.check_action_allowed("git_operations")  # should not raise tier error
@@ -180,26 +194,32 @@ class TestResidentObserverBlocked:
 
 
 class TestSafeModeBlocksDangerousActions:
-    def test_safe_mode_blocks_dangerous_even_if_autonomous_configured(self, agent: ResidentAgent):
+    def test_safe_mode_blocks_dangerous_even_if_autonomous_configured(
+        self, agent: ResidentAgent
+    ):
         # Safe mode forces observer → dangerous actions are blocked
-        update_guardrail_settings({
-            "guardrails": {
-                "safe_mode": True,
-                "resident": {"autonomy_level": "autonomous"},
-                "safe_mode_restrictions": {"resident_autonomy": "observer"},
+        update_guardrail_settings(
+            {
+                "guardrails": {
+                    "safe_mode": True,
+                    "resident": {"autonomy_level": "autonomous"},
+                    "safe_mode_restrictions": {"resident_autonomy": "observer"},
+                }
             }
-        })
+        )
         with pytest.raises(ActionBlockedError):
             agent.check_action_allowed("spawn_devops_agent")
 
     def test_safe_mode_blocks_medium_when_observer(self, agent: ResidentAgent):
-        update_guardrail_settings({
-            "guardrails": {
-                "safe_mode": True,
-                "safe_mode_restrictions": {"resident_autonomy": "observer"},
-                "resident": {"autonomy_level": "autonomous"},
+        update_guardrail_settings(
+            {
+                "guardrails": {
+                    "safe_mode": True,
+                    "safe_mode_restrictions": {"resident_autonomy": "observer"},
+                    "resident": {"autonomy_level": "autonomous"},
+                }
             }
-        })
+        )
         with pytest.raises(ActionBlockedError):
             agent.check_action_allowed("spawn_specialist")
 
@@ -209,7 +229,9 @@ class TestSafeModeBlocksDangerousActions:
 
 class TestActionCooldowns:
     def test_cooldown_blocks_after_execution(self, agent: ResidentAgent):
-        update_guardrail_settings({"guardrails": {"resident": {"autonomy_level": "autonomous"}}})
+        update_guardrail_settings(
+            {"guardrails": {"resident": {"autonomy_level": "autonomous"}}}
+        )
         # Record execution to start cooldown
         agent.record_action_executed("git_operations")
         # Now check_action_allowed should raise due to cooldown
@@ -217,14 +239,20 @@ class TestActionCooldowns:
             agent.check_action_allowed("git_operations")
 
     def test_cooldown_allows_after_expiry(self, agent: ResidentAgent):
-        update_guardrail_settings({"guardrails": {"resident": {"autonomy_level": "autonomous"}}})
+        update_guardrail_settings(
+            {"guardrails": {"resident": {"autonomy_level": "autonomous"}}}
+        )
         # Fake last execution far in the past
-        agent._action_last_executed["git_operations"] = time.monotonic() - ACTION_COOLDOWNS["git_operations"] - 1
+        agent._action_last_executed["git_operations"] = (
+            time.monotonic() - ACTION_COOLDOWNS["git_operations"] - 1
+        )
         # Should not raise
         agent.check_action_allowed("git_operations")
 
     def test_no_cooldown_for_safe_actions(self, agent: ResidentAgent):
-        update_guardrail_settings({"guardrails": {"resident": {"autonomy_level": "autonomous"}}})
+        update_guardrail_settings(
+            {"guardrails": {"resident": {"autonomy_level": "autonomous"}}}
+        )
         # safe actions have no cooldown – can execute repeatedly
         agent.check_action_allowed("system_health")
         agent.record_action_executed("system_health")
@@ -232,7 +260,9 @@ class TestActionCooldowns:
 
     def test_action_cooldown_prevents_spam(self, agent: ResidentAgent):
         """System commands have a 2-hour cooldown."""
-        update_guardrail_settings({"guardrails": {"resident": {"autonomy_level": "autonomous"}}})
+        update_guardrail_settings(
+            {"guardrails": {"resident": {"autonomy_level": "autonomous"}}}
+        )
         agent.record_action_executed("system_commands")
         with pytest.raises(ActionBlockedError):
             agent.check_action_allowed("system_commands")
@@ -243,34 +273,42 @@ class TestActionCooldowns:
 
 class TestDailyBudgetExhaustion:
     def test_daily_budget_blocks_after_limit(self, agent: ResidentAgent):
-        update_guardrail_settings({
-            "guardrails": {
-                "resident": {
-                    "autonomy_level": "autonomous",
-                    "max_daily_actions": {"spawn_specialist": 2},
+        update_guardrail_settings(
+            {
+                "guardrails": {
+                    "resident": {
+                        "autonomy_level": "autonomous",
+                        "max_daily_actions": {"spawn_specialist": 2},
+                    }
                 }
             }
-        })
+        )
         # First two executions succeed
         for _ in range(2):
-            agent._daily_action_counts["spawn_specialist"] = agent._daily_action_counts.get("spawn_specialist", 0) + 1
-            agent._daily_action_reset_date = __import__("datetime").datetime.now(
-                __import__("datetime").timezone.utc
-            ).strftime("%Y-%m-%d")
+            agent._daily_action_counts["spawn_specialist"] = (
+                agent._daily_action_counts.get("spawn_specialist", 0) + 1
+            )
+            agent._daily_action_reset_date = (
+                __import__("datetime")
+                .datetime.now(__import__("datetime").timezone.utc)
+                .strftime("%Y-%m-%d")
+            )
 
         # Third should fail
         with pytest.raises(ActionBlockedError, match="budget exhausted"):
             agent.check_action_allowed("spawn_specialist")
 
     def test_daily_budget_resets_at_midnight(self, agent: ResidentAgent):
-        update_guardrail_settings({
-            "guardrails": {
-                "resident": {
-                    "autonomy_level": "autonomous",
-                    "max_daily_actions": {"spawn_specialist": 1},
+        update_guardrail_settings(
+            {
+                "guardrails": {
+                    "resident": {
+                        "autonomy_level": "autonomous",
+                        "max_daily_actions": {"spawn_specialist": 1},
+                    }
                 }
             }
-        })
+        )
         # Simulate yesterday's count
         agent._daily_action_counts["spawn_specialist"] = 5
         agent._daily_action_reset_date = "2000-01-01"  # old date → triggers reset
@@ -281,7 +319,9 @@ class TestDailyBudgetExhaustion:
 
     def test_action_not_in_budget_has_unlimited(self, agent: ResidentAgent):
         """Actions not listed in max_daily_actions are unlimited."""
-        update_guardrail_settings({"guardrails": {"resident": {"autonomy_level": "autonomous"}}})
+        update_guardrail_settings(
+            {"guardrails": {"resident": {"autonomy_level": "autonomous"}}}
+        )
         # lean_metrics not in default budget → unlimited
         for _ in range(100):
             agent.check_action_allowed("lean_metrics")
@@ -348,6 +388,7 @@ class TestSafeModeAPI:
         from unittest.mock import AsyncMock
         from fastapi.testclient import TestClient
         from app.main import app
+
         with patch(
             "app.services.startup_checks.run_startup_checks",
             new_callable=AsyncMock,

@@ -1,4 +1,5 @@
 """Knowledge Base retention service – clean up old/oversized indexed data."""
+
 import logging
 import time
 from pathlib import Path
@@ -31,6 +32,7 @@ async def run_kb_retention() -> Dict[str, Any]:
     try:
         # 1. Get all file metadata
         import asyncio
+
         raw = await asyncio.to_thread(
             vector_store.collection.get,
             limit=50_000,
@@ -46,46 +48,71 @@ async def run_kb_retention() -> Dict[str, Any]:
             if not fp:
                 continue
             if fp not in file_chunks:
-                file_chunks[fp] = {"mtime": meta.get("mtime", 0), "chunk_ids": [], "chunks": 0}
+                file_chunks[fp] = {
+                    "mtime": meta.get("mtime", 0),
+                    "chunk_ids": [],
+                    "chunks": 0,
+                }
             file_chunks[fp]["chunk_ids"].append(chunk_id)
             file_chunks[fp]["chunks"] += 1
 
         # 2. Delete files older than retention_days
-        old_files = [fp for fp, info in file_chunks.items()
-                     if info["mtime"] and float(info["mtime"]) < cutoff]
+        old_files = [
+            fp
+            for fp, info in file_chunks.items()
+            if info["mtime"] and float(info["mtime"]) < cutoff
+        ]
 
         for fp in old_files:
             try:
                 chunk_ids = file_chunks[fp]["chunk_ids"]
-                await vector_store._safe_write(vector_store.collection.delete, ids=chunk_ids)
+                await vector_store._safe_write(
+                    vector_store.collection.delete, ids=chunk_ids
+                )
                 deleted_old += 1
                 del file_chunks[fp]
-                logger.info("Retention: deleted %d chunks for old file %s", len(chunk_ids), fp)
+                logger.info(
+                    "Retention: deleted %d chunks for old file %s", len(chunk_ids), fp
+                )
             except Exception as exc:
                 errors.append(f"{fp}: {exc}")
 
         # 3. Check total size and delete least-recently-modified if over limit
-        chroma_dir = Path(vector_store.client._persist_directory) if hasattr(vector_store.client, '_persist_directory') else None
+        chroma_dir = (
+            Path(vector_store.client._persist_directory)
+            if hasattr(vector_store.client, "_persist_directory")
+            else None
+        )
         total_size_bytes = 0
         if chroma_dir and chroma_dir.exists():
-            total_size_bytes = sum(f.stat().st_size for f in chroma_dir.rglob("*") if f.is_file())
+            total_size_bytes = sum(
+                f.stat().st_size for f in chroma_dir.rglob("*") if f.is_file()
+            )
 
         max_size_bytes = max_size_gb * 1024 * 1024 * 1024
 
         if total_size_bytes > max_size_bytes and file_chunks:
             # Sort by mtime ascending (oldest first)
-            sorted_files = sorted(file_chunks.items(), key=lambda x: float(x[1].get("mtime", 0)))
+            sorted_files = sorted(
+                file_chunks.items(), key=lambda x: float(x[1].get("mtime", 0))
+            )
 
             for fp, info in sorted_files:
                 if total_size_bytes <= max_size_bytes:
                     break
                 try:
                     chunk_ids = info["chunk_ids"]
-                    estimated_chunk_size = total_size_bytes / max(len(metadatas), 1) * len(chunk_ids)
-                    await vector_store._safe_write(vector_store.collection.delete, ids=chunk_ids)
+                    estimated_chunk_size = (
+                        total_size_bytes / max(len(metadatas), 1) * len(chunk_ids)
+                    )
+                    await vector_store._safe_write(
+                        vector_store.collection.delete, ids=chunk_ids
+                    )
                     deleted_size += 1
                     total_size_bytes -= estimated_chunk_size
-                    logger.info("Retention (size): deleted %d chunks for %s", len(chunk_ids), fp)
+                    logger.info(
+                        "Retention (size): deleted %d chunks for %s", len(chunk_ids), fp
+                    )
                 except Exception as exc:
                     errors.append(f"{fp}: {exc}")
 

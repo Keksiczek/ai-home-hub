@@ -9,6 +9,7 @@ Covers:
 - reflection generation after job completion
 - safety: destructive actions enforce requires_confirmation
 """
+
 import json
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -38,6 +39,7 @@ def client() -> TestClient:
 
 def _reset_agent():
     from app.services.resident_agent import get_resident_agent
+
     agent = get_resident_agent()
     agent._state.is_running = False
     agent._state.started_at = None
@@ -52,10 +54,12 @@ def _reset_agent():
 
 def _set_mode(mode: str):
     from app.services.settings_service import get_settings_service
+
     get_settings_service().update({"resident_mode": mode})
 
 
 # ── Mode switching tests ─────────────────────────────────────────────────────
+
 
 class TestResidentMode:
     """Test autonomy mode CRUD."""
@@ -91,6 +95,7 @@ class TestResidentMode:
 
 # ── Suggestions tests ────────────────────────────────────────────────────────
 
+
 class TestResidentSuggestions:
     """Test suggestion generation and acceptance."""
 
@@ -120,22 +125,26 @@ class TestResidentSuggestions:
 
         _set_mode("advisor")
 
-        mock_llm_response = json.dumps([{
-            "id": "a1",
-            "title": "Vyčistit staré joby",
-            "description": "Smazat dokončené joby starší 30 dní.",
-            "action_type": "job_cleanup",
-            "priority": "low",
-            "requires_confirmation": False,
-            "estimated_cost": "žádný LLM dotaz",
-            "steps": ["Najít staré joby", "Smazat"]
-        }])
+        mock_llm_response = json.dumps(
+            [
+                {
+                    "id": "a1",
+                    "title": "Vyčistit staré joby",
+                    "description": "Smazat dokončené joby starší 30 dní.",
+                    "action_type": "job_cleanup",
+                    "priority": "low",
+                    "requires_confirmation": False,
+                    "estimated_cost": "žádný LLM dotaz",
+                    "steps": ["Najít staré joby", "Smazat"],
+                }
+            ]
+        )
 
-        with patch(
-            "app.services.resident_reasoner.get_llm_service"
-        ) as mock_get_llm:
+        with patch("app.services.resident_reasoner.get_llm_service") as mock_get_llm:
             mock_llm = MagicMock()
-            mock_llm.generate = AsyncMock(return_value=(mock_llm_response, {"provider": "mock"}))
+            mock_llm.generate = AsyncMock(
+                return_value=(mock_llm_response, {"provider": "mock"})
+            )
             mock_get_llm.return_value = mock_llm
 
             reasoner = get_resident_reasoner()
@@ -157,17 +166,20 @@ class TestResidentSuggestions:
 
         # Manually inject a suggestion
         from app.models.resident_models import ResidentSuggestion, SuggestedAction
+
         suggestion = ResidentSuggestion(
             mode="advisor",
-            actions=[SuggestedAction(
-                id="test-a1",
-                title="Test akce",
-                description="Testovací akce",
-                action_type="health_check",
-                priority="low",
-                requires_confirmation=False,
-                steps=["krok 1"],
-            )],
+            actions=[
+                SuggestedAction(
+                    id="test-a1",
+                    title="Test akce",
+                    description="Testovací akce",
+                    action_type="health_check",
+                    priority="low",
+                    requires_confirmation=False,
+                    steps=["krok 1"],
+                )
+            ],
             context_summary="test kontext",
         )
         agent._suggestions.append(suggestion)
@@ -203,29 +215,35 @@ class TestResidentSuggestions:
 
 # ── Mission tests ────────────────────────────────────────────────────────────
 
+
 class TestResidentMissions:
     """Test mission creation and listing."""
 
     def test_create_mission_with_mock_llm(self, client):
         """Creating a mission should call LLM planner and create a job."""
-        mock_plan_response = json.dumps({
-            "goal": "Analyzuj KB",
-            "steps": [
-                {"title": "Vyhledat v KB", "description": "Prohledat KB"},
-                {"title": "Shrnout výsledky", "description": "Vytvořit shrnutí"},
-            ]
-        })
+        mock_plan_response = json.dumps(
+            {
+                "goal": "Analyzuj KB",
+                "steps": [
+                    {"title": "Vyhledat v KB", "description": "Prohledat KB"},
+                    {"title": "Shrnout výsledky", "description": "Vytvořit shrnutí"},
+                ],
+            }
+        )
 
-        with patch(
-            "app.services.resident_reasoner.get_llm_service"
-        ) as mock_get_llm:
+        with patch("app.services.resident_reasoner.get_llm_service") as mock_get_llm:
             mock_llm = MagicMock()
-            mock_llm.generate = AsyncMock(return_value=(mock_plan_response, {"provider": "mock"}))
+            mock_llm.generate = AsyncMock(
+                return_value=(mock_plan_response, {"provider": "mock"})
+            )
             mock_get_llm.return_value = mock_llm
 
-            resp = client.post("/api/resident/missions", json={
-                "goal": "Analyzuj KB k tématu Python",
-            })
+            resp = client.post(
+                "/api/resident/missions",
+                json={
+                    "goal": "Analyzuj KB k tématu Python",
+                },
+            )
 
         assert resp.status_code == 200
         data = resp.json()
@@ -243,19 +261,23 @@ class TestResidentMissions:
 
     def test_mission_detail(self, client):
         """Getting a specific mission should return step details."""
-        mock_plan_response = json.dumps({
-            "goal": "Test detail",
-            "steps": [{"title": "Krok 1", "description": "Popis"}]
-        })
+        mock_plan_response = json.dumps(
+            {
+                "goal": "Test detail",
+                "steps": [{"title": "Krok 1", "description": "Popis"}],
+            }
+        )
 
-        with patch(
-            "app.services.resident_reasoner.get_llm_service"
-        ) as mock_get_llm:
+        with patch("app.services.resident_reasoner.get_llm_service") as mock_get_llm:
             mock_llm = MagicMock()
-            mock_llm.generate = AsyncMock(return_value=(mock_plan_response, {"provider": "mock"}))
+            mock_llm.generate = AsyncMock(
+                return_value=(mock_plan_response, {"provider": "mock"})
+            )
             mock_get_llm.return_value = mock_llm
 
-            create_resp = client.post("/api/resident/missions", json={"goal": "Test detail"})
+            create_resp = client.post(
+                "/api/resident/missions", json={"goal": "Test detail"}
+            )
             mission_id = create_resp.json()["mission_id"]
 
         resp = client.get(f"/api/resident/missions/{mission_id}")
@@ -296,7 +318,9 @@ class TestResidentMissions:
         )
 
         # Advance one step (mock reflection to avoid LLM call)
-        with patch.object(agent, "_generate_reflection_for_job", new_callable=AsyncMock):
+        with patch.object(
+            agent, "_generate_reflection_for_job", new_callable=AsyncMock
+        ):
             asyncio.get_event_loop().run_until_complete(
                 agent._advance_mission(mission_job, job_svc)
             )
@@ -310,6 +334,7 @@ class TestResidentMissions:
 
 
 # ── Reflections tests ────────────────────────────────────────────────────────
+
 
 class TestResidentReflections:
     """Test reflection generation and listing."""
@@ -325,17 +350,19 @@ class TestResidentReflections:
         from app.services.resident_reasoner import get_resident_reasoner
         import asyncio
 
-        mock_reflection = json.dumps({
-            "points": ["Úkol dokončen úspěšně", "KB obsahuje relevantní data"],
-            "useful": True,
-            "recommendation": "Příště filtrovat podle data",
-        })
+        mock_reflection = json.dumps(
+            {
+                "points": ["Úkol dokončen úspěšně", "KB obsahuje relevantní data"],
+                "useful": True,
+                "recommendation": "Příště filtrovat podle data",
+            }
+        )
 
-        with patch(
-            "app.services.resident_reasoner.get_llm_service"
-        ) as mock_get_llm:
+        with patch("app.services.resident_reasoner.get_llm_service") as mock_get_llm:
             mock_llm = MagicMock()
-            mock_llm.generate = AsyncMock(return_value=(mock_reflection, {"provider": "mock"}))
+            mock_llm.generate = AsyncMock(
+                return_value=(mock_reflection, {"provider": "mock"})
+            )
             mock_get_llm.return_value = mock_llm
 
             reasoner = get_resident_reasoner()
@@ -356,6 +383,7 @@ class TestResidentReflections:
 
 # ── Safety tests ─────────────────────────────────────────────────────────────
 
+
 class TestResidentSafety:
     """Test that safety guardrails work properly."""
 
@@ -364,34 +392,36 @@ class TestResidentSafety:
         from app.services.resident_reasoner import get_resident_reasoner
         import asyncio
 
-        mock_response = json.dumps([
-            {
-                "id": "d1",
-                "title": "Smazat KB duplicity",
-                "description": "Smazat duplicitní chunky v KB",
-                "action_type": "kb_maintenance",
-                "priority": "medium",
-                "requires_confirmation": False,  # LLM says false, but we enforce true
-                "estimated_cost": "žádný",
-                "steps": ["Najít duplicity", "Smazat"],
-            },
-            {
-                "id": "d2",
-                "title": "Cleanup jobů",
-                "description": "Vyčistit staré joby",
-                "action_type": "job_cleanup",
-                "priority": "low",
-                "requires_confirmation": False,
-                "estimated_cost": "žádný",
-                "steps": ["Smazat staré joby"],
-            },
-        ])
+        mock_response = json.dumps(
+            [
+                {
+                    "id": "d1",
+                    "title": "Smazat KB duplicity",
+                    "description": "Smazat duplicitní chunky v KB",
+                    "action_type": "kb_maintenance",
+                    "priority": "medium",
+                    "requires_confirmation": False,  # LLM says false, but we enforce true
+                    "estimated_cost": "žádný",
+                    "steps": ["Najít duplicity", "Smazat"],
+                },
+                {
+                    "id": "d2",
+                    "title": "Cleanup jobů",
+                    "description": "Vyčistit staré joby",
+                    "action_type": "job_cleanup",
+                    "priority": "low",
+                    "requires_confirmation": False,
+                    "estimated_cost": "žádný",
+                    "steps": ["Smazat staré joby"],
+                },
+            ]
+        )
 
-        with patch(
-            "app.services.resident_reasoner.get_llm_service"
-        ) as mock_get_llm:
+        with patch("app.services.resident_reasoner.get_llm_service") as mock_get_llm:
             mock_llm = MagicMock()
-            mock_llm.generate = AsyncMock(return_value=(mock_response, {"provider": "mock"}))
+            mock_llm.generate = AsyncMock(
+                return_value=(mock_response, {"provider": "mock"})
+            )
             mock_get_llm.return_value = mock_llm
 
             reasoner = get_resident_reasoner()
@@ -401,33 +431,35 @@ class TestResidentSafety:
 
         assert result is not None
         for action in result.actions:
-            assert action.requires_confirmation is True, (
-                f"Action {action.action_type} should enforce requires_confirmation=True"
-            )
+            assert (
+                action.requires_confirmation is True
+            ), f"Action {action.action_type} should enforce requires_confirmation=True"
 
     def test_disallowed_action_type_filtered(self):
         """Action types not in the whitelist should be filtered out."""
         from app.services.resident_reasoner import get_resident_reasoner
         import asyncio
 
-        mock_response = json.dumps([
-            {
-                "id": "x1",
-                "title": "Shell command",
-                "description": "Execute rm -rf /",
-                "action_type": "shell_execute",
-                "priority": "high",
-                "requires_confirmation": False,
-                "estimated_cost": "dangerous",
-                "steps": ["rm -rf /"],
-            },
-        ])
+        mock_response = json.dumps(
+            [
+                {
+                    "id": "x1",
+                    "title": "Shell command",
+                    "description": "Execute rm -rf /",
+                    "action_type": "shell_execute",
+                    "priority": "high",
+                    "requires_confirmation": False,
+                    "estimated_cost": "dangerous",
+                    "steps": ["rm -rf /"],
+                },
+            ]
+        )
 
-        with patch(
-            "app.services.resident_reasoner.get_llm_service"
-        ) as mock_get_llm:
+        with patch("app.services.resident_reasoner.get_llm_service") as mock_get_llm:
             mock_llm = MagicMock()
-            mock_llm.generate = AsyncMock(return_value=(mock_response, {"provider": "mock"}))
+            mock_llm.generate = AsyncMock(
+                return_value=(mock_response, {"provider": "mock"})
+            )
             mock_get_llm.return_value = mock_llm
 
             reasoner = get_resident_reasoner()

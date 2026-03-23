@@ -75,24 +75,28 @@ async def run_quick_action(body: Dict[str, Any]) -> Dict[str, Any]:
 
             svc_getter = _SERVICE_MAP.get(service_name)
             if not svc_getter:
-                step_results.append({
-                    "step": i + 1,
-                    "service": service_name,
-                    "status": "skipped",
-                    "detail": f"Unknown service '{service_name}'",
-                })
+                step_results.append(
+                    {
+                        "step": i + 1,
+                        "service": service_name,
+                        "status": "skipped",
+                        "detail": f"Unknown service '{service_name}'",
+                    }
+                )
                 continue
 
             svc = svc_getter()
             result = await svc.run_action(step_action, step_params)
             step_status = result.get("status", "ok")
-            step_results.append({
-                "step": i + 1,
-                "service": service_name,
-                "action": step_action,
-                "status": step_status,
-                "detail": result.get("detail", ""),
-            })
+            step_results.append(
+                {
+                    "step": i + 1,
+                    "service": service_name,
+                    "action": step_action,
+                    "status": step_status,
+                    "detail": result.get("detail", ""),
+                }
+            )
 
             if step_status == "error":
                 overall_status = "failed"
@@ -105,26 +109,30 @@ async def run_quick_action(body: Dict[str, Any]) -> Dict[str, Any]:
         logger.warning("Quick action '%s' failed at step: %s", action_name, exc)
     finally:
         finished_at = datetime.now(timezone.utc).isoformat()
-        _append_history({
-            "action_name": action_name,
-            "action_id": action_id,
-            "started_at": started_at,
-            "finished_at": finished_at,
-            "status": overall_status,
-            "steps": step_results,
-            "error": error_msg,
-        })
+        _append_history(
+            {
+                "action_name": action_name,
+                "action_id": action_id,
+                "started_at": started_at,
+                "finished_at": finished_at,
+                "status": overall_status,
+                "steps": step_results,
+                "error": error_msg,
+            }
+        )
 
     # Broadcast completion via WebSocket
     try:
         ws = get_ws_manager()
         severity = "info" if overall_status == "success" else "error"
-        await ws.broadcast({
-            "type": "status_alert",
-            "component": "actions",
-            "message": f"Action '{action_name}' {overall_status}",
-            "severity": severity,
-        })
+        await ws.broadcast(
+            {
+                "type": "status_alert",
+                "component": "actions",
+                "message": f"Action '{action_name}' {overall_status}",
+                "severity": severity,
+            }
+        )
     except Exception:
         pass
 

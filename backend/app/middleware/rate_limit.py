@@ -60,9 +60,7 @@ class _TokenBucket:
     def cleanup(self, max_age: float = 300.0) -> None:
         """Remove stale entries older than max_age seconds."""
         now = time.monotonic()
-        stale_keys = [
-            k for k, (_, t) in self._buckets.items() if now - t > max_age
-        ]
+        stale_keys = [k for k, (_, t) in self._buckets.items() if now - t > max_age]
         for k in stale_keys:
             del self._buckets[k]
 
@@ -89,6 +87,7 @@ def setup_rate_limiting(app: FastAPI) -> None:
         # Check if rate limiting is enabled in settings
         try:
             from app.services.settings_service import get_settings_service
+
             settings = get_settings_service().load()
             if not settings.get("rate_limit_enabled", True):
                 return await call_next(request)

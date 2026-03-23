@@ -6,6 +6,7 @@
 - POST /api/chat/with-files
 - KB retention service
 """
+
 import io
 import sys
 import textwrap
@@ -24,25 +25,33 @@ for _mod_name in ("chromadb", "chromadb.config"):
 from fastapi.testclient import TestClient  # noqa: E402
 from app.main import app  # noqa: E402
 
-
 # ── Test fixtures ────────────────────────────────────────────────
+
 
 @pytest.fixture
 def client() -> TestClient:
     with (
         patch("app.services.startup_checks.run_startup_checks", new_callable=AsyncMock),
-        patch("app.services.vector_store_service.get_vector_store_service", return_value=MagicMock()),
-        patch("app.services.embeddings_service.get_embeddings_service", return_value=MagicMock()),
+        patch(
+            "app.services.vector_store_service.get_vector_store_service",
+            return_value=MagicMock(),
+        ),
+        patch(
+            "app.services.embeddings_service.get_embeddings_service",
+            return_value=MagicMock(),
+        ),
     ):
         yield TestClient(app, raise_server_exceptions=True)
 
 
 # ── FileParserService tests ──────────────────────────────────────
 
+
 class TestFileParserServiceNew:
     """Unit tests for newly added format parsers."""
 
     def test_parse_html_basic(self, tmp_path: Path) -> None:
+        pytest.importorskip("bs4", reason="beautifulsoup4 not installed")
         from app.services.file_parser_service import FileParserService
 
         html = tmp_path / "test.html"
@@ -62,9 +71,12 @@ class TestFileParserServiceNew:
         assert "alert" not in result["text"]
         assert result["metadata"].get("title") == "Test Page"
 
-    def test_parse_html_fallback_without_bs4(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_parse_html_fallback_without_bs4(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Should strip tags via regex when beautifulsoup4 is not available."""
         import builtins
+
         _original_import = builtins.__import__
 
         def _mock_import(name: str, *args: Any, **kwargs: Any) -> Any:
@@ -76,6 +88,7 @@ class TestFileParserServiceNew:
         html.write_text("<p>Hello <b>World</b></p>", encoding="utf-8")
 
         from app.services.file_parser_service import FileParserService
+
         svc = FileParserService()
 
         with monkeypatch.context() as m:
@@ -155,6 +168,7 @@ class TestFileParserServiceNew:
 
 # ── FileMetadata schema test ─────────────────────────────────────
 
+
 class TestFileMetadataSchema:
     def test_file_metadata_defaults(self) -> None:
         from app.models.schemas import FileMetadata
@@ -178,6 +192,7 @@ class TestFileMetadataSchema:
 
 
 # ── FileHandlerService tests ─────────────────────────────────────
+
 
 class TestFileHandlerServiceExtended:
     def test_is_supported_new_extensions(self) -> None:
@@ -214,8 +229,11 @@ class TestFileHandlerServiceExtended:
         with zipfile.ZipFile(zip_path, "w") as zf:
             zf.writestr("readme.txt", "This is the readme content.")
 
-        with patch("app.services.file_handler_service._generate_summary",
-                   new_callable=AsyncMock, return_value="Summary of zip."):
+        with patch(
+            "app.services.file_handler_service._generate_summary",
+            new_callable=AsyncMock,
+            return_value="Summary of zip.",
+        ):
             result = await FileHandlerService.process_file(str(zip_path), "analyze")
 
         assert "error" not in result
@@ -232,13 +250,16 @@ class TestFileHandlerServiceExtended:
 
 # ── Knowledge files listing endpoint ─────────────────────────────
 
+
 class TestKBFilesEndpoint:
     def _make_mock_vector_store(self, files_data: list) -> MagicMock:
         vs = MagicMock()
-        vs.collection.get = MagicMock(return_value={
-            "metadatas": [f["meta"] for f in files_data],
-            "documents": [f.get("doc", "") for f in files_data],
-        })
+        vs.collection.get = MagicMock(
+            return_value={
+                "metadatas": [f["meta"] for f in files_data],
+                "documents": [f.get("doc", "") for f in files_data],
+            }
+        )
         return vs
 
     def test_list_kb_files_empty(self, client: TestClient) -> None:
@@ -251,14 +272,37 @@ class TestKBFilesEndpoint:
         assert data["files"] == []
 
     def test_list_kb_files_groups_by_file(self, client: TestClient) -> None:
-        vs = self._make_mock_vector_store([
-            {"meta": {"file_path": "/uploads/doc.pdf", "file_name": "doc.pdf",
-                      "collection": "default", "mtime": 1700000000.0, "page_count": 5}},
-            {"meta": {"file_path": "/uploads/doc.pdf", "file_name": "doc.pdf",
-                      "collection": "default", "mtime": 1700000000.0, "page_count": 5}},
-            {"meta": {"file_path": "/uploads/audio.mp3", "file_name": "audio.mp3",
-                      "collection": "default", "mtime": 1700001000.0, "page_count": 1}},
-        ])
+        vs = self._make_mock_vector_store(
+            [
+                {
+                    "meta": {
+                        "file_path": "/uploads/doc.pdf",
+                        "file_name": "doc.pdf",
+                        "collection": "default",
+                        "mtime": 1700000000.0,
+                        "page_count": 5,
+                    }
+                },
+                {
+                    "meta": {
+                        "file_path": "/uploads/doc.pdf",
+                        "file_name": "doc.pdf",
+                        "collection": "default",
+                        "mtime": 1700000000.0,
+                        "page_count": 5,
+                    }
+                },
+                {
+                    "meta": {
+                        "file_path": "/uploads/audio.mp3",
+                        "file_name": "audio.mp3",
+                        "collection": "default",
+                        "mtime": 1700001000.0,
+                        "page_count": 1,
+                    }
+                },
+            ]
+        )
         with patch("app.routers.knowledge.get_vector_store_service", return_value=vs):
             resp = client.get("/api/knowledge/files")
         assert resp.status_code == 200
@@ -271,18 +315,23 @@ class TestKBFilesEndpoint:
         assert audio["media_type"] == "audio"
 
     def test_delete_kb_file_requires_auth(self, client: TestClient) -> None:
-        """Delete without API key should be rejected (403)."""
-        resp = client.delete("/api/knowledge/files/some%2Ffile.pdf")
+        """Delete without API key should be rejected (403) when api_key is configured."""
+        with patch("app.utils.auth.get_settings_service") as mock_svc:
+            mock_svc.return_value.load.return_value = {"api_key": "secret-test-key"}
+            resp = client.delete("/api/knowledge/files/some%2Ffile.pdf")
         assert resp.status_code == 403
 
 
 # ── Chat with files endpoint ─────────────────────────────────────
 
+
 class TestChatWithFiles:
     def test_chat_with_files_no_files(self, client: TestClient) -> None:
         """POST /chat/with-files with no files should still process message."""
         mock_llm = MagicMock()
-        mock_llm.generate = AsyncMock(return_value=("Test reply", {"provider": "ollama"}))
+        mock_llm.generate = AsyncMock(
+            return_value=("Test reply", {"provider": "ollama"})
+        )
         mock_session = MagicMock()
         mock_session.session_exists.return_value = False
         mock_session.create_session.return_value = "sess_test"
@@ -292,8 +341,11 @@ class TestChatWithFiles:
         with (
             patch("app.routers.chat.get_llm_service", return_value=mock_llm),
             patch("app.routers.chat.get_session_service", return_value=mock_session),
-            patch("app.routers.chat.enrich_message", new_callable=AsyncMock,
-                  return_value=("hello", {})),
+            patch(
+                "app.routers.chat.enrich_message",
+                new_callable=AsyncMock,
+                return_value=("hello", {}),
+            ),
         ):
             resp = client.post(
                 "/api/chat/with-files",
@@ -318,13 +370,22 @@ class TestChatWithFiles:
         with (
             patch("app.routers.chat.get_llm_service", return_value=mock_llm),
             patch("app.routers.chat.get_session_service", return_value=mock_session),
-            patch("app.routers.chat.enrich_message", new_callable=AsyncMock,
-                  return_value=("msg", {})),
+            patch(
+                "app.routers.chat.enrich_message",
+                new_callable=AsyncMock,
+                return_value=("msg", {}),
+            ),
         ):
             resp = client.post(
                 "/api/chat/with-files",
                 data={"message": "Check this"},
-                files={"files": ("evil.xyz", io.BytesIO(b"data"), "application/octet-stream")},
+                files={
+                    "files": (
+                        "evil.xyz",
+                        io.BytesIO(b"data"),
+                        "application/octet-stream",
+                    )
+                },
             )
 
         assert resp.status_code == 200
@@ -333,6 +394,7 @@ class TestChatWithFiles:
 
 
 # ── KB Retention service tests ───────────────────────────────────
+
 
 class TestKBRetention:
     @pytest.mark.asyncio
@@ -349,10 +411,14 @@ class TestKBRetention:
         mock_vs._safe_write = AsyncMock()
 
         with (
-            patch("app.services.kb_retention_service.get_settings_service",
-                  return_value=mock_settings),
-            patch("app.services.kb_retention_service.get_vector_store_service",
-                  return_value=mock_vs),
+            patch(
+                "app.services.settings_service.get_settings_service",
+                return_value=mock_settings,
+            ),
+            patch(
+                "app.services.vector_store_service.get_vector_store_service",
+                return_value=mock_vs,
+            ),
         ):
             result = await run_kb_retention()
 
@@ -375,20 +441,26 @@ class TestKBRetention:
         }
 
         mock_vs = MagicMock()
-        mock_vs.collection.get = MagicMock(return_value={
-            "metadatas": [
-                {"file_path": "/kb/old_file.pdf", "mtime": old_mtime},
-                {"file_path": "/kb/old_file.pdf", "mtime": old_mtime},
-            ],
-            "ids": ["chunk_1", "chunk_2"],
-        })
+        mock_vs.collection.get = MagicMock(
+            return_value={
+                "metadatas": [
+                    {"file_path": "/kb/old_file.pdf", "mtime": old_mtime},
+                    {"file_path": "/kb/old_file.pdf", "mtime": old_mtime},
+                ],
+                "ids": ["chunk_1", "chunk_2"],
+            }
+        )
         mock_vs._safe_write = AsyncMock()
 
         with (
-            patch("app.services.kb_retention_service.get_settings_service",
-                  return_value=mock_settings),
-            patch("app.services.kb_retention_service.get_vector_store_service",
-                  return_value=mock_vs),
+            patch(
+                "app.services.settings_service.get_settings_service",
+                return_value=mock_settings,
+            ),
+            patch(
+                "app.services.vector_store_service.get_vector_store_service",
+                return_value=mock_vs,
+            ),
         ):
             result = await run_kb_retention()
 
@@ -400,7 +472,9 @@ class TestKBRetention:
         mock_settings.load.return_value = {
             "knowledge_base": {"retention_days": 14, "max_size_gb": 5}
         }
-        with patch("app.routers.knowledge.get_settings_service", return_value=mock_settings):
+        with patch(
+            "app.routers.knowledge.get_settings_service", return_value=mock_settings
+        ):
             resp = client.get("/api/knowledge/retention/config")
         assert resp.status_code == 200
         data = resp.json()

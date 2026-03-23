@@ -1,4 +1,5 @@
 """Tasks router – manage background task lifecycle."""
+
 from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException
@@ -17,7 +18,9 @@ async def list_tasks() -> Dict[str, Any]:
     return {"tasks": tasks, "count": len(tasks)}
 
 
-@router.get("/tasks/{task_id}/status", response_model=TaskStatusResponse, tags=["tasks"])
+@router.get(
+    "/tasks/{task_id}/status", response_model=TaskStatusResponse, tags=["tasks"]
+)
 async def get_task_status(task_id: str) -> Dict[str, Any]:
     """Get current status of a background task."""
     tm = get_task_manager()

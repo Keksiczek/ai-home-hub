@@ -1,4 +1,5 @@
 """Antigravity IDE service – HTTP client for Google Antigravity agent API."""
+
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -57,7 +58,9 @@ class AntigravityService:
 
     # ── Agent operations ───────────────────────────────────────
 
-    async def start_agent_task(self, prompt: str, workspace: Optional[str] = None) -> Dict[str, Any]:
+    async def start_agent_task(
+        self, prompt: str, workspace: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Start an Antigravity agent on a specific task."""
         if err := self._check_enabled():
             return err
@@ -72,7 +75,10 @@ class AntigravityService:
                 resp.raise_for_status()
                 return {"status": "ok", "data": resp.json()}
         except httpx.ConnectError:
-            return {"status": "error", "detail": f"Cannot reach Antigravity at {self._base_url()}"}
+            return {
+                "status": "error",
+                "detail": f"Cannot reach Antigravity at {self._base_url()}",
+            }
         except httpx.HTTPStatusError as exc:
             return {"status": "error", "detail": f"HTTP {exc.response.status_code}"}
         except Exception as exc:
@@ -89,7 +95,10 @@ class AntigravityService:
                 resp.raise_for_status()
                 return {"status": "ok", "data": resp.json()}
         except httpx.ConnectError:
-            return {"status": "error", "detail": f"Cannot reach Antigravity at {self._base_url()}"}
+            return {
+                "status": "error",
+                "detail": f"Cannot reach Antigravity at {self._base_url()}",
+            }
         except Exception as exc:
             return {"status": "error", "detail": str(exc)}
 
@@ -104,7 +113,10 @@ class AntigravityService:
                 resp.raise_for_status()
                 return {"status": "ok", "data": resp.json()}
         except httpx.ConnectError:
-            return {"status": "error", "detail": f"Cannot reach Antigravity at {self._base_url()}"}
+            return {
+                "status": "error",
+                "detail": f"Cannot reach Antigravity at {self._base_url()}",
+            }
         except Exception as exc:
             return {"status": "error", "detail": str(exc)}
 
@@ -119,11 +131,16 @@ class AntigravityService:
                 resp.raise_for_status()
                 return {"status": "ok", "data": resp.json()}
         except httpx.ConnectError:
-            return {"status": "error", "detail": f"Cannot reach Antigravity at {self._base_url()}"}
+            return {
+                "status": "error",
+                "detail": f"Cannot reach Antigravity at {self._base_url()}",
+            }
         except Exception as exc:
             return {"status": "error", "detail": str(exc)}
 
-    async def browser_action(self, action: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    async def browser_action(
+        self, action: str, params: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Control browser via Antigravity's Chrome extension."""
         if err := self._check_enabled():
             return err
@@ -135,7 +152,10 @@ class AntigravityService:
                 resp.raise_for_status()
                 return {"status": "ok", "data": resp.json()}
         except httpx.ConnectError:
-            return {"status": "error", "detail": f"Cannot reach Antigravity at {self._base_url()}"}
+            return {
+                "status": "error",
+                "detail": f"Cannot reach Antigravity at {self._base_url()}",
+            }
         except Exception as exc:
             return {"status": "error", "detail": str(exc)}
 

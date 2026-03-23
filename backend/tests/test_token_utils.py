@@ -1,4 +1,5 @@
 """Tests for token estimation and context window management."""
+
 import pytest
 
 from app.utils.token_utils import (
@@ -108,7 +109,8 @@ class TestTrimMessagesToFit:
 
     def test_preserve_last_n(self):
         msgs = [
-            {"role": "user", "content": f"message number {i} " + "x" * 50} for i in range(10)
+            {"role": "user", "content": f"message number {i} " + "x" * 50}
+            for i in range(10)
         ]
         result, trimmed = trim_messages_to_fit(msgs, max_tokens=100, preserve_last_n=4)
         assert trimmed is True

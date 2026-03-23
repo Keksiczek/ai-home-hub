@@ -1,4 +1,5 @@
 """Overnight engines – kb_reindex, git_sweep, nightly_summary."""
+
 import asyncio
 import logging
 import os
@@ -16,7 +17,9 @@ ProgressCallback = Callable[[float, Optional[Dict[str, Any]]], Awaitable[None]]
 # ── B1: kb_reindex engine ──────────────────────────────────────
 
 
-async def run_kb_reindex(job: Job, progress_callback: ProgressCallback) -> Dict[str, Any]:
+async def run_kb_reindex(
+    job: Job, progress_callback: ProgressCallback
+) -> Dict[str, Any]:
     """Přeindexuje Knowledge Base – pouze změněné/nové soubory (inkrementálně).
 
     Nemazat existující indexy, pouze přidat co chybí.
@@ -32,8 +35,15 @@ async def run_kb_reindex(job: Job, progress_callback: ProgressCallback) -> Dict[
     allowed_extensions = kb_config.get("allowed_extensions", [])
 
     if not external_paths:
-        await progress_callback(100.0, {"message": "Žádné external_paths nakonfigurované"})
-        return {"indexed": 0, "skipped": 0, "errors": [], "message": "No external_paths configured"}
+        await progress_callback(
+            100.0, {"message": "Žádné external_paths nakonfigurované"}
+        )
+        return {
+            "indexed": 0,
+            "skipped": 0,
+            "errors": [],
+            "message": "No external_paths configured",
+        }
 
     vector_svc = get_vector_store_service()
     parser_svc = get_file_parser_service()
@@ -44,7 +54,9 @@ async def run_kb_reindex(job: Job, progress_callback: ProgressCallback) -> Dict[
     for ext_path in external_paths:
         p = Path(ext_path)
         if not p.exists() or not p.is_dir():
-            logger.warning("kb_reindex: path does not exist or is not a dir: %s", ext_path)
+            logger.warning(
+                "kb_reindex: path does not exist or is not a dir: %s", ext_path
+            )
             continue
         for root, _dirs, files in os.walk(p):
             for fname in files:
@@ -73,7 +85,7 @@ async def run_kb_reindex(job: Job, progress_callback: ProgressCallback) -> Dict[
                 limit=min(stats["total_chunks"], 50000),
                 include=["metadatas"],
             )
-            for meta in (result.get("metadatas") or []):
+            for meta in result.get("metadatas") or []:
                 fp = meta.get("file_path", "")
                 mtime = meta.get("file_mtime", 0)
                 if fp and mtime:
@@ -90,7 +102,9 @@ async def run_kb_reindex(job: Job, progress_callback: ProgressCallback) -> Dict[
             if file_str in existing_meta and existing_meta[file_str] >= file_mtime:
                 skipped += 1
                 progress = ((i + 1) / total) * 100
-                await progress_callback(progress, {"message": f"Přeskakuji: {fpath.name}"})
+                await progress_callback(
+                    progress, {"message": f"Přeskakuji: {fpath.name}"}
+                )
                 continue
 
             # Parse file
@@ -113,18 +127,21 @@ async def run_kb_reindex(job: Job, progress_callback: ProgressCallback) -> Dict[
 
             # Add to vector store
             import uuid
+
             chunk_id = f"kb_{uuid.uuid4().hex[:12]}"
             await vector_svc.add_documents(
                 ids=[chunk_id],
                 embeddings=[embedding],
                 documents=[text[:8000]],
-                metadatas=[{
-                    "file_path": file_str,
-                    "file_name": fpath.name,
-                    "file_type": fpath.suffix.lower(),
-                    "file_mtime": file_mtime,
-                    "indexed_at": datetime.now(timezone.utc).isoformat(),
-                }],
+                metadatas=[
+                    {
+                        "file_path": file_str,
+                        "file_name": fpath.name,
+                        "file_type": fpath.suffix.lower(),
+                        "file_mtime": file_mtime,
+                        "indexed_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                ],
             )
             indexed += 1
 
@@ -135,14 +152,18 @@ async def run_kb_reindex(job: Job, progress_callback: ProgressCallback) -> Dict[
             errors.append(f"{fpath.name}: {str(exc)[:200]}")
             logger.error("kb_reindex error for %s: %s", fpath, exc)
 
-    await progress_callback(100.0, {"message": f"Hotovo: {indexed} indexováno, {skipped} přeskočeno"})
+    await progress_callback(
+        100.0, {"message": f"Hotovo: {indexed} indexováno, {skipped} přeskočeno"}
+    )
     return {"indexed": indexed, "skipped": skipped, "errors": errors}
 
 
 # ── B2: git_sweep engine ───────────────────────────────────────
 
 
-async def run_git_sweep(job: Job, progress_callback: ProgressCallback) -> Dict[str, Any]:
+async def run_git_sweep(
+    job: Job, progress_callback: ProgressCallback
+) -> Dict[str, Any]:
     """Projde všechny nakonfigurované VS Code projekty a zjistí jejich git stav.
 
     Výsledky uloží do memory_service pro ranní přehled.
@@ -155,7 +176,9 @@ async def run_git_sweep(job: Job, progress_callback: ProgressCallback) -> Dict[s
     projects = settings.get("integrations", {}).get("vscode", {}).get("projects", {})
 
     if not projects:
-        await progress_callback(100.0, {"message": "Žádné VS Code projekty nakonfigurované"})
+        await progress_callback(
+            100.0, {"message": "Žádné VS Code projekty nakonfigurované"}
+        )
         return {"projects_checked": 0, "dirty_projects": [], "clean_projects": []}
 
     git_svc = get_git_service()
@@ -166,7 +189,9 @@ async def run_git_sweep(job: Job, progress_callback: ProgressCallback) -> Dict[s
     total = len(projects)
 
     for i, (name, project_cfg) in enumerate(projects.items()):
-        project_path = project_cfg if isinstance(project_cfg, str) else project_cfg.get("path", "")
+        project_path = (
+            project_cfg if isinstance(project_cfg, str) else project_cfg.get("path", "")
+        )
         if not project_path:
             continue
 
@@ -209,7 +234,9 @@ async def run_git_sweep(job: Job, progress_callback: ProgressCallback) -> Dict[s
                 f"[{name}] chyba při kontrole: {str(exc)[:200]}",
             )
 
-    await progress_callback(100.0, {"message": f"Hotovo: {total} projektů zkontrolováno"})
+    await progress_callback(
+        100.0, {"message": f"Hotovo: {total} projektů zkontrolováno"}
+    )
 
     return {
         "projects_checked": total,
@@ -221,7 +248,9 @@ async def run_git_sweep(job: Job, progress_callback: ProgressCallback) -> Dict[s
 # ── B3: nightly_summary engine ─────────────────────────────────
 
 
-async def run_nightly_summary(job: Job, progress_callback: ProgressCallback) -> Dict[str, Any]:
+async def run_nightly_summary(
+    job: Job, progress_callback: ProgressCallback
+) -> Dict[str, Any]:
     """Vygeneruje denní summary ze všeho co se dělo – agent runy, system eventy,
     resource warningy. Uloží do memory jako jeden přehledný záznam.
     Používá lokální LLM (profile: summarize).
@@ -239,19 +268,13 @@ async def run_nightly_summary(job: Job, progress_callback: ProgressCallback) -> 
 
     # 1. Get recent system events (last 24h)
     recent_events = memory_svc.get_recent_events(limit=50)
-    today_events = [
-        e for e in recent_events
-        if e.get("timestamp", "") >= cutoff
-    ]
+    today_events = [e for e in recent_events if e.get("timestamp", "") >= cutoff]
 
     await progress_callback(20.0, {"message": "Načítám agent historii..."})
 
     # 2. Get agent history (last 24h)
     agent_records = await memory_svc.search_agent_history("", top_k=20)
-    today_agents = [
-        r for r in agent_records
-        if r.timestamp >= cutoff
-    ]
+    today_agents = [r for r in agent_records if r.timestamp >= cutoff]
 
     total_records = len(today_events) + len(today_agents)
 

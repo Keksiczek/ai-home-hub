@@ -6,6 +6,7 @@ Wraps file_parser_service and adds:
 - mode="analyze" → extract text + LLM short summary (2-3 sentences)
 - Unified FileMetadata for all formats
 """
+
 from __future__ import annotations
 
 import logging
@@ -19,24 +20,54 @@ logger = logging.getLogger(__name__)
 
 # Native-parse extensions (delegated to FileParserService)
 _PARSER_EXTENSIONS = {
-    ".pdf", ".docx", ".xlsx", ".pptx",
-    ".txt", ".md",
-    ".jpg", ".jpeg", ".png", ".gif", ".bmp",
-    ".mp3", ".wav", ".m4a", ".ogg",
-    ".mp4", ".webm", ".mov",
+    ".pdf",
+    ".docx",
+    ".xlsx",
+    ".pptx",
+    ".txt",
+    ".md",
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".gif",
+    ".bmp",
+    ".mp3",
+    ".wav",
+    ".m4a",
+    ".ogg",
+    ".mp4",
+    ".webm",
+    ".mov",
     ".epub",
-    ".html", ".htm",
+    ".html",
+    ".htm",
     ".zip",
 }
 
 # Code / plain-text extensions handled inline
 _CODE_EXTENSIONS = {
-    ".py", ".js", ".ts", ".jsx", ".tsx",
-    ".json", ".yaml", ".yml", ".toml",
-    ".sh", ".bash", ".zsh",
-    ".css", ".sql",
-    ".rs", ".go", ".java", ".c", ".cpp", ".h",
-    ".rb", ".php",
+    ".py",
+    ".js",
+    ".ts",
+    ".jsx",
+    ".tsx",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".sh",
+    ".bash",
+    ".zsh",
+    ".css",
+    ".sql",
+    ".rs",
+    ".go",
+    ".java",
+    ".c",
+    ".cpp",
+    ".h",
+    ".rb",
+    ".php",
 }
 
 SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(_PARSER_EXTENSIONS | _CODE_EXTENSIONS)
@@ -44,9 +75,18 @@ SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(_PARSER_EXTENSIONS | _CODE_EXTE
 # Alias expected by consumers / tests
 ALL_SUPPORTED: frozenset[str] = SUPPORTED_EXTENSIONS
 
-_DOCUMENT_EXTENSIONS = frozenset({
-    ".pdf", ".docx", ".xlsx", ".pptx", ".txt", ".md", ".html", ".htm",
-})
+_DOCUMENT_EXTENSIONS = frozenset(
+    {
+        ".pdf",
+        ".docx",
+        ".xlsx",
+        ".pptx",
+        ".txt",
+        ".md",
+        ".html",
+        ".htm",
+    }
+)
 _IMAGE_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".gif", ".bmp"})
 
 
@@ -75,20 +115,36 @@ def is_supported(path: str) -> bool:
     """Return True if the file extension is in SUPPORTED_EXTENSIONS."""
     return Path(path).suffix.lower() in SUPPORTED_EXTENSIONS
 
+
 # Extension → MIME type mapping (for code / text files not in FileParserService)
 _CODE_MIME: Dict[str, str] = {
-    ".py": "text/x-python", ".js": "text/javascript", ".ts": "text/typescript",
-    ".jsx": "text/jsx", ".tsx": "text/tsx", ".json": "application/json",
-    ".yaml": "text/yaml", ".yml": "text/yaml", ".toml": "text/toml",
-    ".sh": "text/x-shellscript", ".bash": "text/x-shellscript", ".zsh": "text/x-shellscript",
-    ".css": "text/css", ".sql": "text/x-sql",
-    ".rs": "text/x-rust", ".go": "text/x-go", ".java": "text/x-java",
-    ".c": "text/x-c", ".cpp": "text/x-c++", ".h": "text/x-c",
-    ".rb": "text/x-ruby", ".php": "text/x-php",
+    ".py": "text/x-python",
+    ".js": "text/javascript",
+    ".ts": "text/typescript",
+    ".jsx": "text/jsx",
+    ".tsx": "text/tsx",
+    ".json": "application/json",
+    ".yaml": "text/yaml",
+    ".yml": "text/yaml",
+    ".toml": "text/toml",
+    ".sh": "text/x-shellscript",
+    ".bash": "text/x-shellscript",
+    ".zsh": "text/x-shellscript",
+    ".css": "text/css",
+    ".sql": "text/x-sql",
+    ".rs": "text/x-rust",
+    ".go": "text/x-go",
+    ".java": "text/x-java",
+    ".c": "text/x-c",
+    ".cpp": "text/x-c++",
+    ".h": "text/x-c",
+    ".rb": "text/x-ruby",
+    ".php": "text/x-php",
 }
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _parse_file(file_path: Path) -> Dict[str, Any]:
     """Parse a file to raw text using the appropriate method."""
@@ -107,6 +163,7 @@ def _parse_file(file_path: Path) -> Dict[str, Any]:
             return {"error": str(exc), "text": ""}
 
     from app.services.file_parser_service import get_file_parser_service
+
     return get_file_parser_service().parse_file(file_path)
 
 
@@ -114,6 +171,7 @@ async def _generate_summary(text: str, filename: str) -> str:
     """Generate a 2-3 sentence LLM summary; falls back to text excerpt on error."""
     try:
         from app.services.llm_service import get_llm_service
+
         llm = get_llm_service()
         excerpt = text[:3000]
         prompt = (
@@ -135,16 +193,21 @@ def _fallback_summary(text: str) -> str:
 def _resolve_media_type(ext: str) -> str:
     """Determine media_type from extension."""
     from app.services.file_parser_service import FileParserService
+
     return FileParserService.MEDIA_TYPES.get(ext, "text")
 
 
 def _resolve_mime_type(ext: str) -> str:
     """Determine MIME type from extension."""
     from app.services.file_parser_service import FileParserService
-    return FileParserService.MIME_TYPES.get(ext, _CODE_MIME.get(ext, "application/octet-stream"))
+
+    return FileParserService.MIME_TYPES.get(
+        ext, _CODE_MIME.get(ext, "application/octet-stream")
+    )
 
 
 # ── Service class ─────────────────────────────────────────────────────────────
+
 
 class FileHandlerService:
     """Process uploaded files for Knowledge Base operations."""
@@ -211,7 +274,11 @@ class FileHandlerService:
             size_bytes=size_bytes,
             indexed_at=datetime.now(timezone.utc),
             collection=collection,
-            pages_or_duration=duration_seconds if duration_seconds else (float(page_count) if page_count else None),
+            pages_or_duration=(
+                duration_seconds
+                if duration_seconds
+                else (float(page_count) if page_count else None)
+            ),
             language=metadata.get("language"),
             chunk_count=0,  # filled below for index mode
             media_type=_resolve_media_type(ext),
@@ -226,7 +293,11 @@ class FileHandlerService:
                 "text": text,
                 "chunks": chunks,
                 "chunk_count": len(chunks),
-                "metadata": {**metadata, "collection": collection, "media_type": file_meta.media_type},
+                "metadata": {
+                    **metadata,
+                    "collection": collection,
+                    "media_type": file_meta.media_type,
+                },
                 "page_count": page_count,
                 "char_count": char_count,
                 "collection": collection,

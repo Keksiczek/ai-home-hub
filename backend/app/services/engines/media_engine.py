@@ -1,4 +1,5 @@
 """Media engine – audio/video ingest via Whisper with optional post-analysis chaining."""
+
 import logging
 from typing import Any, Awaitable, Callable, Dict, Optional
 
@@ -9,7 +10,9 @@ logger = logging.getLogger(__name__)
 ProgressCallback = Callable[[float, Optional[Dict[str, Any]]], Awaitable[None]]
 
 
-async def run_media_ingest(job: Job, progress_callback: ProgressCallback) -> Dict[str, Any]:
+async def run_media_ingest(
+    job: Job, progress_callback: ProgressCallback
+) -> Dict[str, Any]:
     """MediaIngestEngine – audio/video → Whisper transcript → optional auto-chain to DocumentAnalysis."""
     import json as _json
     from pathlib import Path
@@ -31,7 +34,9 @@ async def run_media_ingest(job: Job, progress_callback: ProgressCallback) -> Dic
     # Step 1 (0-20%): Validate file
     await progress_callback(0, {"phase": "validate", "status": "started"})
 
-    resolved = DATA_DIR / file_path if not Path(file_path).is_absolute() else Path(file_path)
+    resolved = (
+        DATA_DIR / file_path if not Path(file_path).is_absolute() else Path(file_path)
+    )
     if not resolved.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
 
@@ -82,7 +87,9 @@ async def run_media_ingest(job: Job, progress_callback: ProgressCallback) -> Dic
         "segments_count": len(transcript.segments),
     }
     meta_path = job_dir / "meta.json"
-    meta_path.write_text(_json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+    meta_path.write_text(
+        _json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
 
     await progress_callback(85, {"phase": "save", "status": "done"})
 
@@ -117,7 +124,9 @@ async def run_media_ingest(job: Job, progress_callback: ProgressCallback) -> Dic
         job.meta["post_analysis_job_id"] = post_analysis_job_id
         job_service.update_job(job)
 
-        logger.info("Chained document_analysis job %s for transcript", post_analysis_job_id)
+        logger.info(
+            "Chained document_analysis job %s for transcript", post_analysis_job_id
+        )
 
     await progress_callback(100, {"phase": "done", "status": "done"})
 

@@ -47,6 +47,7 @@ def _write_cache(data: Dict[str, Any]) -> None:
 def compute_stats() -> Dict[str, Any]:
     """Compute fresh KB stats from VectorStoreService."""
     from app.services.vector_store_service import get_vector_store_service, CHROMA_DIR
+
     vs = get_vector_store_service()
     stats = vs.get_stats(detailed=True)
 
@@ -64,7 +65,9 @@ def compute_stats() -> Dict[str, Any]:
                     latest_mtime = st.st_mtime
         storage_mb = round(total_size / (1024 * 1024), 1)
         if latest_mtime > 0:
-            last_indexed = datetime.fromtimestamp(latest_mtime, tz=timezone.utc).isoformat()
+            last_indexed = datetime.fromtimestamp(
+                latest_mtime, tz=timezone.utc
+            ).isoformat()
 
     return {
         "computed_at": datetime.now(timezone.utc).isoformat(),
@@ -136,7 +139,9 @@ async def start_kb_stats_refresh_loop() -> None:
     """
     try:
         settings = get_settings_service().load()
-        interval_min = settings.get("kb_stats_refresh_interval_minutes", DEFAULT_REFRESH_INTERVAL_MINUTES)
+        interval_min = settings.get(
+            "kb_stats_refresh_interval_minutes", DEFAULT_REFRESH_INTERVAL_MINUTES
+        )
         interval_sec = max(60, interval_min * 60)
 
         logger.info("KB stats refresh loop started (interval: %d min)", interval_min)

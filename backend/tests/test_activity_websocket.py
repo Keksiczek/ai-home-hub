@@ -1,4 +1,5 @@
 """Tests for activity service and WebSocket endpoints."""
+
 import pytest
 from unittest.mock import AsyncMock, patch
 

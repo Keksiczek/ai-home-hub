@@ -6,6 +6,7 @@ system stats, job listing, weather) plus an async execute_tool_call dispatcher.
 All tools are capped at a 10-second timeout and return a uniform dict:
   {"tool": str, "ok": bool, "data": ..., "error": str|None}
 """
+
 import json
 import logging
 import time
@@ -241,14 +242,18 @@ async def _browse_page(url: str) -> Dict[str, Any]:
     import re
 
     # Remove script/style blocks
-    text = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", raw, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(
+        r"<(script|style)[^>]*>.*?</\1>", "", raw, flags=re.DOTALL | re.IGNORECASE
+    )
     # Strip remaining tags
     text = re.sub(r"<[^>]+>", " ", text)
     # Collapse whitespace
     text = re.sub(r"\s+", " ", text).strip()
 
     # Extract <title>
-    title_match = re.search(r"<title[^>]*>(.*?)</title>", raw, re.IGNORECASE | re.DOTALL)
+    title_match = re.search(
+        r"<title[^>]*>(.*?)</title>", raw, re.IGNORECASE | re.DOTALL
+    )
     title = re.sub(r"\s+", " ", title_match.group(1)).strip() if title_match else ""
 
     return {
@@ -282,7 +287,9 @@ async def _kb_search(query: str, collection: Optional[str] = None) -> Dict[str, 
         ):
             documents.append(
                 {
-                    "title": str(meta.get("title", meta.get("file_path", "No title")))[:100],
+                    "title": str(meta.get("title", meta.get("file_path", "No title")))[
+                        :100
+                    ],
                     "content": str(doc)[:300],
                     "score": round(1.0 - float(dist), 3),
                 }
@@ -296,7 +303,13 @@ async def _kb_search(query: str, collection: Optional[str] = None) -> Dict[str, 
         }
     except Exception as exc:
         logger.warning("KB search failed: %s", exc)
-        return {"query": query, "collection": collection or "knowledge_base", "documents": [], "count": 0, "error": str(exc)}
+        return {
+            "query": query,
+            "collection": collection or "knowledge_base",
+            "documents": [],
+            "count": 0,
+            "error": str(exc),
+        }
 
 
 async def _get_system_stats() -> Dict[str, Any]:
@@ -398,6 +411,7 @@ async def _get_weather(location: str = "Praha") -> Dict[str, Any]:
     """Get current weather via wttr.in (free, no API key required)."""
     # Sanitize location – strip special chars, max 50 chars
     import re
+
     location = re.sub(r"[^\w\s,.-]", "", location)[:50].strip() or "Praha"
 
     async with httpx.AsyncClient(timeout=_TOOL_TIMEOUT) as client:
@@ -426,8 +440,11 @@ async def _kb_store(text: str, tags: str = "") -> Dict[str, Any]:
     """Store a knowledge snippet into the KB via memory service."""
     try:
         from app.services.memory_service import get_memory_service
+
         mem = get_memory_service()
-        tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else ["agent"]
+        tag_list = (
+            [t.strip() for t in tags.split(",") if t.strip()] if tags else ["agent"]
+        )
         await mem.add_memory(
             text=text[:2000],
             tags=tag_list,
@@ -443,7 +460,9 @@ async def _kb_store(text: str, tags: str = "") -> Dict[str, Any]:
 # ── Tool dispatch ────────────────────────────────────────────────────────────
 
 
-async def execute_tool_call(tool_call: Dict[str, Any], context: Dict[str, Any] = {}) -> Dict[str, Any]:
+async def execute_tool_call(
+    tool_call: Dict[str, Any], context: Dict[str, Any] = {}
+) -> Dict[str, Any]:
     """Dispatch a tool call dict and return a uniform result.
 
     Args:

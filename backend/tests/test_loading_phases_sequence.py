@@ -3,16 +3,21 @@
 These tests verify the loading message element structure and CSS classes
 that are expected by the frontend JavaScript implementation.
 """
+
 import pytest
 
 
 def test_loading_phases_defined():
     """Verify the 4-phase loading sequence is correctly structured."""
     phases = [
-        {"icon": "\U0001F916", "text": "Thinking...", "cls": ""},
-        {"icon": "\U0001F9E0", "text": "Searching KB...", "cls": ""},
+        {"icon": "\U0001f916", "text": "Thinking...", "cls": ""},
+        {"icon": "\U0001f9e0", "text": "Searching KB...", "cls": ""},
         {"icon": "\u2728", "text": "Processing...", "cls": "loading-message--shimmer"},
-        {"icon": "\u2705", "text": "Generating reply...", "cls": "loading-message--final"},
+        {
+            "icon": "\u2705",
+            "text": "Generating reply...",
+            "cls": "loading-message--final",
+        },
     ]
     assert len(phases) == 4
     assert phases[0]["text"] == "Thinking..."

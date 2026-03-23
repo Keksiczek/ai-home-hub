@@ -7,6 +7,7 @@ Covers:
 - POST /api/resident/task queuing
 - Dashboard stats_24h field types
 """
+
 import sys
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -36,8 +37,10 @@ def client() -> TestClient:
 
 # ── Helper ────────────────────────────────────────────────────────────────────
 
+
 def _reset_agent():
     from app.services.resident_agent import get_resident_agent
+
     agent = get_resident_agent()
     agent._state.is_running = False
     agent._state.started_at = None
@@ -50,6 +53,7 @@ def _reset_agent():
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
+
 class TestResidentDashboardStructure:
     """Dashboard always returns a valid JSON document regardless of agent state."""
 
@@ -59,8 +63,16 @@ class TestResidentDashboardStructure:
 
     def test_dashboard_has_required_keys(self, client):
         data = client.get("/api/resident/dashboard").json()
-        required = {"status", "uptime_seconds", "heartbeat_status", "last_heartbeat",
-                    "current_task", "recent_tasks", "alerts", "stats_24h"}
+        required = {
+            "status",
+            "uptime_seconds",
+            "heartbeat_status",
+            "last_heartbeat",
+            "current_task",
+            "recent_tasks",
+            "alerts",
+            "stats_24h",
+        }
         assert required.issubset(data.keys())
 
     def test_stopped_state_values(self, client):
@@ -172,10 +184,13 @@ class TestResidentTaskSubmission:
     """POST /api/resident/task creates a queued job."""
 
     def test_submit_task_returns_queued(self, client):
-        resp = client.post("/api/resident/task", json={
-            "title": "Test task",
-            "description": "Integration test task",
-        })
+        resp = client.post(
+            "/api/resident/task",
+            json={
+                "title": "Test task",
+                "description": "Integration test task",
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "queued"

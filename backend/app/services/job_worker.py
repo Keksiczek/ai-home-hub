@@ -1,4 +1,5 @@
 """Job worker – background async loop that picks queued jobs and runs them."""
+
 import asyncio
 import logging
 import time
@@ -113,7 +114,11 @@ class NightScheduler(BackgroundService):
         """If the day has changed, reset the ran_today tracker."""
         today = self.get_today_key()
         if self._last_day is not None and self._last_day != today:
-            logger.info("NightScheduler: new day detected (%s → %s), resetting ran_today", self._last_day, today)
+            logger.info(
+                "NightScheduler: new day detected (%s → %s), resetting ran_today",
+                self._last_day,
+                today,
+            )
             self._ran_today.clear()
         self._last_day = today
 
@@ -158,12 +163,14 @@ class NightScheduler(BackgroundService):
             # Broadcast night_job_started event
             if self._broadcast_fn:
                 try:
-                    await self._broadcast_fn({
-                        "type": "night_job_started",
-                        "job_id": job.id,
-                        "job_type": job_type,
-                        "title": job_def["title"],
-                    })
+                    await self._broadcast_fn(
+                        {
+                            "type": "night_job_started",
+                            "job_id": job.id,
+                            "job_type": job_type,
+                            "title": job_def["title"],
+                        }
+                    )
                 except Exception as exc:
                     logger.debug("NightScheduler broadcast failed: %s", exc)
 
@@ -199,16 +206,18 @@ class JobWorker(BackgroundService):
         if not self._broadcast_fn:
             return
         try:
-            await self._broadcast_fn({
-                "type": "job_update",
-                "job": {
-                    "id": job.id,
-                    "type": job.type,
-                    "title": job.title,
-                    "status": job.status,
-                    "progress": job.progress,
-                },
-            })
+            await self._broadcast_fn(
+                {
+                    "type": "job_update",
+                    "job": {
+                        "id": job.id,
+                        "type": job.type,
+                        "title": job.title,
+                        "status": job.status,
+                        "progress": job.progress,
+                    },
+                }
+            )
         except Exception as exc:
             logger.debug("Job broadcast failed: %s", exc)
 
@@ -231,7 +240,10 @@ class JobWorker(BackgroundService):
 
     async def _make_progress_callback(self, job: Job):
         """Create a progress callback for a running job."""
-        async def progress_callback(progress: float, meta: Optional[Dict[str, Any]] = None):
+
+        async def progress_callback(
+            progress: float, meta: Optional[Dict[str, Any]] = None
+        ):
             job.progress = min(max(progress, 0.0), 100.0)
             if meta:
                 job.meta.update(meta)
@@ -274,14 +286,18 @@ class JobWorker(BackgroundService):
             job.last_error = str(exc)
             logger.error("Job %s failed: %s", job.id, exc, exc_info=True)
         finally:
-            job_duration_seconds.labels(type=job.type).observe(time.monotonic() - job_start_mono)
+            job_duration_seconds.labels(type=job.type).observe(
+                time.monotonic() - job_start_mono
+            )
             job.finished_at = datetime.now(timezone.utc).isoformat()
             self._job_service.update_job(job)
             self._running_job_ids.discard(job.id)
             await self._broadcast_job_update(job)
             logger.info(
                 "Job %s (%s) finished with status=%s",
-                job.id, job.type, job.status,
+                job.id,
+                job.type,
+                job.status,
             )
 
             # // KB INITIALIZATION – store job output in KB automatically
@@ -290,20 +306,24 @@ class JobWorker(BackgroundService):
             # Broadcast night-job-specific WS events
             if self._broadcast_fn and job.type in night_job_types:
                 try:
-                    await self._broadcast_fn({
-                        "type": "night_job_done",
-                        "job_id": job.id,
-                        "job_type": job.type,
-                        "status": job.status,
-                    })
+                    await self._broadcast_fn(
+                        {
+                            "type": "night_job_done",
+                            "job_id": job.id,
+                            "job_type": job.type,
+                            "status": job.status,
+                        }
+                    )
                     # Special event for nightly summary
                     if job.type == "nightly_summary" and job.status == "succeeded":
                         result_data = job.meta.get("result", {})
-                        await self._broadcast_fn({
-                            "type": "nightly_summary_ready",
-                            "date": result_data.get("date", ""),
-                            "preview": result_data.get("preview", "")[:200],
-                        })
+                        await self._broadcast_fn(
+                            {
+                                "type": "nightly_summary_ready",
+                                "date": result_data.get("date", ""),
+                                "preview": result_data.get("preview", "")[:200],
+                            }
+                        )
                 except Exception as exc:
                     logger.debug("Night job broadcast failed: %s", exc)
 
@@ -314,6 +334,7 @@ class JobWorker(BackgroundService):
         """
         try:
             from app.services.knowledge_service import get_knowledge_service
+
             kb_svc = get_knowledge_service()
 
             meta = job.meta or {}

@@ -1,4 +1,5 @@
 """Tests for session cleanup (4G)."""
+
 import json
 import time
 from pathlib import Path
@@ -17,13 +18,19 @@ def session_svc(tmp_path, monkeypatch):
     return svc, tmp_path
 
 
-def _create_session_file(sessions_dir: Path, session_id: str, age_days: int = 0) -> Path:
+def _create_session_file(
+    sessions_dir: Path, session_id: str, age_days: int = 0
+) -> Path:
     """Create a session JSON file with a given age."""
     data = {
         "session_id": session_id,
         "created_at": "2020-01-01T00:00:00+00:00",
         "messages": [
-            {"role": "user", "content": "Hello", "timestamp": "2020-01-01T00:00:00+00:00"},
+            {
+                "role": "user",
+                "content": "Hello",
+                "timestamp": "2020-01-01T00:00:00+00:00",
+            },
         ],
         "artifacts": [],
         "active_agents": [],
@@ -34,6 +41,7 @@ def _create_session_file(sessions_dir: Path, session_id: str, age_days: int = 0)
     if age_days > 0:
         old_time = time.time() - (age_days * 86400)
         import os
+
         os.utime(path, (old_time, old_time))
 
     return path
@@ -46,6 +54,7 @@ def test_get_session_stats(session_svc):
 
     # Manually call with monkeypatched dir
     import app.services.session_service as mod
+
     stats = svc.get_session_stats()
     assert stats["count"] == 2
     assert stats["total_size_bytes"] > 0
