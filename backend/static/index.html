@@ -501,6 +501,8 @@
               <option value="advisor" selected>Advisor</option>
               <option value="autonomous">Autonomous</option>
             </select>
+            <span id="resident-mode-badge" style="display:none;padding:2px 8px;border-radius:12px;font-size:0.75em;font-weight:600;color:#fff;background:#888"></span>
+            <span id="resident-mode-pending-badge" style="display:none;padding:2px 8px;border-radius:12px;font-size:0.75em;font-weight:600;color:#fff;background:#f39c12" title="N&aacute;vrhy &ccaron;ekaj&iacute; na schv&aacute;len&iacute;"></span>
             <span class="resident-mode-hint" id="resident-mode-hint">Navrhuje akce, ty klikne&#353; Spustit</span>
           </div>
           <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
@@ -514,7 +516,10 @@
             <button class="btn btn--ghost btn--small" id="resident-stop-btn" disabled>Zastavit</button>
           </div>
           <div id="resident-autonomous-warning" class="resident-autonomous-warning hidden" style="width:100%;margin-top:4px">
-            &#9888; Bezpe&#269;n&eacute; akce se spou&#353;t&iacute; automaticky, maz&aacute;n&iacute; jen se souhlasem.
+            &#9888; Agent jedn&aacute; samostatn&#283; &ndash; sleduj activity log. Bezpe&#269;n&eacute; akce se spou&#353;t&#283;j&iacute; automaticky.
+          </div>
+          <div id="resident-observer-info" class="hidden" style="width:100%;margin-top:4px;font-size:0.8em;color:var(--text-secondary)">
+            &#128065;&#65039; Observer m&oacute;d &ndash; agent sleduje syst&eacute;m, nevolá LLM ani nezpracov&aacute;v&aacute; tasky.
           </div>
         </div>
       </div>

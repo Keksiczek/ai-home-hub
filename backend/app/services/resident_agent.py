@@ -231,6 +231,14 @@ class ResidentAgent(BackgroundService):
         self._metrics_cache_ts: float = 0.0
         # Performance: KB reindex cooldown
         self._last_reindex_ts: float = 0.0
+        # Guardrail runtime state (must be initialised here – used by check_action_allowed)
+        self._action_last_executed: Dict[str, float] = {}
+        self._daily_action_counts: Dict[str, int] = {}
+        self._daily_action_reset_date: str = ""
+        # Metrics: how many actions were blocked since start
+        self._blocked_actions_since_start: int = 0
+        # Mode change tracking for audit trail
+        self._last_known_mode: str = ""
 
     def set_broadcast(self, fn: Callable) -> None:
         """Register a coroutine for broadcasting WebSocket messages."""
@@ -755,6 +763,7 @@ class ResidentAgent(BackgroundService):
             "status": self._state.status,
             "last_tick": self._state.last_tick,
             "heartbeat_status": self._state.heartbeat_status,
+            "mode_restricted_actions_count": self._blocked_actions_since_start,
         })
         await self._broadcast({
             "type": "agent_status",
@@ -772,6 +781,7 @@ class ResidentAgent(BackgroundService):
             "memory_items": len(self._state.recent_steps),
             "enabled_skills": list(ALLOWED_ACTIONS),
             "active_skills": self._get_active_skill_names(),
+            "mode_restricted_actions_count": self._blocked_actions_since_start,
         })
 
     def _get_active_skill_names(self) -> List[str]:
@@ -829,19 +839,48 @@ class ResidentAgent(BackgroundService):
     # ── Brain orchestrator methods ──────────────────────────────
 
     def _get_resident_mode(self) -> str:
-        """Read current resident_mode from settings."""
+        """Read current resident_mode from settings.
+
+        If the mode changed since the last call, records it via ModeAuditService.
+        """
         try:
             from app.services.settings_service import get_settings_service
-            return get_settings_service().load().get("resident_mode", "advisor")
+            mode = get_settings_service().load().get("resident_mode", "advisor")
         except Exception:
-            return "advisor"
+            mode = "advisor"
+
+        if self._last_known_mode and self._last_known_mode != mode:
+            try:
+                from app.services.mode_audit_service import get_mode_audit_service
+                get_mode_audit_service().record_change(
+                    from_mode=self._last_known_mode,
+                    to_mode=mode,
+                    changed_by="system",
+                    reason="detected on tick",
+                )
+                self._add_log(
+                    "INFO", "mode_changed",
+                    from_mode=self._last_known_mode, to_mode=mode, source="tick_detection",
+                )
+            except Exception:
+                pass
+        self._last_known_mode = mode
+        return mode
 
     async def _thought_tick(self) -> None:
-        """Periodically call the reasoner to generate suggestions."""
+        """Periodically call the reasoner to generate suggestions.
+
+        Observer mode: this method is skipped entirely – no LLM call is made.
+        Advisor mode:  suggestions are generated but NEVER auto-executed;
+                       each suggestion gets ``requires_user_approval=True``.
+        Autonomous mode: safe actions (requires_confirmation=False) are
+                         auto-executed after suggestion generation.
+        """
         if self._state.tick_count % THOUGHT_TICK_INTERVAL != 0:
             return
 
         mode = self._get_resident_mode()
+        # Observer: no LLM reasoning at all
         if mode == "observer":
             return
 
@@ -856,9 +895,11 @@ class ResidentAgent(BackgroundService):
             if len(self._suggestions) > MAX_SUGGESTIONS_HISTORY:
                 self._suggestions = self._suggestions[-MAX_SUGGESTIONS_HISTORY:]
 
-            # In autonomous mode, auto-execute safe actions
+            # Autonomous mode only: auto-execute safe (non-confirmation) actions.
+            # Advisor mode must NEVER auto-execute – user approval is required.
             if mode == "autonomous":
                 await self._auto_execute_safe_actions(suggestion)
+            # advisor: suggestions stay as-is, pending user approval via UI
 
             await self._broadcast({
                 "type": WS_EVENT_RESIDENT_SUGGESTION,
@@ -1368,13 +1409,27 @@ class ResidentAgent(BackgroundService):
             return []
 
     async def _process_task_queue(self) -> None:
-        """Načte pending tasky z job_service kde job_type == 'resident_task'."""
+        """Načte pending tasky z job_service kde job_type == 'resident_task'.
+
+        In observer mode all queued tasks are skipped (no LLM call is made).
+        """
+        mode = self._get_resident_mode()
         try:
             from app.services.job_service import get_job_service
             job_svc = get_job_service()
             pending_jobs = job_svc.list_jobs(status="queued", type="resident_task")
             resident_queue_depth.set(len(pending_jobs))
             logger.debug("resident_queue_depth updated: %d", len(pending_jobs))
+
+            # Observer mode: leave tasks in the queue untouched (no LLM)
+            if mode == "observer":
+                if pending_jobs:
+                    self._add_log(
+                        "INFO", "observer_tasks_skipped",
+                        count=len(pending_jobs),
+                        reason="observer mode – LLM disabled",
+                    )
+                return
 
             for job in pending_jobs:
                 self._state.current_task = job.title
@@ -1825,19 +1880,34 @@ class ResidentAgent(BackgroundService):
         """
         action = payload.get("action", "")
         params = payload.get("params", {})
-
-        # ── Mode guardrails ────────────────────────────────────────
         mode = self._get_resident_mode()
+
+        # ── Consistent guardrail check (covers mode gate + cooldown + daily budget) ──
+        try:
+            self.check_action_allowed(action)
+        except ActionBlockedError as exc:
+            self._blocked_actions_since_start += 1
+            self._add_log(
+                "INFO", "action_blocked",
+                action=action, mode=mode, reason=str(exc),
+            )
+            return {"action": action, "blocked": True, "reason": str(exc), "mode": mode}
+
+        # ── Additional mode-based routing ─────────────────────────
+        # (check_action_allowed already blocks by tier, but we also keep the
+        #  explicit MODE_ALLOWED_ACTIONS set check for actions not in ACTION_TIERS)
         allowed_for_mode = MODE_ALLOWED_ACTIONS.get(mode, MODE_ALLOWED_ACTIONS["advisor"])
-
-        if mode == "observer" and action not in allowed_for_mode:
-            log.info("Observer mode: proposed action blocked", action=action, mode=mode)
-            self._add_log("INFO", f"proposed: {action}", mode="observer")
-            return {"action": action, "blocked": True, "reason": f"observer mode – proposed: {action}"}
-
         if action not in allowed_for_mode and action not in ALLOWED_ACTIONS:
+            self._blocked_actions_since_start += 1
             log.warning("Action not allowed for mode", action=action, mode=mode)
             return {"error": "action_not_allowed_for_mode", "action": action, "mode": mode}
+
+        # ── Log dangerous actions before execution (autonomous mode) ──────────
+        if mode == "autonomous" and self._get_action_tier(action) == "dangerous":
+            self._add_log(
+                "WARN", "dangerous_action_pre_dispatch",
+                action=action, params=str(params)[:200], mode=mode,
+            )
 
         if action == "read_file":
             from app.services.filesystem_service import get_filesystem_service
