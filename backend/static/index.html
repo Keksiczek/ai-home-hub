@@ -371,9 +371,12 @@
           </div>
         </div>
 
-        <div class="memory-search" style="margin-bottom:0.75rem">
-          <input type="text" class="input" placeholder="&#128269; Hledat v pam&#283;ti..." id="agent-memory-search"
-            oninput="filterAgentMemory(this.value)" style="max-width:340px" />
+        <div class="memory-search" style="margin-bottom:0.75rem;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+          <input type="text" class="input" placeholder="Hledat v pam&#283;ti agenta..." id="memorySearchInput"
+            oninput="filterAgentMemory(this.value)" style="max-width:300px" minlength="3" />
+          <button class="btn btn--ghost btn--small" id="memorySearchBtn" onclick="searchAgentMemory()">&#128269; Hledat</button>
+          <button class="btn btn--ghost btn--small" id="memoryClearSearch" style="display:none" onclick="clearAgentMemorySearch()">&#10005; Zru&#353;it</button>
+          <span id="memorySearchWarning" style="display:none;color:var(--warning,#f59e0b);font-size:0.8em">Zadej alespo&#328; 3 znaky</span>
         </div>
 
         <div style="overflow-x:auto">
@@ -609,21 +612,33 @@
           <span class="mode-badge" id="modeBadge">···</span>
           <span class="mode-description" id="modeDescription"></span>
         </div>
-        <div class="mode-buttons">
-          <button class="mode-btn" data-mode="observer" title="Jen sleduje, nevolá LLM">
-            👁 Observer
+        <div class="mode-switcher__buttons mode-buttons">
+          <button class="mode-btn" data-mode="observer" title="Agent pouze sleduje a loguje">
+            👁️ Observer
           </button>
-          <button class="mode-btn" data-mode="advisor" title="Navrhuje akce, nespouští automaticky">
+          <button class="mode-btn" data-mode="advisor" title="Agent navrhuje akce, čeká na souhlas">
             💡 Advisor
           </button>
           <button class="mode-btn mode-btn--danger" data-mode="autonomous"
-                  title="Jedná samostatně v rámci guardrailů">
+                  title="Agent jedná samostatně">
             ⚡ Autonomous
           </button>
         </div>
+        <div class="mode-switcher__desc" id="modeSwitcherDesc"></div>
         <div class="mode-stats" id="modeStats"></div>
         <div class="mode-warning" id="modeWarning" style="display:none">
           ⚠️ Autonomous mód – agent jedná samostatně. Sleduj activity log.
+        </div>
+      </div>
+
+      <!-- Pending Actions Panel (advisor mode only) -->
+      <div class="pending-actions" id="pendingActionsPanel" style="display:none">
+        <div class="pending-actions__header">
+          <span>⏳ Čekající akce</span>
+          <span class="pending-count" id="pendingCount">0</span>
+        </div>
+        <div class="pending-actions__list" id="pendingActionsList">
+          <!-- dynamicky generováno -->
         </div>
       </div>
 
@@ -862,6 +877,14 @@
             <button class="btn btn--ghost btn--small btn--danger" onclick="agentReset()">Reset</button>
           </div>
         </section>
+
+        <!-- Mode History (collapsible) -->
+        <details class="card" id="mode-history-card">
+          <summary class="card-title" style="cursor:pointer">&#128203; Historie změn módu</summary>
+          <div id="modeHistoryList" style="margin-top:0.75rem">
+            <p class="empty-state">Načítám historii...</p>
+          </div>
+        </details>
 
         <!-- Help tooltip -->
         <details class="card resident-help-details">
