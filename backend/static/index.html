@@ -1994,6 +1994,55 @@
         </div>
       </section>
 
+      <!-- Auto-Cleanup section -->
+      <section class="card settings-section" id="auto-cleanup-section">
+        <h2 class="card-title"><span class="section-icon">&#128465;</span> Auto-Cleanup</h2>
+        <p class="hint-text">Automatick&eacute; maz&aacute;n&iacute; star&yacute;ch sessions a archivace KB artefakt&#367;.</p>
+
+        <div class="form-group" style="align-items:center">
+          <label class="toggle-label">
+            <input type="checkbox" id="cleanup-enabled" />
+            <strong>Povolit automatick&yacute; cleanup</strong>
+          </label>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="cleanup-interval-hours">Interval &#269;i&#353;t&#283;n&iacute; (hodiny):</label>
+          <input type="number" class="input" id="cleanup-interval-hours" min="1" max="168" step="1" value="6" style="max-width:120px" />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="cleanup-session-days">Uchovávat chat sessions (dny):</label>
+          <input type="number" class="input" id="cleanup-session-days" min="1" max="365" step="1" value="7" style="max-width:120px" />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="cleanup-artifact-days">Uchovávat KB artefakty (dny):</label>
+          <input type="number" class="input" id="cleanup-artifact-days" min="1" max="365" step="1" value="30" style="max-width:120px" />
+        </div>
+
+        <div class="form-group" style="align-items:center">
+          <label class="toggle-label">
+            <input type="checkbox" id="cleanup-vacuum-enabled" checked />
+            <strong>VACUUM datab&aacute;z&iacute;</strong>
+          </label>
+        </div>
+
+        <div class="form-group form-group--right" style="gap:0.5rem;flex-wrap:wrap">
+          <button class="btn btn--primary btn--small" id="cleanup-save-btn" onclick="saveCleanupSettings()">
+            &#128190; Ulo&#382;it
+          </button>
+          <button class="btn btn--ghost btn--small" id="cleanup-run-now-btn" onclick="runCleanupNow()">
+            &#128640; Spustit nyn&iacute;
+          </button>
+        </div>
+
+        <div style="margin-top:0.75rem;font-size:0.8rem;color:var(--text-muted)">
+          <div>Posledn&iacute; cleanup: <span id="cleanup-last-run">&#8722; nena&#269;teno</span></div>
+          <div>P&#345;&iacute;&#353;t&iacute; cleanup za: <span id="cleanup-next-run">&#8722;</span></div>
+        </div>
+      </section>
+
       <!-- Network: Tailscale Funnel section -->
       <section class="card settings-section" id="tailscale-funnel-section">
         <h2 class="card-title"><span class="section-icon">&#127760;</span> S&iacute;&#357; &ndash; Tailscale Funnel</h2>
