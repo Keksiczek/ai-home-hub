@@ -6853,7 +6853,7 @@ function updateResidentModeHint(mode, pendingSuggestions) {
   }
 }
 
-/** Fetch mode-status from the API and update the badge/hints. */
+/** Fetch mode-status from the API and update the badge/hints + ModeSwitcher. */
 async function loadResidentModeStatus() {
   try {
     const res = await fetch('/api/resident/mode-status');
@@ -6864,8 +6864,56 @@ async function loadResidentModeStatus() {
     const modeSelect = document.getElementById('resident-mode-select');
     if (modeSelect) modeSelect.value = mode;
     updateResidentModeHint(mode, pending);
+
+    // ModeSwitcher UI
+    const descriptions = data.mode_descriptions || {};
+    const badge = document.getElementById('modeBadge');
+    if (badge) {
+      badge.textContent = mode.charAt(0).toUpperCase() + mode.slice(1);
+      badge.className = `mode-badge mode-badge--${mode}`;
+    }
+    const desc = document.getElementById('modeDescription');
+    if (desc) desc.textContent = descriptions[mode] || '';
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+      btn.classList.toggle('mode-btn--active', btn.dataset.mode === mode);
+    });
+    const warning = document.getElementById('modeWarning');
+    if (warning) warning.style.display = mode === 'autonomous' ? 'block' : 'none';
+    const stats = document.getElementById('modeStats');
+    if (stats && data.stats) {
+      stats.textContent = `${pending} návrhů čeká na schválení · ${data.stats.blocked_actions_since_start || 0} akcí zablokováno`;
+    }
   } catch (_) { /* silent */ }
 }
+
+async function switchResidentMode(newMode) {
+  if (newMode === 'autonomous') {
+    const ok = confirm(
+      '⚡ Přepnout do Autonomous módu?\n\n' +
+      'Agent bude jednat samostatně v rámci nastavených limitů a guardrailů.\n' +
+      'Doporučujeme sledovat activity log.'
+    );
+    if (!ok) return;
+  }
+  try {
+    await fetch('/api/settings', {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({resident_mode: newMode})
+    });
+    await loadResidentModeStatus();
+    showToast(`Režim přepnut na: ${newMode}`, 'success');
+  } catch(e) {
+    showToast('Chyba při přepínání módu', 'error');
+  }
+}
+
+// Wire up mode buttons
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => switchResidentMode(btn.dataset.mode));
+  });
+});
 
 // ── Panic / toggle autonomy ──────────────────────────────────────────────────
 async function toggleResidentAutonomy() {
@@ -10554,31 +10602,86 @@ async function loadGitHubDiscover() {
       return;
     }
 
-    grid.innerHTML = results.map(r => `
-      <div class="skill-card mp-gh-card">
+    grid.innerHTML = results.map(r => {
+      const incompatibleClass = r.compatible === false ? ' gh-card-incompatible' : '';
+      const topicsHtml = (r.topics || []).slice(0, 4).map(t => `<span class="skill-tag">${escHtml(t)}</span>`).join('');
+      return `
+      <div class="skill-card mp-gh-card${incompatibleClass}">
         <div class="skill-card-header">
           <div class="skill-card-info" style="width:100%">
             <div style="display:flex;align-items:center;gap:0.5rem;justify-content:space-between">
               <a href="${escHtml(r.url)}" target="_blank" rel="noopener" class="skill-card-name" style="color:#60a5fa;text-decoration:none">
                 ${escHtml(r.name)}
               </a>
-              <span style="color:#fbbf24;font-size:0.8125rem">\u2B50 ${r.stars}</span>
+              <div style="display:flex;gap:6px;align-items:center">
+                ${r.relevant ? '<span class="gh-relevant-badge">✓ Relevantní</span>' : ''}
+                <span style="color:#fbbf24;font-size:0.8125rem">\u2B50 ${r.stars}</span>
+              </div>
             </div>
             <div class="skill-card-desc">${escHtml(r.description || '')}</div>
+            <div class="gh-card-meta-row">
+              ⭐ ${r.stars} 🍴 ${r.forks || 0} 🔄 ${(r.updated_at || '').substring(0, 10)}
+            </div>
+            ${r.compatible === false ? `<div style="font-size:0.75rem;color:#f87171;margin-top:2px">⚠️ Jazyk: ${escHtml(r.language || 'neznámý')}</div>` : ''}
           </div>
         </div>
         <div class="mp-gh-meta">
           ${r.language ? `<span class="mp-perm-badge">${escHtml(r.language)}</span>` : ''}
           ${r.compatible ? '<span class="mp-perm-badge" style="background:rgba(16,185,129,0.15);color:#10b981">Compatible</span>' : ''}
-          ${(r.topics || []).slice(0, 4).map(t => `<span class="skill-tag">${escHtml(t)}</span>`).join('')}
+          ${topicsHtml}
         </div>
-        <div style="font-size:0.75rem;color:#64748b;margin-top:0.25rem">${escHtml(r.install_hint || '')}</div>
-      </div>
-    `).join('');
+        <div style="display:flex;gap:6px;margin-top:6px;align-items:center">
+          <button class="btn btn--ghost btn--small" onclick="openReadmeModal('${escHtml(r.name)}','${escHtml(r.url)}','${escHtml(r.readme_url || '')}')">📖 README</button>
+          <span style="font-size:0.75rem;color:#64748b">${escHtml(r.install_hint || '')}</span>
+        </div>
+      </div>`;
+    }).join('');
   } catch (err) {
     grid.innerHTML = `<p class="empty-state">Chyba: ${escHtml(err.message)}</p>`;
   }
 }
+
+// ── README Preview Modal ─────────────────────────────────────────────────────
+
+async function openReadmeModal(repoName, repoUrl, readmeUrl) {
+  document.getElementById('readmeModalTitle').textContent = repoName + ' – README';
+  document.getElementById('readmeModalLink').href = repoUrl;
+  document.getElementById('readmeContent').textContent = 'Načítám README...';
+  document.getElementById('readmeModal').style.display = 'flex';
+
+  try {
+    const data = await fetch(
+      `/api/skills/marketplace/readme?url=${encodeURIComponent(readmeUrl)}`
+    ).then(r => r.json());
+    document.getElementById('readmeContent').textContent = data.content;
+  } catch(e) {
+    document.getElementById('readmeContent').textContent = 'Chyba při načítání README.';
+  }
+}
+
+function closeReadmeModal() {
+  document.getElementById('readmeModal').style.display = 'none';
+}
+
+// ── Quick action buttons ─────────────────────────────────────────────────────
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.quick-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const prompt = btn.dataset.prompt;
+      const input = document.getElementById('chat-input');
+      if (input) {
+        input.value = prompt;
+        input.focus();
+        // If prompt doesn't end with ": " (needs user continuation), auto-send
+        if (!prompt.endsWith(': ') && !prompt.endsWith(' ')) {
+          const sendBtn = document.getElementById('send-btn');
+          if (sendBtn) sendBtn.click();
+        }
+      }
+    });
+  });
+});
 
 // Initialize marketplace events on DOM ready
 document.addEventListener('DOMContentLoaded', bindMarketplaceEvents);
