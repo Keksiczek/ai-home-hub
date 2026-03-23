@@ -416,8 +416,22 @@ class SettingsService:
     def update(self, partial: Dict[str, Any]) -> Dict[str, Any]:
         """Deep-merge partial settings into current, persist, and return result."""
         current = self.load()
+        # Capture old resident_mode before merge for audit trail
+        old_mode = current.get("resident_mode", "advisor")
         updated = _deep_merge(current, partial)
         self.save(updated)
+        # Record mode change when resident_mode is explicitly updated
+        if "resident_mode" in partial and partial["resident_mode"] != old_mode:
+            try:
+                from app.services.mode_audit_service import get_mode_audit_service
+                get_mode_audit_service().record_change(
+                    from_mode=old_mode,
+                    to_mode=partial["resident_mode"],
+                    changed_by="api",
+                    reason="settings update",
+                )
+            except Exception as exc:
+                logger.debug("Mode audit record failed: %s", exc)
         return updated
 
     def get_system_prompt(self, mode: str) -> str:

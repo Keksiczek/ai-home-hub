@@ -273,6 +273,57 @@ async def get_resident_mode() -> dict:
     }
 
 
+@router.get("/mode-status")
+async def get_mode_status() -> dict:
+    """Comprehensive mode status: allowed/blocked actions, tiers, history, stats."""
+    from app.services.resident_agent import MODE_ALLOWED_ACTIONS, ACTION_TIERS, ALLOWED_ACTIONS
+    from app.services.mode_audit_service import get_mode_audit_service
+
+    settings = get_settings_service().load()
+    mode = settings.get("resident_mode", "advisor")
+    agent = get_resident_agent()
+
+    allowed = set(MODE_ALLOWED_ACTIONS.get(mode, set()))
+    all_known = set(ALLOWED_ACTIONS)
+    for tier_actions in ACTION_TIERS.values():
+        all_known.update(tier_actions)
+    blocked = sorted(all_known - allowed)
+
+    # Pending suggestions count (only relevant in advisor mode)
+    suggestions_pending = 0
+    try:
+        raw = agent.get_suggestions(limit=50)
+        for s in raw:
+            executed_ids = set(s.get("executed_action_ids", []))
+            for a in s.get("actions", []):
+                if a.get("id") not in executed_ids:
+                    suggestions_pending += 1
+    except Exception:
+        pass
+
+    mode_descriptions = {
+        "observer": "Agent pouze sleduje systém, nevolá LLM, nezpracovává tasky",
+        "advisor": "Agent zpracovává tasky a generuje návrhy, ale neprovádí nic automaticky",
+        "autonomous": "Agent jedná samostatně v rámci nastavených limitů a cooldownů",
+    }
+
+    audit_svc = get_mode_audit_service()
+
+    return {
+        "current_mode": mode,
+        "allowed_actions": sorted(allowed),
+        "blocked_actions": blocked,
+        "action_tiers": {tier: list(acts) for tier, acts in ACTION_TIERS.items()},
+        "mode_descriptions": mode_descriptions,
+        "guardrail_status": agent.get_guardrail_status(),
+        "mode_history": audit_svc.get_history(limit=10),
+        "stats": {
+            "blocked_actions_since_start": agent._blocked_actions_since_start,
+            "suggestions_pending_approval": suggestions_pending,
+        },
+    }
+
+
 @router.patch("/mode")
 async def set_resident_mode(req: ResidentModeRequest) -> dict:
     """Set resident autonomy mode (observer/advisor/autonomous)."""

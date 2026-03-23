@@ -5792,9 +5792,10 @@ async function loadResidentDashboard() {
     _residentDashboardData = data;
     renderResidentDashboard(data);
     if (content) show(content);
-    // Also load logs and settings
+    // Also load logs, settings and mode status
     loadAgentLogs();
     loadAgentSettings();
+    loadResidentModeStatus();
   } catch (err) {
     showToast('Chyba dashboardu: ' + err.message, 'error');
     // Show inline error with retry – uživatel vidí příčinu místo prázdné stránky
@@ -6792,14 +6793,46 @@ const _modeIcons = {
   advisor: '🧑‍🏫',
   autonomous: '🤖',
 };
+const _modeBadgeColors = {
+  observer: '#3498db',   // blue
+  advisor:  '#f39c12',   // yellow/orange
+  autonomous: '#27ae60', // green
+};
+const _modeDescriptions = {
+  observer:   'Agent pouze sleduje systém, nevolá LLM, nezpracovává tasky',
+  advisor:    'Agent zpracovává tasky a generuje návrhy, ale neprovádí nic automaticky',
+  autonomous: 'Agent jedná samostatně v rámci nastavených limitů a cooldownů',
+};
 
-function updateResidentModeHint(mode) {
+function updateResidentModeHint(mode, pendingSuggestions) {
   const hint = document.getElementById('resident-mode-hint');
   if (hint) hint.textContent = _modeHints[mode] || '';
 
   const icon = document.getElementById('resident-mode-icon');
   if (icon) icon.textContent = _modeIcons[mode] || '🤖';
 
+  // Coloured mode badge
+  const badge = document.getElementById('resident-mode-badge');
+  if (badge) {
+    badge.textContent = mode.charAt(0).toUpperCase() + mode.slice(1);
+    badge.style.background = _modeBadgeColors[mode] || '#888';
+    badge.style.display = 'inline-block';
+    badge.title = _modeDescriptions[mode] || '';
+  }
+
+  // Pending suggestions badge (advisor only)
+  const pendingBadge = document.getElementById('resident-mode-pending-badge');
+  if (pendingBadge) {
+    const count = pendingSuggestions || 0;
+    if (mode === 'advisor' && count > 0) {
+      pendingBadge.textContent = `${count} návrhů čeká`;
+      pendingBadge.style.display = 'inline-block';
+    } else {
+      pendingBadge.style.display = 'none';
+    }
+  }
+
+  // Autonomous warning
   const warning = document.getElementById('resident-autonomous-warning');
   if (warning) {
     if (mode === 'autonomous') {
@@ -6808,6 +6841,30 @@ function updateResidentModeHint(mode) {
       warning.classList.add('hidden');
     }
   }
+
+  // Observer info banner
+  const observerInfo = document.getElementById('resident-observer-info');
+  if (observerInfo) {
+    if (mode === 'observer') {
+      observerInfo.classList.remove('hidden');
+    } else {
+      observerInfo.classList.add('hidden');
+    }
+  }
+}
+
+/** Fetch mode-status from the API and update the badge/hints. */
+async function loadResidentModeStatus() {
+  try {
+    const res = await fetch('/api/resident/mode-status');
+    if (!res.ok) return;
+    const data = await res.json();
+    const mode = data.current_mode || 'advisor';
+    const pending = (data.stats || {}).suggestions_pending_approval || 0;
+    const modeSelect = document.getElementById('resident-mode-select');
+    if (modeSelect) modeSelect.value = mode;
+    updateResidentModeHint(mode, pending);
+  } catch (_) { /* silent */ }
 }
 
 // ── Panic / toggle autonomy ──────────────────────────────────────────────────
