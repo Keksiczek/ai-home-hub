@@ -41,6 +41,40 @@ _CODE_EXTENSIONS = {
 
 SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(_PARSER_EXTENSIONS | _CODE_EXTENSIONS)
 
+# Alias expected by consumers / tests
+ALL_SUPPORTED: frozenset[str] = SUPPORTED_EXTENSIONS
+
+_DOCUMENT_EXTENSIONS = frozenset({
+    ".pdf", ".docx", ".xlsx", ".pptx", ".txt", ".md", ".html", ".htm",
+})
+_IMAGE_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".gif", ".bmp"})
+
+
+def get_category(filename: str) -> str:
+    """Return a broad category for *filename* based on its extension.
+
+    Returns one of: ``"text"``, ``"document"``, ``"image"``, ``"unsupported"``.
+    """
+    ext = Path(filename).suffix.lower()
+    if ext in _CODE_EXTENSIONS:
+        return "text"
+    if ext in _DOCUMENT_EXTENSIONS:
+        return "document"
+    if ext in _IMAGE_EXTENSIONS:
+        return "image"
+    return "unsupported"
+
+
+def get_accept_string() -> str:
+    """Return a comma-separated string of all supported extensions for use in
+    HTML ``accept`` attributes or API documentation."""
+    return ",".join(sorted(SUPPORTED_EXTENSIONS))
+
+
+def is_supported(path: str) -> bool:
+    """Return True if the file extension is in SUPPORTED_EXTENSIONS."""
+    return Path(path).suffix.lower() in SUPPORTED_EXTENSIONS
+
 # Extension → MIME type mapping (for code / text files not in FileParserService)
 _CODE_MIME: Dict[str, str] = {
     ".py": "text/x-python", ".js": "text/javascript", ".ts": "text/typescript",
