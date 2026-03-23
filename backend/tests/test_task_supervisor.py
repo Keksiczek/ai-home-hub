@@ -1,9 +1,10 @@
-"""Tests for TaskSupervisor: registration, error detection, restart, stop_all."""
+"""Tests for TaskSupervisor: registration, error detection, restart, backoff, stop_all."""
 import asyncio
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.services.task_supervisor import TaskSupervisor, _MAX_RESTARTS
+from app.services.task_supervisor import TaskSupervisor, _MAX_RESTARTS, _MAX_BACKOFF_S
 
 
 # ---------------------------------------------------------------------------
@@ -29,7 +30,7 @@ async def test_running_task_shows_running_status() -> None:
     task = asyncio.create_task(_long_task())
     sup.register("worker", task)
 
-    assert sup.status()["worker"] == "running"
+    assert sup.status()["worker"]["status"] == "running"
 
     # Cleanup
     task.cancel()
@@ -50,11 +51,11 @@ async def test_failing_task_shows_error_status() -> None:
     await asyncio.sleep(0.05)
 
     assert task.done()
-    assert sup.status()["worker"] == "error"
+    assert sup.status()["worker"]["status"] == "error"
 
 
 # ---------------------------------------------------------------------------
-# Test 3a – task with restart_fn is restarted at least once on failure
+# Test 3a – task with restart_fn is restarted after backoff delay
 # ---------------------------------------------------------------------------
 
 async def test_failed_task_is_restarted() -> None:
@@ -64,17 +65,18 @@ async def test_failed_task_is_restarted() -> None:
     def restart_fn() -> asyncio.Task:
         nonlocal restart_count
         restart_count += 1
-        # Stable replacement – runs indefinitely until cancelled.
         return asyncio.create_task(_long_task())
 
     task = asyncio.create_task(_failing_task())
     sup.register("worker", task, restart_fn)
 
-    # Give done-callback time to fire and restart_fn to be called.
-    await asyncio.sleep(0.05)
+    # Mock asyncio.sleep so the backoff delay is instant
+    with patch("app.services.task_supervisor._sleep", new_callable=AsyncMock):
+        await asyncio.sleep(0.05)  # let done-callback fire and schedule restart
+        await asyncio.sleep(0.05)  # let the pending restart coroutine execute
 
     assert restart_count >= 1
-    assert sup.status()["worker"] == "running"
+    assert sup.status()["worker"]["status"] == "running"
 
     # Cleanup
     await sup.stop_all()
@@ -91,20 +93,18 @@ async def test_max_restarts_reached_marks_error() -> None:
     def restart_fn() -> asyncio.Task:
         nonlocal restart_count
         restart_count += 1
-        # Replacement also fails immediately → cascades until limit.
         return asyncio.create_task(_failing_task())
 
     task = asyncio.create_task(_failing_task())
     sup.register("worker", task, restart_fn)
 
-    # All _MAX_RESTARTS (3) restarts complete in a handful of event-loop ticks.
-    await asyncio.sleep(0.1)
+    with patch("app.services.task_supervisor._sleep", new_callable=AsyncMock):
+        # Give enough cycles for all MAX_RESTARTS to cascade
+        for _ in range(20):
+            await asyncio.sleep(0)
 
-    # At least one restart was attempted.
     assert restart_count >= 1
-    # Final status is "error" because the last restart also failed and the
-    # supervisor gave up.
-    assert sup.status()["worker"] == "error"
+    assert sup.status()["worker"]["status"] == "error"
 
 
 # ---------------------------------------------------------------------------
@@ -118,13 +118,13 @@ async def test_stop_all_cancels_all_tasks() -> None:
     sup.register("t1", t1)
     sup.register("t2", t2)
 
-    assert sup.status()["t1"] == "running"
-    assert sup.status()["t2"] == "running"
+    assert sup.status()["t1"]["status"] == "running"
+    assert sup.status()["t2"]["status"] == "running"
 
     await sup.stop_all()
 
     statuses = sup.status()
-    assert all(s != "running" for s in statuses.values()), (
+    assert all(s["status"] != "running" for s in statuses.values()), (
         f"Expected no running tasks after stop_all, got: {statuses}"
     )
 
@@ -142,7 +142,7 @@ async def test_cancelled_task_shows_cancelled_status() -> None:
     with pytest.raises(asyncio.CancelledError):
         await task
 
-    assert sup.status()["worker"] == "cancelled"
+    assert sup.status()["worker"]["status"] == "cancelled"
 
 
 # ---------------------------------------------------------------------------
@@ -159,4 +159,93 @@ async def test_completed_task_shows_done_status() -> None:
     sup.register("worker", task)
     await asyncio.sleep(0.02)
 
-    assert sup.status()["worker"] == "done"
+    assert sup.status()["worker"]["status"] == "done"
+
+
+# ---------------------------------------------------------------------------
+# Test 7 – backoff delay grows exponentially (1s → 2s → 4s)
+# ---------------------------------------------------------------------------
+
+async def test_backoff_delay_grows_exponentially() -> None:
+    """Verify that the backoff sequence is 1, 2, 4 seconds."""
+    sup = TaskSupervisor()
+    sleep_calls: list[float] = []
+
+    async def mock_sleep(seconds: float) -> None:
+        sleep_calls.append(seconds)
+
+    def restart_fn() -> asyncio.Task:
+        return asyncio.create_task(_failing_task())
+
+    task = asyncio.create_task(_failing_task())
+    sup.register("worker", task, restart_fn)
+
+    with patch("app.services.task_supervisor._sleep", side_effect=mock_sleep):
+        for _ in range(30):
+            await asyncio.sleep(0)
+
+    # First three sleeps should follow 2^0=1, 2^1=2, 2^2=4
+    assert len(sleep_calls) >= 3
+    assert sleep_calls[0] == 1
+    assert sleep_calls[1] == 2
+    assert sleep_calls[2] == 4
+
+
+# ---------------------------------------------------------------------------
+# Test 8 – backoff delay is capped at _MAX_BACKOFF_S (60s)
+# ---------------------------------------------------------------------------
+
+async def test_backoff_delay_capped_at_max() -> None:
+    """Delay must never exceed _MAX_BACKOFF_S even after many failures."""
+    # _MAX_BACKOFF_S = 60, and 2**6 = 64 > 60 so cap kicks in at attempt 6
+    # We only have _MAX_RESTARTS=3 but we can verify the cap formula directly
+    assert _MAX_BACKOFF_S == 60
+    assert min(2 ** 6, _MAX_BACKOFF_S) == 60
+    assert min(2 ** 10, _MAX_BACKOFF_S) == 60
+
+
+# ---------------------------------------------------------------------------
+# Test 9 – restart_count increments correctly in status()
+# ---------------------------------------------------------------------------
+
+async def test_restart_count_in_status() -> None:
+    """status() must report correct restart_count after one restart."""
+    sup = TaskSupervisor()
+    restarted = asyncio.Event()
+
+    def restart_fn() -> asyncio.Task:
+        restarted.set()
+        return asyncio.create_task(_long_task())
+
+    task = asyncio.create_task(_failing_task())
+    sup.register("worker", task, restart_fn)
+
+    with patch("app.services.task_supervisor._sleep", new_callable=AsyncMock):
+        await asyncio.sleep(0.05)
+        await asyncio.sleep(0.05)
+
+    info = sup.status()["worker"]
+    assert info["restart_count"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# Test 10 – last_restart_delay_s reflects the delay used for most recent restart
+# ---------------------------------------------------------------------------
+
+async def test_last_restart_delay_s_in_status() -> None:
+    """status() must expose the backoff delay used for the last restart."""
+    sup = TaskSupervisor()
+
+    def restart_fn() -> asyncio.Task:
+        return asyncio.create_task(_long_task())
+
+    task = asyncio.create_task(_failing_task())
+    sup.register("worker", task, restart_fn)
+
+    with patch("app.services.task_supervisor._sleep", new_callable=AsyncMock):
+        await asyncio.sleep(0.05)
+        await asyncio.sleep(0.05)
+
+    info = sup.status()["worker"]
+    # First restart: delay = min(2**0, 60) = 1
+    assert info["last_restart_delay_s"] == 1

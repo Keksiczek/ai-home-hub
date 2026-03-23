@@ -465,7 +465,10 @@ async def health() -> dict:
     overall = "ok"
     if any(c.get("status") != "ok" for c in components.values()):
         overall = "degraded"
-    if any(s == "error" for s in bg_tasks.values()):
+    if any(
+        (s.get("status") if isinstance(s, dict) else s) == "error"
+        for s in bg_tasks.values()
+    ):
         overall = "degraded"
 
     return {
