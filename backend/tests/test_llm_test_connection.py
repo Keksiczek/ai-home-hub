@@ -1,4 +1,5 @@
 """Tests for POST /api/llm/test – Ollama connection test."""
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest

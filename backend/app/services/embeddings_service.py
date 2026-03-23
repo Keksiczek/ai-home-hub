@@ -1,4 +1,5 @@
 """Embeddings service – generate embeddings via Ollama with LRU cache."""
+
 import asyncio
 import hashlib
 import logging
@@ -61,8 +62,14 @@ class EmbeddingsService:
     async def _fetch_embedding_from_ollama(self, text: str) -> Optional[List[float]]:
         """Call Ollama embeddings API directly, with fallback to llama3.2."""
         settings = get_settings_service().load()
-        ollama_url = settings.get("llm", {}).get("ollama_url", "http://localhost:11434").rstrip("/")
-        primary_model = settings.get("llm", {}).get("embeddings_model", self.DEFAULT_MODEL)
+        ollama_url = (
+            settings.get("llm", {})
+            .get("ollama_url", "http://localhost:11434")
+            .rstrip("/")
+        )
+        primary_model = settings.get("llm", {}).get(
+            "embeddings_model", self.DEFAULT_MODEL
+        )
 
         # Try primary model first, then fallback
         models_to_try = [primary_model]
@@ -79,14 +86,17 @@ class EmbeddingsService:
                     )
                     resp.raise_for_status()
                     data = resp.json()
-                    embedding = data.get("embeddings", [None])[0] or data.get("embedding")
+                    embedding = data.get("embeddings", [None])[0] or data.get(
+                        "embedding"
+                    )
                     if embedding:
                         if self._active_model != model:
                             self._active_model = model
                             if model != primary_model:
                                 logger.warning(
                                     "Embeddings: primary model '%s' unavailable, using fallback '%s'",
-                                    primary_model, model,
+                                    primary_model,
+                                    model,
                                 )
                                 self._status = f"degraded: using fallback {model}"
                             else:
@@ -97,7 +107,9 @@ class EmbeddingsService:
                 logger.warning("Embedding model '%s' failed: %s", model, exc)
                 continue
 
-        logger.error("All embedding models failed. Last error: %s", last_error, exc_info=True)
+        logger.error(
+            "All embedding models failed. Last error: %s", last_error, exc_info=True
+        )
         self._status = "unavailable"
         return None
 

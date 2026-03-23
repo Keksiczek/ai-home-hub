@@ -1,4 +1,5 @@
 """Tests for Pydantic model validation (4E – unified schemas)."""
+
 import pytest
 from pydantic import ValidationError
 

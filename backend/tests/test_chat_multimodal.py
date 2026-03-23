@@ -1,4 +1,5 @@
 """Tests for POST /api/chat/multimodal."""
+
 import base64
 
 import pytest
@@ -47,7 +48,9 @@ def test_multimodal_chat_with_images_calls_generate_endpoint(client, mock_ollama
     generate_calls = [c for c in mock_ollama["calls"] if "/api/generate" in c["url"]]
     # There may be an additional unload call (keep_alive=0, empty prompt) after inference
     inference_calls = [c for c in generate_calls if c["json"].get("images")]
-    assert len(inference_calls) == 1, "Expected exactly one /api/generate inference call"
+    assert (
+        len(inference_calls) == 1
+    ), "Expected exactly one /api/generate inference call"
 
     payload = inference_calls[0]["json"]
     assert "images" in payload, "Ollama generate payload must contain 'images' key"
@@ -65,7 +68,9 @@ def test_multimodal_chat_rejects_too_many_images(client):
 
 def test_multimodal_chat_rejects_invalid_mime_type(client):
     """An image with an unsupported MIME type must return 400."""
-    resp = client.post(_ENDPOINT, json=_req(images=[_image(media_type="image/svg+xml")]))
+    resp = client.post(
+        _ENDPOINT, json=_req(images=[_image(media_type="image/svg+xml")])
+    )
 
     assert resp.status_code == 400
     detail = resp.json()["detail"]

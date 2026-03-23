@@ -1,4 +1,5 @@
 """Tests for the EmbeddingsService LRU cache."""
+
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -14,7 +15,9 @@ def _patch_settings():
             "embeddings_model": "nomic-embed-text",
         }
     }
-    with patch("app.services.embeddings_service.get_settings_service", return_value=mock_svc):
+    with patch(
+        "app.services.embeddings_service.get_settings_service", return_value=mock_svc
+    ):
         yield
 
 

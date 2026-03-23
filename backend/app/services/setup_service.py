@@ -1,4 +1,5 @@
 """Setup service – first-run checks and completion tracking."""
+
 import logging
 from typing import Any, Dict
 
@@ -18,7 +19,11 @@ class SetupService:
         settings = svc.load()
 
         completed = settings.get("setup", {}).get("completed", False)
-        ollama_url = settings.get("llm", {}).get("ollama_url", "http://localhost:11434").rstrip("/")
+        ollama_url = (
+            settings.get("llm", {})
+            .get("ollama_url", "http://localhost:11434")
+            .rstrip("/")
+        )
 
         # ── 1. Ollama running ─────────────────────────────────
         ollama_ok, ollama_msg = await self._check_ollama(ollama_url)
@@ -30,7 +35,11 @@ class SetupService:
         else:
             missing_models = required
         models_ok = len(missing_models) == 0
-        models_msg = "Všechny modely jsou dostupné" if models_ok else f"Chybí: {', '.join(missing_models)}"
+        models_msg = (
+            "Všechny modely jsou dostupné"
+            if models_ok
+            else f"Chybí: {', '.join(missing_models)}"
+        )
 
         # ── 3. ChromaDB writable ──────────────────────────────
         chroma_ok, chroma_msg = self._check_chromadb()
@@ -38,7 +47,11 @@ class SetupService:
         # ── 4. Filesystem dirs ────────────────────────────────
         allowed = settings.get("filesystem", {}).get("allowed_directories", [])
         fs_ok = bool(allowed)
-        fs_msg = f"Nakonfigurováno {len(allowed)} adresářů" if fs_ok else "Žádné adresáře nejsou nastaveny"
+        fs_msg = (
+            f"Nakonfigurováno {len(allowed)} adresářů"
+            if fs_ok
+            else "Žádné adresáře nejsou nastaveny"
+        )
 
         first_run = not completed
 
@@ -81,7 +94,9 @@ class SetupService:
                 if resp.status_code != 200:
                     return required
                 data = resp.json()
-                available = {m.get("name", "").split(":")[0] for m in data.get("models", [])}
+                available = {
+                    m.get("name", "").split(":")[0] for m in data.get("models", [])
+                }
                 return [r for r in required if r.split(":")[0] not in available]
         except Exception:
             return required
@@ -89,6 +104,7 @@ class SetupService:
     def _check_chromadb(self) -> tuple[bool, str]:
         try:
             from app.services.vector_store_service import get_vector_store_service
+
             vs = get_vector_store_service()
             vs.get_stats()
             return True, "ChromaDB je dostupná"

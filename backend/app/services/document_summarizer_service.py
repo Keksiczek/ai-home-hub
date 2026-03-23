@@ -3,6 +3,7 @@
 For long documents the text is split into chunks, each chunk gets a partial
 summary, and partial summaries are merged into a final PerDocumentSummary.
 """
+
 from __future__ import annotations
 
 import json
@@ -40,7 +41,9 @@ async def summarize_document(
     if not chunks:
         chunks = [text[:_CHUNK_SIZE]]
 
-    lang_instruction = "Odpovídej česky." if language == "cs" else f"Respond in {language}."
+    lang_instruction = (
+        "Odpovídej česky." if language == "cs" else f"Respond in {language}."
+    )
 
     total_tokens = 0
 
@@ -55,14 +58,26 @@ async def summarize_document(
         partial_summaries = []
         for i, chunk in enumerate(chunks):
             partial, tokens = await _summarize_chunk(
-                llm, chunk, i + 1, len(chunks), doc.title, task_description, llm_profile, lang_instruction
+                llm,
+                chunk,
+                i + 1,
+                len(chunks),
+                doc.title,
+                task_description,
+                llm_profile,
+                lang_instruction,
             )
             partial_summaries.append(partial)
             total_tokens += tokens
 
         # Merge partial summaries
         summary_data, tokens = await _merge_partial_summaries(
-            llm, partial_summaries, doc.title, task_description, llm_profile, lang_instruction
+            llm,
+            partial_summaries,
+            doc.title,
+            task_description,
+            llm_profile,
+            lang_instruction,
         )
         total_tokens += tokens
 
@@ -77,7 +92,9 @@ async def summarize_document(
     )
 
 
-async def _summarize_single(llm, text, title, task_description, profile, lang_instruction):
+async def _summarize_single(
+    llm, text, title, task_description, profile, lang_instruction
+):
     """Summarize a short document (single chunk)."""
     prompt = f"""{lang_instruction}
 Analyzuj následující dokument a vytvoř strukturované shrnutí.
@@ -98,7 +115,9 @@ Odpověz PŘESNĚ v tomto JSON formátu (žádný další text):
 }}"""
 
     try:
-        reply, meta = await llm.generate(message=prompt, mode="general", profile=profile)
+        reply, meta = await llm.generate(
+            message=prompt, mode="general", profile=profile
+        )
         tokens = meta.get("tokens_estimated", 0)
         parsed = _parse_json_response(reply)
         if not parsed.get("summary"):
@@ -106,10 +125,25 @@ Odpověz PŘESNĚ v tomto JSON formátu (žádný další text):
         return parsed, tokens
     except Exception as exc:
         logger.error("Single-chunk summarization failed for %s: %s", title, exc)
-        return {"title": title, "summary": f"Summarization failed: {exc}", "key_points": [], "risks_or_gaps": [], "metrics": {}}, 0
+        return {
+            "title": title,
+            "summary": f"Summarization failed: {exc}",
+            "key_points": [],
+            "risks_or_gaps": [],
+            "metrics": {},
+        }, 0
 
 
-async def _summarize_chunk(llm, chunk_text_content, chunk_idx, total_chunks, title, task_description, profile, lang_instruction):
+async def _summarize_chunk(
+    llm,
+    chunk_text_content,
+    chunk_idx,
+    total_chunks,
+    title,
+    task_description,
+    profile,
+    lang_instruction,
+):
     """Summarize a single chunk of a long document."""
     prompt = f"""{lang_instruction}
 Toto je část {chunk_idx}/{total_chunks} dokumentu "{title}".
@@ -126,18 +160,27 @@ Odpověz PŘESNĚ v JSON:
 }}"""
 
     try:
-        reply, meta = await llm.generate(message=prompt, mode="general", profile=profile)
+        reply, meta = await llm.generate(
+            message=prompt, mode="general", profile=profile
+        )
         tokens = meta.get("tokens_estimated", 0)
         parsed = _parse_json_response(reply)
         if not parsed.get("partial_summary"):
             parsed["partial_summary"] = reply[:300]
         return parsed, tokens
     except Exception as exc:
-        logger.warning("Chunk %d/%d summarization failed: %s", chunk_idx, total_chunks, exc)
-        return {"partial_summary": f"Chunk {chunk_idx} failed: {exc}", "key_points": []}, 0
+        logger.warning(
+            "Chunk %d/%d summarization failed: %s", chunk_idx, total_chunks, exc
+        )
+        return {
+            "partial_summary": f"Chunk {chunk_idx} failed: {exc}",
+            "key_points": [],
+        }, 0
 
 
-async def _merge_partial_summaries(llm, partials, title, task_description, profile, lang_instruction):
+async def _merge_partial_summaries(
+    llm, partials, title, task_description, profile, lang_instruction
+):
     """Merge partial summaries into a final document summary."""
     partials_text = ""
     all_key_points = []
@@ -164,7 +207,9 @@ Odpověz PŘESNĚ v tomto JSON formátu (žádný další text):
 }}"""
 
     try:
-        reply, meta = await llm.generate(message=prompt, mode="general", profile=profile)
+        reply, meta = await llm.generate(
+            message=prompt, mode="general", profile=profile
+        )
         tokens = meta.get("tokens_estimated", 0)
         parsed = _parse_json_response(reply)
         if not parsed.get("summary"):
@@ -202,7 +247,7 @@ def _parse_json_response(text: str) -> Dict[str, Any]:
     end = text.rfind("}")
     if start >= 0 and end > start:
         try:
-            return json.loads(text[start:end + 1])
+            return json.loads(text[start : end + 1])
         except json.JSONDecodeError:
             pass
 

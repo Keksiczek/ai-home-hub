@@ -1,12 +1,14 @@
 """Tests verifying that CI/CD workflow setup is correctly configured."""
+
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-
-WORKFLOW_PATH = Path(__file__).parent.parent.parent / ".github" / "workflows" / "backend-ci.yml"
+WORKFLOW_PATH = (
+    Path(__file__).parent.parent.parent / ".github" / "workflows" / "backend-ci.yml"
+)
 REQUIREMENTS_PATH = Path(__file__).parent.parent / "requirements.txt"
 
 
@@ -37,7 +39,9 @@ def test_workflow_has_timeout():
 def test_requirements_contains_prometheus_client():
     """requirements.txt must include prometheus-client so the app can export metrics."""
     content = REQUIREMENTS_PATH.read_text(encoding="utf-8")
-    assert "prometheus-client" in content, "prometheus-client is missing from requirements.txt"
+    assert (
+        "prometheus-client" in content
+    ), "prometheus-client is missing from requirements.txt"
 
 
 def test_requirements_contains_structlog():

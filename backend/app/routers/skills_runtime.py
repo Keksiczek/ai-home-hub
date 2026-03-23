@@ -1,4 +1,5 @@
 """Skills Runtime router – execute and manage runtime agent skills."""
+
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -45,7 +46,9 @@ async def execute_skill(req: SkillExecRequest) -> Dict[str, Any]:
 
     method = getattr(skill, req.method, None)
     if method is None or not callable(method):
-        raise HTTPException(400, f"Skill '{req.skill_name}' has no method '{req.method}'")
+        raise HTTPException(
+            400, f"Skill '{req.skill_name}' has no method '{req.method}'"
+        )
 
     try:
         result = await method(**req.params)
@@ -81,11 +84,17 @@ _SKILL_TESTS: Dict[str, Dict[str, Any]] = {
     "calendar": {"method": "get_today", "params": {}},
     "weather": {"method": "run", "params": {"location": "Nymburk"}},
     "shell": {"method": "run", "params": {"command": "whoami"}},
-    "vision": {"method": "analyze", "params": {"image_path": "/tmp/test.png", "prompt": "test"}},
+    "vision": {
+        "method": "analyze",
+        "params": {"image_path": "/tmp/test.png", "prompt": "test"},
+    },
     "timer": {"method": "list_timers", "params": {}},
     "calculator": {"method": "run", "params": {"expression": "85 * 0.95 * 0.99"}},
     "clipboard": {"method": "read", "params": {}},
-    "notify": {"method": "send", "params": {"title": "Test", "message": "Skill test OK"}},
+    "notify": {
+        "method": "send",
+        "params": {"title": "Test", "message": "Skill test OK"},
+    },
     "http_fetch": {"method": "get", "params": {"url": "https://httpbin.org/get"}},
 }
 

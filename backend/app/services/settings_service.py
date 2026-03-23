@@ -1,4 +1,5 @@
 """Settings service – reads/writes backend/data/settings.json."""
+
 import json
 import logging
 from pathlib import Path
@@ -62,10 +63,26 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
             "enabled": True,
         },
         "experimental_features": {
-            "openclaw": {"enabled": False, "experimental": True, "reason": "cliclick mouse simulation – fragile, breaks on UI changes"},
-            "antigravity": {"enabled": False, "experimental": True, "reason": "external unstable IDE integration"},
-            "devops_agent": {"enabled": False, "experimental": True, "reason": "high-risk OS ops, not production-ready"},
-            "testing_agent": {"enabled": False, "experimental": True, "reason": "limited value without real test runner integration"},
+            "openclaw": {
+                "enabled": False,
+                "experimental": True,
+                "reason": "cliclick mouse simulation – fragile, breaks on UI changes",
+            },
+            "antigravity": {
+                "enabled": False,
+                "experimental": True,
+                "reason": "external unstable IDE integration",
+            },
+            "devops_agent": {
+                "enabled": False,
+                "experimental": True,
+                "reason": "high-risk OS ops, not production-ready",
+            },
+            "testing_agent": {
+                "enabled": False,
+                "experimental": True,
+                "reason": "limited value without real test runner integration",
+            },
         },
     },
     "filesystem": {
@@ -82,11 +99,15 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         "max_concurrent": 3,
         "timeout_minutes": 15,
         "configs": {
-            "general":  {"max_steps": 8,  "step_timeout_s": 30, "max_total_tokens": 8000},
-            "code":     {"max_steps": 8,  "step_timeout_s": 45, "max_total_tokens": 10000},
-            "research": {"max_steps": 12, "step_timeout_s": 30, "max_total_tokens": 12000},
-            "testing":  {"max_steps": 6,  "step_timeout_s": 30, "max_total_tokens": 6000},
-            "devops":   {"max_steps": 6,  "step_timeout_s": 30, "max_total_tokens": 6000},
+            "general": {"max_steps": 8, "step_timeout_s": 30, "max_total_tokens": 8000},
+            "code": {"max_steps": 8, "step_timeout_s": 45, "max_total_tokens": 10000},
+            "research": {
+                "max_steps": 12,
+                "step_timeout_s": 30,
+                "max_total_tokens": 12000,
+            },
+            "testing": {"max_steps": 6, "step_timeout_s": 30, "max_total_tokens": 6000},
+            "devops": {"max_steps": 6, "step_timeout_s": 30, "max_total_tokens": 6000},
         },
     },
     "system_prompts": {
@@ -94,13 +115,13 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
             "Jsi AI Home Hub – osobní AI asistent pro macOS. Vždy odpovídáš česky, stručně a konkrétně.\n\n"
             "Pravidla:\n"
             "1. VŽDY odpovídej česky, i když se uživatel ptá anglicky (pokud výslovně nepožádá o angličtinu).\n"
-            "2. Nikdy neodmítej odpovědět frázemi jako \"jako AI nemohu\", \"to přesahuje mé schopnosti\" "
-            "nebo \"doporučuji konzultovat odborníka\". Místo toho vždy poskytni nejlepší dostupnou odpověď.\n"
-            "3. Buď konkrétní a akční. Místo \"to záleží na situaci\" řekni co záleží a dej konkrétní doporučení.\n"
+            '2. Nikdy neodmítej odpovědět frázemi jako "jako AI nemohu", "to přesahuje mé schopnosti" '
+            'nebo "doporučuji konzultovat odborníka". Místo toho vždy poskytni nejlepší dostupnou odpověď.\n'
+            '3. Buď konkrétní a akční. Místo "to záleží na situaci" řekni co záleží a dej konkrétní doporučení.\n'
             "4. Pokud máš kontext z Knowledge Base nebo Shared Memory (označený tagy <kb_context> nebo "
             "<user_memory>), VŽDY ho aktivně použij v odpovědi.\n"
             "5. Odpovídej ve stylu zkušeného kolegy, ne formálního asistenta. Žádné úvodní fráze jako "
-            "\"Samozřejmě!\", \"Skvělá otázka!\" nebo \"Rád vám pomohu!\".\n"
+            '"Samozřejmě!", "Skvělá otázka!" nebo "Rád vám pomohu!".\n'
             "6. Pokud nevíš odpověď, přiznej to jednou větou a nabídni alternativu.\n"
             "7. Strukturuj odpovědi: krátká přímá odpověď → detaily → konkrétní kroky (pokud relevantní)."
         ),
@@ -234,9 +255,21 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         "external_paths": [],
         "watch_for_changes": False,
         "allowed_extensions": [
-            ".pdf", ".docx", ".xlsx", ".pptx", ".txt", ".md",
-            ".jpg", ".png", ".mp4", ".mov",
-            ".mp3", ".wav", ".epub", ".html", ".zip",
+            ".pdf",
+            ".docx",
+            ".xlsx",
+            ".pptx",
+            ".txt",
+            ".md",
+            ".jpg",
+            ".png",
+            ".mp4",
+            ".mov",
+            ".mp3",
+            ".wav",
+            ".epub",
+            ".html",
+            ".zip",
         ],
         "enabled": True,
         "retention_days": 30,
@@ -245,19 +278,39 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "profiles": {
         "chat": {
             "model": "llama3.2:latest",
-            "params": {"temperature": 0.3, "top_p": 0.9, "top_k": 40, "max_tokens": 2048},
+            "params": {
+                "temperature": 0.3,
+                "top_p": 0.9,
+                "top_k": 40,
+                "max_tokens": 2048,
+            },
         },
         "powerbi": {
             "model": "qwen2.5-coder:3b",
-            "params": {"temperature": 0.1, "top_p": 0.95, "top_k": 20, "max_tokens": 4096},
+            "params": {
+                "temperature": 0.1,
+                "top_p": 0.95,
+                "top_k": 20,
+                "max_tokens": 4096,
+            },
         },
         "lean": {
             "model": "llama3.2:latest",
-            "params": {"temperature": 0.3, "top_p": 0.9, "top_k": 40, "max_tokens": 2048},
+            "params": {
+                "temperature": 0.3,
+                "top_p": 0.9,
+                "top_k": 40,
+                "max_tokens": 2048,
+            },
         },
         "vision": {
             "model": "llava:7b",
-            "params": {"temperature": 0.5, "top_p": 0.9, "top_k": 40, "max_tokens": 2048},
+            "params": {
+                "temperature": 0.5,
+                "top_p": 0.9,
+                "top_k": 40,
+                "max_tokens": 2048,
+            },
         },
         # Legacy profiles kept for backward compatibility
         "tech": {"model": "qwen2.5-coder:3b", "params": {"temperature": 0.3}},
@@ -310,9 +363,17 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         "use_default_skill_paths": True,
     },
     "enabled_skills": [
-        "web_search", "code_exec", "calendar", "weather",
-        "clipboard", "notify", "http_fetch", "shell",
-        "vision", "timer", "calculator",
+        "web_search",
+        "code_exec",
+        "calendar",
+        "weather",
+        "clipboard",
+        "notify",
+        "http_fetch",
+        "shell",
+        "vision",
+        "timer",
+        "calculator",
     ],
     "resident_mode": "advisor",  # observer | advisor | autonomous
     # ── Guardrails (Hardening v2) ─────────────────────────────────────────────
@@ -324,11 +385,36 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
             "max_concurrent_agents": 1,
         },
         "agent_guardrails": {
-            "general":  {"max_steps": 8,  "max_total_tokens": 8_000,  "step_timeout_s": 30,  "max_sub_agent_depth": 2},
-            "code":     {"max_steps": 15, "max_total_tokens": 32_000, "step_timeout_s": 300, "max_sub_agent_depth": 3},
-            "research": {"max_steps": 12, "max_total_tokens": 64_000, "step_timeout_s": 300, "max_sub_agent_depth": 2},
-            "testing":  {"max_steps": 8,  "max_total_tokens": 16_000, "step_timeout_s": 120, "max_sub_agent_depth": 2},
-            "devops":   {"max_steps": 6,  "max_total_tokens": 8_000,  "step_timeout_s": 120, "max_sub_agent_depth": 1},
+            "general": {
+                "max_steps": 8,
+                "max_total_tokens": 8_000,
+                "step_timeout_s": 30,
+                "max_sub_agent_depth": 2,
+            },
+            "code": {
+                "max_steps": 15,
+                "max_total_tokens": 32_000,
+                "step_timeout_s": 300,
+                "max_sub_agent_depth": 3,
+            },
+            "research": {
+                "max_steps": 12,
+                "max_total_tokens": 64_000,
+                "step_timeout_s": 300,
+                "max_sub_agent_depth": 2,
+            },
+            "testing": {
+                "max_steps": 8,
+                "max_total_tokens": 16_000,
+                "step_timeout_s": 120,
+                "max_sub_agent_depth": 2,
+            },
+            "devops": {
+                "max_steps": 6,
+                "max_total_tokens": 8_000,
+                "step_timeout_s": 120,
+                "max_sub_agent_depth": 1,
+            },
         },
         "resident": {
             "interval_seconds": 900,
@@ -356,8 +442,17 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
             "git_sweep": {"enabled": True},
             "nightly_summary": {"enabled": True},
         },
-        "day_allowed_job_types": ["long_llm_task", "report_generation", "resident_task"],
-        "night_only_job_types": ["kb_reindex", "git_sweep", "nightly_summary", "media_ingest"],
+        "day_allowed_job_types": [
+            "long_llm_task",
+            "report_generation",
+            "resident_task",
+        ],
+        "night_only_job_types": [
+            "kb_reindex",
+            "git_sweep",
+            "nightly_summary",
+            "media_ingest",
+        ],
     },
     "whisper_settings": {
         "model": "base",
@@ -408,6 +503,7 @@ class SettingsService:
         # Refresh guardrail singleton from loaded settings
         try:
             from app.core.settings import update_guardrail_settings
+
             update_guardrail_settings(result)
         except Exception as exc:
             logger.debug("Guardrail settings refresh failed: %s", exc)
@@ -422,6 +518,7 @@ class SettingsService:
         # Refresh guardrail singleton after save
         try:
             from app.core.settings import update_guardrail_settings
+
             update_guardrail_settings(settings)
         except Exception as exc:
             logger.debug("Guardrail settings refresh (post-save) failed: %s", exc)
@@ -437,6 +534,7 @@ class SettingsService:
         if "resident_mode" in partial and partial["resident_mode"] != old_mode:
             try:
                 from app.services.mode_audit_service import get_mode_audit_service
+
                 get_mode_audit_service().record_change(
                     from_mode=old_mode,
                     to_mode=partial["resident_mode"],
@@ -451,7 +549,9 @@ class SettingsService:
         """Return the system prompt for the given mode, with optional custom append."""
         settings = self.load()
         prompts = settings.get("system_prompts", {})
-        prompt = prompts.get(mode, prompts.get("general", "You are a helpful assistant."))
+        prompt = prompts.get(
+            mode, prompts.get("general", "You are a helpful assistant.")
+        )
 
         # Append user's custom instructions if configured
         custom_append = settings.get("custom_system_prompt_append", "")
@@ -513,7 +613,9 @@ class SettingsService:
 
             logger.debug(
                 "LLM config for profile '%s': model=%s temperature=%.2f",
-                profile, result["model"], result.get("temperature", 0.0),
+                profile,
+                result["model"],
+                result.get("temperature", 0.0),
             )
 
         return result
@@ -550,9 +652,13 @@ class SettingsService:
 
     def get_custom_profiles(self) -> Dict[str, Any]:
         """Return all custom profiles (both built-in and user-defined)."""
-        return self.load().get("custom_profiles", DEFAULT_SETTINGS.get("custom_profiles", {}))
+        return self.load().get(
+            "custom_profiles", DEFAULT_SETTINGS.get("custom_profiles", {})
+        )
 
-    def save_custom_profile(self, profile_id: str, profile_data: Dict[str, Any]) -> Dict[str, Any]:
+    def save_custom_profile(
+        self, profile_id: str, profile_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Create or update a custom profile."""
         settings = self.load()
         profiles = settings.get("custom_profiles", {})
@@ -598,13 +704,16 @@ class SettingsService:
             )
 
         llm_s = s.get("llm", {})
-        ollama_url = llm_s.get("ollama_url") or llm_s.get("base_url", "http://localhost:11434")
+        ollama_url = llm_s.get("ollama_url") or llm_s.get(
+            "base_url", "http://localhost:11434"
+        )
         provider = llm_s.get("provider", "ollama")
         if provider == "ollama":
             model = llm_s.get("default_model") or llm_s.get("model", "llama3.2")
             logger.info(
                 "ℹ️  LLM: using Ollama at %s (model: %s). Run 'ollama serve' if not started.",
-                ollama_url, model,
+                ollama_url,
+                model,
             )
 
 

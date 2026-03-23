@@ -7,6 +7,7 @@ Covers:
 - test_agent_spawn_returns_structured_error (resource + concurrent_limit)
 - test_kb_reindex_counter_updates
 """
+
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -20,8 +21,8 @@ for _mod_name in ("chromadb", "chromadb.config"):
 from fastapi.testclient import TestClient  # noqa: E402
 from app.main import app  # noqa: E402
 
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _make_client(startup_health: dict) -> TestClient:
     """Return a TestClient whose lifespan uses *startup_health* as the mock result."""
@@ -36,31 +37,37 @@ def _make_client(startup_health: dict) -> TestClient:
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
+
 @pytest.fixture
 def healthy_client():
     """Client with fully healthy startup."""
-    yield from _make_client({
-        "ollama": "ok",
-        "kb": "ok",
-        "jobs_db": "ok",
-        "overall": "healthy",
-        "ollama_models": ["llama3.2:latest"],
-    })
+    yield from _make_client(
+        {
+            "ollama": "ok",
+            "kb": "ok",
+            "jobs_db": "ok",
+            "overall": "healthy",
+            "ollama_models": ["llama3.2:latest"],
+        }
+    )
 
 
 @pytest.fixture
 def degraded_client():
     """Client where Ollama is unavailable (app should still start)."""
-    yield from _make_client({
-        "ollama": "unavailable",
-        "kb": "ok",
-        "jobs_db": "ok",
-        "overall": "degraded",
-        "ollama_models": [],
-    })
+    yield from _make_client(
+        {
+            "ollama": "unavailable",
+            "kb": "ok",
+            "jobs_db": "ok",
+            "overall": "degraded",
+            "ollama_models": [],
+        }
+    )
 
 
 # ── 1. App starts even when Ollama is unavailable ─────────────────────────────
+
 
 class TestHealthDegradedOllamaRunsApp:
     def test_app_starts_without_ollama(self, degraded_client):
@@ -96,6 +103,7 @@ class TestHealthDegradedOllamaRunsApp:
 
 # ── 2. Agent spawn blocked → increments metric ───────────────────────────────
 
+
 class TestSpawnBlockedIncrementsMetric:
     def test_spawn_blocked_resource_increments_counter(self):
         """agent_spawn_blocked_total[resource] increments when resources are critical."""
@@ -113,7 +121,9 @@ class TestSpawnBlockedIncrementsMetric:
         """agent_spawn_blocked_total[concurrent_limit] increments when limit reached."""
         from app.services.metrics_service import agent_spawn_blocked_total
 
-        before = agent_spawn_blocked_total.labels(reason="concurrent_limit")._value.get()
+        before = agent_spawn_blocked_total.labels(
+            reason="concurrent_limit"
+        )._value.get()
         agent_spawn_blocked_total.labels(reason="concurrent_limit").inc()
         after = agent_spawn_blocked_total.labels(reason="concurrent_limit")._value.get()
         assert after == before + 1
@@ -138,9 +148,7 @@ class TestSpawnBlockedIncrementsMetric:
         before = agent_spawn_blocked_total.labels(reason="resource")._value.get()
 
         # get_resource_monitor is imported inside spawn_agent, patch at source module
-        with patch(
-            "app.services.resource_monitor.get_resource_monitor"
-        ) as mock_mon:
+        with patch("app.services.resource_monitor.get_resource_monitor") as mock_mon:
             mock_mon.return_value.is_blocked.return_value = True
 
             with pytest.raises(AgentSpawnError) as exc_info:
@@ -157,6 +165,7 @@ class TestSpawnBlockedIncrementsMetric:
 
 
 # ── 3. Dashboard includes health + metrics_24h ───────────────────────────────
+
 
 class TestResidentDashboardHasHealthAndMetrics:
     def test_dashboard_has_health_key(self, degraded_client):
@@ -197,18 +206,19 @@ class TestResidentDashboardHasHealthAndMetrics:
         resp = degraded_client.get("/api/resident/dashboard")
         data = resp.json()
         alerts = data.get("alerts", [])
-        assert any("Ollama" in a for a in alerts), f"Expected Ollama alert, got: {alerts}"
+        assert any(
+            "Ollama" in a for a in alerts
+        ), f"Expected Ollama alert, got: {alerts}"
 
 
 # ── 4. Agent spawn returns structured error ───────────────────────────────────
+
 
 class TestAgentSpawnReturnsStructuredError:
     def test_spawn_error_reason_resource(self, healthy_client):
         """/api/agents/spawn returns 429 with structured body on resource block."""
         # get_resource_monitor is imported locally inside spawn_agent; patch source
-        with patch(
-            "app.services.resource_monitor.get_resource_monitor"
-        ) as mock_mon:
+        with patch("app.services.resource_monitor.get_resource_monitor") as mock_mon:
             mock_mon.return_value.is_blocked.return_value = True
 
             resp = healthy_client.post(
@@ -223,7 +233,10 @@ class TestAgentSpawnReturnsStructuredError:
 
     def test_spawn_error_reason_concurrent_limit(self, healthy_client):
         """/api/agents/spawn returns 429 when concurrent limit reached."""
-        from app.services.agent_orchestrator import get_agent_orchestrator, AGENT_STATUS_RUNNING
+        from app.services.agent_orchestrator import (
+            get_agent_orchestrator,
+            AGENT_STATUS_RUNNING,
+        )
 
         orch = get_agent_orchestrator()
         # Fill up agents to max_concurrent (default 3)
@@ -263,6 +276,7 @@ class TestAgentSpawnReturnsStructuredError:
 
 
 # ── 5. KB reindex counter updates ────────────────────────────────────────────
+
 
 class TestKbReindexCounterUpdates:
     def test_kb_reindex_jobs_total_has_labels(self):

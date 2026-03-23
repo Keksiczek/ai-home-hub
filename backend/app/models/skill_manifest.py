@@ -1,4 +1,5 @@
 """Skill manifest model for the Skills Marketplace."""
+
 from pydantic import BaseModel
 from typing import Any, List
 

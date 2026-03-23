@@ -1,4 +1,5 @@
 """Tests for agent cycle history."""
+
 import pytest
 from app.services.resident_agent import get_resident_agent, CycleRecord
 

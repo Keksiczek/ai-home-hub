@@ -1,4 +1,5 @@
 """Agent Skills router – filesystem-based skill discovery (SKILL.md)."""
+
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -17,10 +18,13 @@ async def list_agent_skills() -> Dict[str, Any]:
     message = None
     if len(catalog) == 0:
         paths_str = "\n• ".join(scanned) if scanned else "žádné nakonfigurované složky"
-        message = (
-            f"Žádné SKILL.md soubory nenalezeny. Přidej SKILL.md soubory do:\n• {paths_str}"
-        )
-    return {"skills": catalog, "count": len(catalog), "scanned_directories": scanned, "message": message}
+        message = f"Žádné SKILL.md soubory nenalezeny. Přidej SKILL.md soubory do:\n• {paths_str}"
+    return {
+        "skills": catalog,
+        "count": len(catalog),
+        "scanned_directories": scanned,
+        "message": message,
+    }
 
 
 @router.post("/agent-skills/refresh", tags=["agent-skills"])

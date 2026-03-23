@@ -60,7 +60,10 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
 
             logger.error(
                 "Unhandled exception on %s %s [%s]: %s",
-                request.method, request.url.path, rid, exc,
+                request.method,
+                request.url.path,
+                rid,
+                exc,
             )
 
             record = ErrorRecord(

@@ -6,6 +6,7 @@ Covers:
 2. Jobs API returns duration-related timestamp fields (created_at, started_at,
    finished_at) that the frontend uses in formatJobDuration().
 """
+
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -34,6 +35,7 @@ def client() -> TestClient:
 
 # ── Test 1: Resident dashboard error visibility ────────────────────────────────
 
+
 class TestResidentDashboard:
     """The dashboard endpoint must always return a usable JSON payload.
 
@@ -52,10 +54,16 @@ class TestResidentDashboard:
 
         # Fields consumed by renderResidentDashboard() in app.js
         assert "status" in data, "Missing 'status' – UI cannot render status indicator"
-        assert "uptime_seconds" in data, "Missing 'uptime_seconds' – UI cannot render uptime"
-        assert "heartbeat_status" in data, "Missing 'heartbeat_status' – UI cannot render heartbeat badge"
+        assert (
+            "uptime_seconds" in data
+        ), "Missing 'uptime_seconds' – UI cannot render uptime"
+        assert (
+            "heartbeat_status" in data
+        ), "Missing 'heartbeat_status' – UI cannot render heartbeat badge"
         assert "stats_24h" in data, "Missing 'stats_24h' – UI cannot render stat cards"
-        assert "recent_tasks" in data, "Missing 'recent_tasks' – UI cannot render task table"
+        assert (
+            "recent_tasks" in data
+        ), "Missing 'recent_tasks' – UI cannot render task table"
         assert isinstance(data["recent_tasks"], list), "'recent_tasks' must be a list"
 
     def test_dashboard_stats_24h_subkeys(self, client: TestClient):
@@ -69,6 +77,7 @@ class TestResidentDashboard:
 
 # ── Test 2: Jobs duration fields ──────────────────────────────────────────────
 
+
 class TestJobsDuration:
     """Jobs returned by GET /api/jobs must include timestamp fields used by
     the frontend's formatJobDuration() helper.
@@ -79,12 +88,15 @@ class TestJobsDuration:
     """
 
     def _create_job(self, client, title: str = "duration-test") -> dict:
-        resp = client.post("/api/jobs", json={
-            "type": "dummy_long_task",
-            "title": title,
-            "input_summary": "UI polish test",
-            "priority": "low",
-        })
+        resp = client.post(
+            "/api/jobs",
+            json={
+                "type": "dummy_long_task",
+                "title": title,
+                "input_summary": "UI polish test",
+                "priority": "low",
+            },
+        )
         assert resp.status_code == 200, resp.text
         return resp.json()
 
@@ -97,7 +109,9 @@ class TestJobsDuration:
         assert resp.status_code == 200, resp.text
         detail = resp.json()
 
-        assert "created_at" in detail, "Missing 'created_at' – formatJobDuration cannot run"
+        assert (
+            "created_at" in detail
+        ), "Missing 'created_at' – formatJobDuration cannot run"
         # started_at / finished_at are optional before the job runs, but must be present (even null)
         assert "started_at" in detail, "Missing 'started_at' key (may be null)"
         assert "finished_at" in detail, "Missing 'finished_at' key (may be null)"
@@ -117,6 +131,7 @@ class TestJobsDuration:
 
 
 # ── Test 3: Panic/Pause endpoint ──────────────────────────────────────────────
+
 
 class TestResidentPanic:
     """POST /api/resident/mode/pause forces advisor mode (panic button)."""
@@ -145,6 +160,7 @@ class TestResidentPanic:
 
 # ── Test 4: Admin restart / update endpoints ──────────────────────────────────
 
+
 class TestAdminEndpoints:
     """Admin endpoints must return 200 and a status/message payload.
 
@@ -153,7 +169,9 @@ class TestAdminEndpoints:
     """
 
     def test_restart_returns_ok(self, client: TestClient):
-        with patch("app.routers.admin._run_dev_command", new_callable=AsyncMock) as mock_cmd:
+        with patch(
+            "app.routers.admin._run_dev_command", new_callable=AsyncMock
+        ) as mock_cmd:
             resp = client.post("/api/admin/restart")
         assert resp.status_code == 200, resp.text
         data = resp.json()

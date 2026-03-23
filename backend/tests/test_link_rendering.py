@@ -1,11 +1,13 @@
 """Tests for link rendering – file paths and URL patterns in chat responses."""
-import re
 
+import re
 
 # These test the backend regex patterns used for link detection
 URL_REGEX = re.compile(r'https?://[^\s<>"\')\]]+')
-FILE_PATH_REGEX = re.compile(r'(?:/[\w.\-]+){2,}')
-JOB_ID_REGEX = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
+FILE_PATH_REGEX = re.compile(r"(?:/[\w.\-]+){2,}")
+JOB_ID_REGEX = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+)
 
 
 def test_url_detection():

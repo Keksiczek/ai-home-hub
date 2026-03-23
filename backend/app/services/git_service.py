@@ -1,4 +1,5 @@
 """Git service – run git operations via subprocess."""
+
 import asyncio
 import logging
 from typing import Any, Dict, List, Optional
@@ -12,7 +13,8 @@ class GitService:
     async def _run(self, *args: str, cwd: Optional[str] = None) -> str:
         """Run a git command and return stdout, raising on non-zero exit."""
         proc = await asyncio.create_subprocess_exec(
-            "git", *args,
+            "git",
+            *args,
             cwd=cwd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -39,9 +41,7 @@ class GitService:
     async def log(self, repo_path: str, count: int = 10) -> List[Dict[str, str]]:
         """Return recent commit log entries."""
         fmt = "%H\x1f%s\x1f%an\x1f%ar"
-        output = await self._run(
-            "log", f"-{count}", f"--format={fmt}", cwd=repo_path
-        )
+        output = await self._run("log", f"-{count}", f"--format={fmt}", cwd=repo_path)
         commits = []
         for line in output.splitlines():
             parts = line.split("\x1f")
@@ -74,7 +74,9 @@ class GitService:
 
     async def detect_conflicts(self, repo_path: str) -> List[str]:
         """Return list of files with merge conflicts."""
-        output = await self._run("diff", "--name-only", "--diff-filter=U", cwd=repo_path)
+        output = await self._run(
+            "diff", "--name-only", "--diff-filter=U", cwd=repo_path
+        )
         return [f.strip() for f in output.splitlines() if f.strip()]
 
     # ── Write operations ───────────────────────────────────────

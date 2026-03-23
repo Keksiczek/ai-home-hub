@@ -1,4 +1,5 @@
 """Tests for custom profiles CRUD and profile switching."""
+
 from unittest.mock import patch
 
 import pytest
@@ -35,13 +36,16 @@ def test_get_nonexistent_profile(client):
 
 def test_create_custom_profile(client):
     """POST /api/profiles/{id} creates a new custom profile."""
-    res = client.post("/api/profiles/test_profile", json={
-        "name": "Test Profile",
-        "icon": "T",
-        "prompt": "Test system prompt for testing purposes.",
-        "tools": ["kb_search"],
-        "temperature": 0.5,
-    })
+    res = client.post(
+        "/api/profiles/test_profile",
+        json={
+            "name": "Test Profile",
+            "icon": "T",
+            "prompt": "Test system prompt for testing purposes.",
+            "tools": ["kb_search"],
+            "temperature": 0.5,
+        },
+    )
     assert res.status_code == 200
     data = res.json()
     assert data["id"] == "test_profile"
@@ -56,10 +60,13 @@ def test_create_custom_profile(client):
 def test_delete_custom_profile(client):
     """DELETE /api/profiles/{id} removes a profile."""
     # Create first
-    client.post("/api/profiles/to_delete", json={
-        "name": "To Delete",
-        "prompt": "Will be deleted.",
-    })
+    client.post(
+        "/api/profiles/to_delete",
+        json={
+            "name": "To Delete",
+            "prompt": "Will be deleted.",
+        },
+    )
     # Delete
     res = client.delete("/api/profiles/to_delete")
     assert res.status_code == 200

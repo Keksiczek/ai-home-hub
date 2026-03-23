@@ -1,4 +1,5 @@
 """Tests for POST /api/models/pull – SSE streaming download progress."""
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -31,7 +32,9 @@ def test_pull_model_returns_sse_stream(client):
     mock_ctx.__aenter__ = AsyncMock(return_value=mock_client)
     mock_ctx.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("app.services.model_manager_service.httpx.AsyncClient", return_value=mock_ctx):
+    with patch(
+        "app.services.model_manager_service.httpx.AsyncClient", return_value=mock_ctx
+    ):
         resp = client.post("/api/models/pull", json={"name": "llama3.2:3b"})
 
     assert resp.status_code == 200

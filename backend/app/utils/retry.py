@@ -31,6 +31,7 @@ def async_retry(
 
     Backoff schedule: 1s, 1.5s, 2.25s, ...
     """
+
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -44,14 +45,22 @@ def async_retry(
                         delay = backoff_base ** (attempt - 1)
                         logger.warning(
                             "Retry %d/%d for %s after %s (delay %.2fs)",
-                            attempt, max_attempts, func.__name__, exc, delay,
+                            attempt,
+                            max_attempts,
+                            func.__name__,
+                            exc,
+                            delay,
                         )
                         await asyncio.sleep(delay)
                     else:
                         logger.error(
                             "All %d attempts failed for %s: %s",
-                            max_attempts, func.__name__, exc,
+                            max_attempts,
+                            func.__name__,
+                            exc,
                         )
             raise last_exception  # type: ignore[misc]
+
         return wrapper
+
     return decorator

@@ -1,4 +1,5 @@
 """Tests for KB tag-based filtering and the /api/kb/search endpoint."""
+
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -30,21 +31,25 @@ def _make_vs_mock():
     mock.COLLECTION_NAME = "knowledge_base"
     mock.collection = MagicMock()
     mock.client = MagicMock()
-    mock.search_by_tag = AsyncMock(return_value={
-        "ids": ["chunk-1", "chunk-2"],
-        "documents": ["Lean waste: the 7 wastes", "CI pipeline best practices"],
-        "metadatas": [
-            {"tags": '["#lean"]', "file_path": "/docs/lean.md"},
-            {"tags": '["#lean", "#ci"]', "file_path": "/docs/ci.md"},
-        ],
-    })
+    mock.search_by_tag = AsyncMock(
+        return_value={
+            "ids": ["chunk-1", "chunk-2"],
+            "documents": ["Lean waste: the 7 wastes", "CI pipeline best practices"],
+            "metadatas": [
+                {"tags": '["#lean"]', "file_path": "/docs/lean.md"},
+                {"tags": '["#lean", "#ci"]', "file_path": "/docs/ci.md"},
+            ],
+        }
+    )
     mock.add_tags_to_document = AsyncMock(return_value=None)
-    mock.search = MagicMock(return_value={
-        "ids": [],
-        "documents": [],
-        "metadatas": [],
-        "distances": [],
-    })
+    mock.search = MagicMock(
+        return_value={
+            "ids": [],
+            "documents": [],
+            "metadatas": [],
+            "distances": [],
+        }
+    )
     return mock
 
 

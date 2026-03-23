@@ -7,6 +7,7 @@ Covers:
 - multiple files in one batch
 - KB overview endpoint structure
 """
+
 import io
 import sys
 from typing import Any, Dict
@@ -184,7 +185,12 @@ class TestKbUnsupportedFiles:
     def test_exe_file_returns_per_file_error(self, client):
         resp = client.post(
             "/api/knowledge/upload/batch",
-            files=[("files", ("bad.exe", io.BytesIO(b"\x4d\x5a"), "application/octet-stream"))],
+            files=[
+                (
+                    "files",
+                    ("bad.exe", io.BytesIO(b"\x4d\x5a"), "application/octet-stream"),
+                )
+            ],
             data={"mode": "analyze"},
         )
         # Whole request must succeed (200), error is in the result
@@ -216,7 +222,16 @@ class TestKbUnsupportedFiles:
     def test_unsupported_binary_returns_per_file_error_in_index_mode(self, client):
         resp = client.post(
             "/api/knowledge/upload/batch",
-            files=[("files", ("payload.bin", io.BytesIO(b"\x00\x01\x02"), "application/octet-stream"))],
+            files=[
+                (
+                    "files",
+                    (
+                        "payload.bin",
+                        io.BytesIO(b"\x00\x01\x02"),
+                        "application/octet-stream",
+                    ),
+                )
+            ],
             data={"mode": "index", "collection": "default"},
         )
         assert resp.status_code == 200
@@ -227,7 +242,12 @@ class TestKbUnsupportedFiles:
         """When all files are rejected, no job is created."""
         resp = client.post(
             "/api/knowledge/upload/batch",
-            files=[("files", ("bad.exe", io.BytesIO(b"\x4d\x5a"), "application/octet-stream"))],
+            files=[
+                (
+                    "files",
+                    ("bad.exe", io.BytesIO(b"\x4d\x5a"), "application/octet-stream"),
+                )
+            ],
             data={"mode": "index", "collection": "default"},
         )
         assert resp.status_code == 200
@@ -239,17 +259,28 @@ class TestKbOverview:
     """GET /api/knowledge/overview returns a valid structure (mocked KB stats)."""
 
     def test_overview_returns_200_with_mocked_stats(self, client):
-        with patch("app.services.kb_stats_cache.get_cached_stats", return_value=_MOCK_KB_STATS):
+        with patch(
+            "app.services.kb_stats_cache.get_cached_stats", return_value=_MOCK_KB_STATS
+        ):
             resp = client.get("/api/knowledge/overview")
         assert resp.status_code == 200
 
     def test_overview_has_required_fields(self, client):
-        with patch("app.services.kb_stats_cache.get_cached_stats", return_value=_MOCK_KB_STATS):
+        with patch(
+            "app.services.kb_stats_cache.get_cached_stats", return_value=_MOCK_KB_STATS
+        ):
             data = client.get("/api/knowledge/overview").json()
-        for field in ("total_documents", "total_chunks", "storage_size_mb", "collections"):
+        for field in (
+            "total_documents",
+            "total_chunks",
+            "storage_size_mb",
+            "collections",
+        ):
             assert field in data, f"Missing field: {field}"
 
     def test_overview_collections_is_list(self, client):
-        with patch("app.services.kb_stats_cache.get_cached_stats", return_value=_MOCK_KB_STATS):
+        with patch(
+            "app.services.kb_stats_cache.get_cached_stats", return_value=_MOCK_KB_STATS
+        ):
             data = client.get("/api/knowledge/overview").json()
         assert isinstance(data["collections"], list)

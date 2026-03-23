@@ -21,7 +21,6 @@ from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
-
 # ── Per-agent-type guardrails ─────────────────────────────────────────────────
 
 
@@ -49,11 +48,21 @@ SAFE_MODE_GUARDRAILS = AgentGuardrailsConfig(
 )
 
 DEFAULT_AGENT_GUARDRAILS: Dict[str, AgentGuardrailsConfig] = {
-    "general":  AgentGuardrailsConfig(max_steps=8,  max_total_tokens=8_000,  step_timeout_s=30,  max_sub_agent_depth=2),
-    "code":     AgentGuardrailsConfig(max_steps=15, max_total_tokens=32_000, step_timeout_s=300, max_sub_agent_depth=3),
-    "research": AgentGuardrailsConfig(max_steps=12, max_total_tokens=64_000, step_timeout_s=300, max_sub_agent_depth=2),
-    "testing":  AgentGuardrailsConfig(max_steps=8,  max_total_tokens=16_000, step_timeout_s=120, max_sub_agent_depth=2),
-    "devops":   AgentGuardrailsConfig(max_steps=6,  max_total_tokens=8_000,  step_timeout_s=120, max_sub_agent_depth=1),
+    "general": AgentGuardrailsConfig(
+        max_steps=8, max_total_tokens=8_000, step_timeout_s=30, max_sub_agent_depth=2
+    ),
+    "code": AgentGuardrailsConfig(
+        max_steps=15, max_total_tokens=32_000, step_timeout_s=300, max_sub_agent_depth=3
+    ),
+    "research": AgentGuardrailsConfig(
+        max_steps=12, max_total_tokens=64_000, step_timeout_s=300, max_sub_agent_depth=2
+    ),
+    "testing": AgentGuardrailsConfig(
+        max_steps=8, max_total_tokens=16_000, step_timeout_s=120, max_sub_agent_depth=2
+    ),
+    "devops": AgentGuardrailsConfig(
+        max_steps=6, max_total_tokens=8_000, step_timeout_s=120, max_sub_agent_depth=1
+    ),
 }
 
 
@@ -95,11 +104,15 @@ class ResidentGuardrailsConfig(BaseModel):
         for item in v:
             parts = item.split("-")
             if len(parts) != 2:
-                raise ValueError(f"quiet_hours entry must be 'HH:MM-HH:MM', got: {item!r}")
+                raise ValueError(
+                    f"quiet_hours entry must be 'HH:MM-HH:MM', got: {item!r}"
+                )
             for part in parts:
                 h_str, sep, m_str = part.partition(":")
                 if not sep:
-                    raise ValueError(f"Invalid time (missing ':') in quiet_hours: {part!r}")
+                    raise ValueError(
+                        f"Invalid time (missing ':') in quiet_hours: {part!r}"
+                    )
                 if not (h_str.isdigit() and m_str.isdigit()):
                     raise ValueError(f"Invalid time component in quiet_hours: {part!r}")
                 h, m = int(h_str), int(m_str)
@@ -136,7 +149,9 @@ CapabilityRisk = Literal["low", "medium", "high"]
 class CapabilityConfig(BaseModel):
     """Configuration for the system-access capability layer."""
 
-    enabled: bool = Field(False, description="Master switch for system capabilities (default OFF)")
+    enabled: bool = Field(
+        False, description="Master switch for system capabilities (default OFF)"
+    )
     shell_whitelist: List[str] = Field(
         default_factory=list,
         description="Additional whitelisted shell commands (beyond safe defaults)",
@@ -158,7 +173,9 @@ class CapabilityConfig(BaseModel):
         description="Applications allowed to launch",
     )
     approval_timeout_minutes: int = Field(
-        30, ge=5, le=1440,
+        30,
+        ge=5,
+        le=1440,
         description="How long to wait for human approval of high-risk caps",
     )
     sandbox_root: str = Field(
@@ -166,7 +183,9 @@ class CapabilityConfig(BaseModel):
         description="Root directory for sandboxed execution",
     )
     audit_log_retention_days: int = Field(
-        30, ge=1, le=365,
+        30,
+        ge=1,
+        le=365,
         description="How many days to keep audit log entries",
     )
 
@@ -185,9 +204,7 @@ class GlobalGuardrailSettings(BaseModel):
         default_factory=lambda: dict(DEFAULT_AGENT_GUARDRAILS),
         description="Per-agent-type guardrail configs",
     )
-    resident: ResidentGuardrailsConfig = Field(
-        default_factory=ResidentGuardrailsConfig
-    )
+    resident: ResidentGuardrailsConfig = Field(default_factory=ResidentGuardrailsConfig)
     capabilities: CapabilityConfig = Field(
         default_factory=CapabilityConfig,
         description="System-access capability configuration (Full Autonomy)",
@@ -201,16 +218,24 @@ class GlobalGuardrailSettings(BaseModel):
 
     def effective_agent_guardrails(self, agent_type: str) -> AgentGuardrailsConfig:
         """Return guardrails for *agent_type*, applying Safe Mode overrides."""
-        base = self.agent_guardrails.get(agent_type) or self.agent_guardrails.get("general")
+        base = self.agent_guardrails.get(agent_type) or self.agent_guardrails.get(
+            "general"
+        )
         if base is None:
             base = AgentGuardrailsConfig()
         if self.safe_mode:
             # Take the more restrictive of base and safe-mode defaults
             return AgentGuardrailsConfig(
                 max_steps=min(base.max_steps, SAFE_MODE_GUARDRAILS.max_steps),
-                max_total_tokens=min(base.max_total_tokens, SAFE_MODE_GUARDRAILS.max_total_tokens),
-                step_timeout_s=min(base.step_timeout_s, SAFE_MODE_GUARDRAILS.step_timeout_s),
-                max_sub_agent_depth=min(base.max_sub_agent_depth, SAFE_MODE_GUARDRAILS.max_sub_agent_depth),
+                max_total_tokens=min(
+                    base.max_total_tokens, SAFE_MODE_GUARDRAILS.max_total_tokens
+                ),
+                step_timeout_s=min(
+                    base.step_timeout_s, SAFE_MODE_GUARDRAILS.step_timeout_s
+                ),
+                max_sub_agent_depth=min(
+                    base.max_sub_agent_depth, SAFE_MODE_GUARDRAILS.max_sub_agent_depth
+                ),
             )
         return base
 
@@ -241,7 +266,11 @@ def update_guardrail_settings(data: dict) -> GlobalGuardrailSettings:
     """Create/update guardrail settings from a raw dict (from settings.json)."""
     global _guardrail_settings
     guardrails_data = data.get("guardrails", {})
-    _guardrail_settings = GlobalGuardrailSettings(**guardrails_data) if guardrails_data else GlobalGuardrailSettings()
+    _guardrail_settings = (
+        GlobalGuardrailSettings(**guardrails_data)
+        if guardrails_data
+        else GlobalGuardrailSettings()
+    )
     # Also honour top-level resident_mode key for backwards compat
     if "resident_mode" in data and not guardrails_data.get("resident"):
         _guardrail_settings.resident.autonomy_level = data["resident_mode"]

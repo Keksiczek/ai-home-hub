@@ -40,7 +40,8 @@ async def check_ollama(ollama_url: str, timeout: float = 5.0) -> List[str]:
         logger.warning(
             "Ollama at %s did not respond within %.1fs. "
             "App will run in degraded mode.",
-            ollama_url, timeout,
+            ollama_url,
+            timeout,
         )
         return []
     except httpx.HTTPStatusError as exc:
@@ -82,12 +83,14 @@ def validate_models(available: List[str]) -> None:
         logger.warning(
             "Recommended models missing: %s. "
             "Available: %s. You can download them via the Model Manager in UI.",
-            missing, available,
+            missing,
+            available,
         )
     else:
         logger.info(
             "All recommended models present: %s (available: %s)",
-            present, available,
+            present,
+            available,
         )
 
 
@@ -98,6 +101,7 @@ async def check_chromadb() -> str:
     """
     try:
         from app.services.vector_store_service import get_vector_store_service
+
         vs = get_vector_store_service()
         client = vs.client  # access underlying chromadb PersistentClient
 
@@ -141,7 +145,9 @@ async def run_startup_checks(ollama_url: str) -> Dict[str, Any]:
     result: Dict[str, Any] = {}
 
     # 1. Ollama connectivity
-    logger.info("startup_check", extra={"check": "ollama_connectivity", "url": ollama_url})
+    logger.info(
+        "startup_check", extra={"check": "ollama_connectivity", "url": ollama_url}
+    )
     available_models = await check_ollama(ollama_url)
 
     if available_models:
@@ -162,7 +168,8 @@ async def run_startup_checks(ollama_url: str) -> Dict[str, Any]:
         logger.warning(
             "KB nefunkční: spusť `ollama pull %s` a restartuj app. "
             "Using fallback model '%s'.",
-            EMBEDDING_MODEL, EMBEDDING_FALLBACK,
+            EMBEDDING_MODEL,
+            EMBEDDING_FALLBACK,
         )
     elif available_models:
         result["embeddings"] = "unavailable"
@@ -181,6 +188,7 @@ async def run_startup_checks(ollama_url: str) -> Dict[str, Any]:
     # 3. Jobs DB (SQLite)
     try:
         from app.db.jobs_db import get_jobs_db
+
         get_jobs_db()
         result["jobs_db"] = "ok"
     except Exception as exc:

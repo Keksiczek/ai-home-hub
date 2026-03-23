@@ -1,4 +1,5 @@
 """AI Home Hub – FastAPI application entry point."""
+
 import asyncio
 import logging
 import os
@@ -11,7 +12,16 @@ from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
-from app.routers import actions, agent_skills, chat, chat_multimodal, files, knowledge, memory, status
+from app.routers import (
+    actions,
+    agent_skills,
+    chat,
+    chat_multimodal,
+    files,
+    knowledge,
+    memory,
+    status,
+)
 from app.routers import agents, filesystem, integrations, jobs, settings, skills, tasks
 from app.routers import skills_runtime
 from app.routers import profiles as profiles_router
@@ -52,6 +62,7 @@ async def lifespan(app: FastAPI):
 
     # Ensure data directories exist
     from pathlib import Path
+
     base = Path(__file__).parent.parent / "data"
     for subdir in ("sessions", "artifacts", "uploads", "uploads/media", "jobs"):
         (base / subdir).mkdir(parents=True, exist_ok=True)
@@ -61,13 +72,16 @@ async def lifespan(app: FastAPI):
 
     # Initialize Prometheus app info metric
     from app.services.metrics_service import init_app_info
+
     init_app_info(version="0.5.0")
 
     # ── Startup validation ──────────────────────────────────────
     from app.services.startup_checks import run_startup_checks
 
     settings = get_settings_service().load()
-    ollama_url = settings.get("llm", {}).get("ollama_url", "http://localhost:11434").rstrip("/")
+    ollama_url = (
+        settings.get("llm", {}).get("ollama_url", "http://localhost:11434").rstrip("/")
+    )
 
     health = await run_startup_checks(ollama_url)
     settings_service = get_settings_service()
@@ -76,17 +90,28 @@ async def lifespan(app: FastAPI):
 
     # Start KB stats cache background task (4D)
     from app.services.kb_stats_cache import start_kb_stats_refresh_loop
+
     kb_task = asyncio.create_task(start_kb_stats_refresh_loop())
-    _supervisor.register("kb_stats_cache", kb_task, lambda: asyncio.create_task(start_kb_stats_refresh_loop()))
+    _supervisor.register(
+        "kb_stats_cache",
+        kb_task,
+        lambda: asyncio.create_task(start_kb_stats_refresh_loop()),
+    )
 
     # Start session auto-cleanup background task (4G)
     from app.services.session_service import start_session_auto_cleanup
+
     cleanup_task = asyncio.create_task(start_session_auto_cleanup())
-    _supervisor.register("session_cleanup", cleanup_task, lambda: asyncio.create_task(start_session_auto_cleanup()))
+    _supervisor.register(
+        "session_cleanup",
+        cleanup_task,
+        lambda: asyncio.create_task(start_session_auto_cleanup()),
+    )
 
     # Start job worker background task (6D)
     from app.services.job_service import get_job_service
     from app.services.job_worker import start_job_worker
+
     job_worker_task = await start_job_worker(
         job_service=get_job_service(),
         get_settings=get_settings_service().get_job_settings,
@@ -96,6 +121,7 @@ async def lifespan(app: FastAPI):
 
     # Start resource monitor (Phase 2)
     from app.services.resource_monitor import get_resource_monitor
+
     resource_mon = get_resource_monitor()
     resource_mon.set_broadcast(ws_manager.broadcast)
     resource_task = resource_mon.start()
@@ -103,10 +129,12 @@ async def lifespan(app: FastAPI):
 
     # Resident agent – initialize singleton, does NOT auto-start (waits for API call)
     from app.services.resident_agent import get_resident_agent
+
     get_resident_agent().set_broadcast(ws_manager.broadcast)
 
     # Activity service – aggregates live status for the activity bar
     from app.services.activity_service import get_activity_service
+
     activity_svc = get_activity_service()
     activity_svc.set_broadcast(ws_manager.broadcast)
     activity_task = activity_svc.start()
@@ -114,6 +142,7 @@ async def lifespan(app: FastAPI):
 
     # Tailscale Funnel service – exposes the app via Tailscale Funnel (opt-in via settings)
     from app.services.tailscale_service import get_tailscale_service
+
     tailscale_svc = get_tailscale_service()
     tailscale_task = tailscale_svc.start()
     _supervisor.register("tailscale_funnel", tailscale_task, tailscale_svc.start)
@@ -124,6 +153,7 @@ async def lifespan(app: FastAPI):
     async def _on_kb_change() -> None:
         """Enqueue a kb_reindex job on first file change; skip if one is already queued."""
         from app.services.job_service import get_job_service as _get_job_svc
+
         job_svc = _get_job_svc()
         already_queued = job_svc.list_jobs(status="queued", type="kb_reindex")
         if not already_queued:
@@ -142,27 +172,32 @@ async def lifespan(app: FastAPI):
 
     # Start cleanup service (runs every 6h – removes old sessions, archives, vacuums DBs)
     from app.services.cleanup_service import get_cleanup_service
+
     cleanup_svc = get_cleanup_service()
     cleanup_svc_task = cleanup_svc.start()
     _supervisor.register("cleanup_service", cleanup_svc_task, cleanup_svc.start)
 
     # Initialize SQLite jobs database
     from app.db.jobs_db import get_jobs_db
+
     get_jobs_db()
     logger.info("JobsDB (SQLite) initialized")
 
     # Initialize SQLite resident state database
     from app.db.resident_state import get_resident_state_db
+
     get_resident_state_db()
     logger.info("ResidentStateDB (SQLite) initialized")
 
     # Initialize audit log database (Full System Access)
     from app.db.audit_log import get_audit_log_db
+
     get_audit_log_db()
     logger.info("AuditLogDB (SQLite) initialized")
 
     # Ensure sandbox data directory exists
     from pathlib import Path as _Path
+
     (_Path(base) / ".." / "sandbox_data").resolve().mkdir(parents=True, exist_ok=True)
 
     logger.info("AI Home Hub started – Mac Control Center ready")
@@ -188,16 +223,20 @@ app = FastAPI(
 
 # Request ID + structured logging middleware (4B)
 from app.middleware.logging_middleware import RequestIDMiddleware
+
 app.add_middleware(RequestIDMiddleware)
 
 # Global error handler – catches unhandled exceptions → structured 500 JSON
 from app.middleware.error_handler import ErrorHandlerMiddleware
+
 app.add_middleware(ErrorHandlerMiddleware)
+
 
 # CORS – load allowed origins from settings (safe default: localhost only)
 def _get_cors_origins() -> list:
     try:
         from app.services.settings_service import get_settings_service
+
         svc = get_settings_service()
         origins = svc.load().get("cors", {}).get("allowed_origins", [])
         # Auto-include Tailscale URL if configured
@@ -244,7 +283,11 @@ app.include_router(jobs.router, prefix="/api", tags=["jobs"])
 app.include_router(resident_router.router, prefix="/api", tags=["resident"])
 app.include_router(admin_router.router, prefix="/api", tags=["admin"])
 app.include_router(media_router.router, prefix="/api", tags=["media"])
-app.include_router(document_analysis_router.router, prefix="/api/document-analysis", tags=["document-analysis"])
+app.include_router(
+    document_analysis_router.router,
+    prefix="/api/document-analysis",
+    tags=["document-analysis"],
+)
 app.include_router(setup_router.router, prefix="/api", tags=["setup"])
 app.include_router(prompts_router.router, prefix="/api", tags=["prompts"])
 app.include_router(profiles_router.router, prefix="/api", tags=["profiles"])
@@ -263,6 +306,7 @@ app.include_router(ws_router)
 
 # Rate limiting (4F) – must be set up after routes are registered
 from app.middleware.rate_limit import setup_rate_limiting
+
 setup_rate_limiting(app)
 
 
@@ -294,6 +338,7 @@ async def agent_status() -> dict:
 async def agent_history(limit: int = 20) -> dict:
     """Convenience alias for GET /api/resident/history."""
     from app.services.resident_agent import get_resident_agent
+
     agent = get_resident_agent()
     history = agent.get_cycle_history(limit=limit)
     return {"history": history, "count": len(history)}
@@ -303,6 +348,7 @@ async def agent_history(limit: int = 20) -> dict:
 async def agent_history_persistent(limit: int = 50, status: str = None) -> dict:
     """Return persistent cycle history from SQLite (survives restarts)."""
     from app.db.resident_state import get_resident_state_db
+
     db = get_resident_state_db()
     history = db.get_history(limit=limit, status=status)
     stats = db.get_stats()
@@ -313,6 +359,7 @@ async def agent_history_persistent(limit: int = 50, status: str = None) -> dict:
 async def agent_metrics_cached() -> dict:
     """Return cached agent metrics (1-min TTL)."""
     from app.services.resident_agent import get_resident_agent
+
     return get_resident_agent().get_cached_metrics()
 
 
@@ -320,6 +367,7 @@ async def agent_metrics_cached() -> dict:
 async def agent_logs(level: str = None, cycle: str = None, limit: int = 100) -> dict:
     """Convenience alias for GET /api/resident/logs."""
     from app.services.resident_agent import get_resident_agent
+
     agent = get_resident_agent()
     logs = agent.get_logs(level=level, cycle=cycle, limit=limit)
     return {"logs": logs, "count": len(logs)}
@@ -329,6 +377,7 @@ async def agent_logs(level: str = None, cycle: str = None, limit: int = 100) -> 
 async def agent_pause() -> dict:
     """Pause the resident agent."""
     from app.services.resident_agent import get_resident_agent
+
     return await get_resident_agent().pause()
 
 
@@ -336,6 +385,7 @@ async def agent_pause() -> dict:
 async def agent_run_now() -> dict:
     """Trigger an immediate agent cycle."""
     from app.services.resident_agent import get_resident_agent
+
     return await get_resident_agent().run_now()
 
 
@@ -343,6 +393,7 @@ async def agent_run_now() -> dict:
 async def agent_reset() -> dict:
     """Reset agent counters and memory."""
     from app.services.resident_agent import get_resident_agent
+
     return await get_resident_agent().reset()
 
 
@@ -350,6 +401,7 @@ async def agent_reset() -> dict:
 async def agent_settings_patch(updates: dict) -> dict:
     """Update agent runtime settings."""
     from app.services.resident_agent import get_resident_agent
+
     return get_resident_agent().update_agent_settings(updates)
 
 
@@ -357,6 +409,7 @@ async def agent_settings_patch(updates: dict) -> dict:
 async def agent_memory_list(limit: int = 50) -> dict:
     """Get agent memory entries."""
     from app.services.resident_agent import get_resident_agent
+
     items = await get_resident_agent().get_agent_memory(limit=limit)
     return {"memory": items, "count": len(items)}
 
@@ -365,6 +418,7 @@ async def agent_memory_list(limit: int = 50) -> dict:
 async def agent_memory_clear() -> dict:
     """Clear agent memory."""
     from app.services.resident_agent import get_resident_agent
+
     return await get_resident_agent().clear_agent_memory()
 
 
@@ -372,9 +426,11 @@ async def agent_memory_clear() -> dict:
 async def agent_memory_delete_by_id(memory_id: str) -> dict:
     """Delete a single agent memory entry by ID."""
     from app.services.resident_agent import get_resident_agent
+
     result = await get_resident_agent().delete_agent_memory_by_id(memory_id)
     if result.get("status") == "not_found":
         from fastapi import HTTPException
+
         raise HTTPException(status_code=404, detail=f"Memory {memory_id} not found")
     return result
 
@@ -389,11 +445,14 @@ async def agent_memory_add(body: dict) -> dict:
     """
     from fastapi import HTTPException
     from app.services.resident_agent import get_resident_agent
+
     content = body.get("content", "").strip()
     if not content:
         raise HTTPException(status_code=400, detail="'content' is required")
     tags = body.get("tags", [])
-    return await get_resident_agent().add_agent_memory_manual(content=content, tags=tags)
+    return await get_resident_agent().add_agent_memory_manual(
+        content=content, tags=tags
+    )
 
 
 @app.get("/api/health/setup", tags=["health"])
@@ -403,43 +462,52 @@ async def setup_check() -> dict:
     items = []
 
     allowed = s.get("filesystem", {}).get("allowed_directories", [])
-    items.append({
-        "key": "filesystem_dirs",
-        "label": "Filesystem allowed directories",
-        "ok": bool(allowed),
-        "hint": "Add directories in Settings → Filesystem Security",
-    })
+    items.append(
+        {
+            "key": "filesystem_dirs",
+            "label": "Filesystem allowed directories",
+            "ok": bool(allowed),
+            "hint": "Add directories in Settings → Filesystem Security",
+        }
+    )
 
     projects = s.get("integrations", {}).get("vscode", {}).get("projects", {})
-    items.append({
-        "key": "vscode_projects",
-        "label": "VS Code projects",
-        "ok": bool(projects),
-        "hint": "Add projects in Settings → VS Code Projects",
-    })
+    items.append(
+        {
+            "key": "vscode_projects",
+            "label": "VS Code projects",
+            "ok": bool(projects),
+            "hint": "Add projects in Settings → VS Code Projects",
+        }
+    )
 
     llm_provider = s.get("llm", {}).get("provider", "ollama")
-    items.append({
-        "key": "llm_provider",
-        "label": "LLM provider",
-        "ok": True,
-        "hint": f"Current: {llm_provider}. Run 'ollama serve' for Ollama.",
-    })
+    items.append(
+        {
+            "key": "llm_provider",
+            "label": "LLM provider",
+            "ok": True,
+            "hint": f"Current: {llm_provider}. Run 'ollama serve' for Ollama.",
+        }
+    )
 
     # Knowledge Base indexed check
     try:
         from app.services.vector_store_service import get_vector_store_service
+
         vs = get_vector_store_service()
         stats = vs.get_stats()
         kb_chunks = stats.get("total_chunks", 0)
     except Exception:
         kb_chunks = 0
-    items.append({
-        "key": "kb_indexed",
-        "label": "Knowledge Base indexována",
-        "ok": kb_chunks > 0,
-        "hint": f"Chunks: {kb_chunks}. Indexujte dokumenty v Nastavení → Knowledge Base.",
-    })
+    items.append(
+        {
+            "key": "kb_indexed",
+            "label": "Knowledge Base indexována",
+            "ok": kb_chunks > 0,
+            "hint": f"Chunks: {kb_chunks}. Indexujte dokumenty v Nastavení → Knowledge Base.",
+        }
+    )
 
     all_ok = all(i["ok"] for i in items)
     return {"setup_complete": all_ok, "items": items}
@@ -464,6 +532,7 @@ async def health() -> dict:
     # ChromaDB
     try:
         from app.services.vector_store_service import get_vector_store_service
+
         vs = get_vector_store_service()
         vs.get_stats()
         components["chromadb"] = {"status": "ok"}
@@ -477,6 +546,7 @@ async def health() -> dict:
 
     # Tailscale Funnel health
     from app.services.tailscale_service import get_tailscale_service
+
     tailscale_health = get_tailscale_service().get_health()
 
     overall = "ok"
@@ -505,6 +575,7 @@ async def health() -> dict:
 async def health_errors(limit: int = 20) -> dict:
     """Return recent unhandled error records for debugging."""
     from app.middleware.error_handler import get_error_history
+
     errors = get_error_history(limit=limit)
     return {"errors": errors, "count": len(errors)}
 
@@ -513,6 +584,7 @@ async def health_errors(limit: int = 20) -> dict:
 async def health_cleanup() -> dict:
     """Return cleanup service status."""
     from app.services.cleanup_service import get_cleanup_service
+
     return get_cleanup_service().get_status()
 
 
@@ -526,8 +598,10 @@ async def health_live() -> dict:
 async def health_ready():
     """Readiness probe – checks ChromaDB availability."""
     from fastapi.responses import JSONResponse
+
     try:
         from app.services.vector_store_service import get_vector_store_service
+
         vs = get_vector_store_service()
         async with asyncio.timeout(2.0):
             await asyncio.to_thread(vs.get_stats)

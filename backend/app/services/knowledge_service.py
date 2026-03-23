@@ -6,6 +6,7 @@ Supports three source types:
   - local_path: Recursively read local files matching globs
   - url: Fetch and parse HTML pages
 """
+
 import asyncio
 import fnmatch
 import logging
@@ -50,7 +51,9 @@ async def _fetch_github_files(source: Dict[str, Any]) -> List[Dict[str, Any]]:
     async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
         for file_path in paths:
             file_path = file_path.lstrip("/")
-            raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/main/{file_path}"
+            raw_url = (
+                f"https://raw.githubusercontent.com/{owner}/{repo}/main/{file_path}"
+            )
             try:
                 resp = await client.get(raw_url)
                 if resp.status_code == 404:
@@ -61,13 +64,15 @@ async def _fetch_github_files(source: Dict[str, Any]) -> List[Dict[str, Any]]:
                 text = resp.text
                 if len(text) > _MAX_FILE_SIZE:
                     text = text[:_MAX_FILE_SIZE]
-                results.append({
-                    "text": text,
-                    "source": f"github_{repo}_{Path(file_path).name}",
-                    "path": f"/{file_path}",
-                    "type": "documentation",
-                    "file_name": Path(file_path).name,
-                })
+                results.append(
+                    {
+                        "text": text,
+                        "source": f"github_{repo}_{Path(file_path).name}",
+                        "path": f"/{file_path}",
+                        "type": "documentation",
+                        "file_name": Path(file_path).name,
+                    }
+                )
             except Exception as exc:
                 logger.warning("Failed to fetch %s from GitHub: %s", file_path, exc)
 
@@ -99,13 +104,15 @@ async def _fetch_local_files(source: Dict[str, Any]) -> List[Dict[str, Any]]:
                     text = text[:_MAX_FILE_SIZE]
                 if not text.strip():
                     continue
-                results.append({
-                    "text": text,
-                    "source": f"local_{file_path.name}",
-                    "path": str(file_path),
-                    "type": "documentation",
-                    "file_name": file_path.name,
-                })
+                results.append(
+                    {
+                        "text": text,
+                        "source": f"local_{file_path.name}",
+                        "path": str(file_path),
+                        "type": "documentation",
+                        "file_name": file_path.name,
+                    }
+                )
             except Exception as exc:
                 logger.warning("Failed to read local file %s: %s", file_path, exc)
 
@@ -125,8 +132,18 @@ async def _fetch_urls(source: Dict[str, Any]) -> List[Dict[str, Any]]:
                 content = resp.text
 
                 # Basic HTML to text: strip tags
-                text = re.sub(r"<script[^>]*>.*?</script>", "", content, flags=re.DOTALL | re.IGNORECASE)
-                text = re.sub(r"<style[^>]*>.*?</style>", "", text, flags=re.DOTALL | re.IGNORECASE)
+                text = re.sub(
+                    r"<script[^>]*>.*?</script>",
+                    "",
+                    content,
+                    flags=re.DOTALL | re.IGNORECASE,
+                )
+                text = re.sub(
+                    r"<style[^>]*>.*?</style>",
+                    "",
+                    text,
+                    flags=re.DOTALL | re.IGNORECASE,
+                )
                 text = re.sub(r"<[^>]+>", " ", text)
                 text = re.sub(r"\s+", " ", text).strip()
 
@@ -137,13 +154,15 @@ async def _fetch_urls(source: Dict[str, Any]) -> List[Dict[str, Any]]:
 
                 # Derive a short name from URL
                 name = url.rstrip("/").split("/")[-1] or "page"
-                results.append({
-                    "text": text,
-                    "source": f"url_{name}",
-                    "path": url,
-                    "type": "web_content",
-                    "file_name": name,
-                })
+                results.append(
+                    {
+                        "text": text,
+                        "source": f"url_{name}",
+                        "path": url,
+                        "type": "web_content",
+                        "file_name": name,
+                    }
+                )
             except Exception as exc:
                 logger.warning("Failed to fetch URL %s: %s", url, exc)
 
@@ -160,7 +179,9 @@ _SOURCE_FETCHERS = {
 # ── KB initialization ────────────────────────────────────────────
 
 
-async def initialize_kb(sources: List[Dict[str, Any]], collection: str = "knowledge_base") -> Dict[str, Any]:
+async def initialize_kb(
+    sources: List[Dict[str, Any]], collection: str = "knowledge_base"
+) -> Dict[str, Any]:
     """Fetch content from all sources, chunk, embed, and store in KB.
 
     Returns summary with chunks_added, collections used, and biggest file.
@@ -205,7 +226,9 @@ async def initialize_kb(sources: List[Dict[str, Any]], collection: str = "knowle
         text = file_data["text"]
         file_name = file_data["file_name"]
 
-        chunks = chunk_text(text, chunk_size=DEFAULT_CHUNK_SIZE, overlap=DEFAULT_CHUNK_OVERLAP)
+        chunks = chunk_text(
+            text, chunk_size=DEFAULT_CHUNK_SIZE, overlap=DEFAULT_CHUNK_OVERLAP
+        )
         if not chunks:
             continue
 
@@ -219,7 +242,9 @@ async def initialize_kb(sources: List[Dict[str, Any]], collection: str = "knowle
             errors.append(f"{file_name}: All embeddings failed")
             continue
 
-        ids = [f"kb_init:{file_data['source']}:chunk_{idx}" for _, _, idx in valid_items]
+        ids = [
+            f"kb_init:{file_data['source']}:chunk_{idx}" for _, _, idx in valid_items
+        ]
         docs = [chunk for chunk, _, _ in valid_items]
         embs = [emb for _, emb, _ in valid_items]
         metadatas = [
@@ -333,10 +358,13 @@ async def store_job_result(
 
 # ── Singleton ────────────────────────────────────────────────────
 
+
 class KnowledgeService:
     """Facade for KB initialization and job result storage."""
 
-    async def initialize(self, sources: List[Dict[str, Any]], collection: str = "knowledge_base") -> Dict[str, Any]:
+    async def initialize(
+        self, sources: List[Dict[str, Any]], collection: str = "knowledge_base"
+    ) -> Dict[str, Any]:
         return await initialize_kb(sources, collection)
 
     async def store_job_result(self, **kwargs) -> bool:

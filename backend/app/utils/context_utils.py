@@ -28,6 +28,7 @@ async def get_memory_context(message: str, session_id: str = "") -> str:
     """
     try:
         from app.services.memory_service import get_memory_service
+
         svc = get_memory_service()
         if svc.collection.count() == 0:
             return ""
@@ -68,6 +69,7 @@ async def get_kb_context(message: str) -> str:
             return ""
 
         from app.services.vector_store_service import get_vector_store_service
+
         vector_store = get_vector_store_service()
         stats = vector_store.get_stats(detailed=False)
 
@@ -75,6 +77,7 @@ async def get_kb_context(message: str) -> str:
             return ""
 
         from app.services.embeddings_service import get_embeddings_service
+
         embeddings_svc = get_embeddings_service()
         query_embedding = await embeddings_svc.generate_embedding(message)
 

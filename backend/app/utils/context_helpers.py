@@ -38,6 +38,7 @@ async def get_kb_context(message: str) -> str:
             return ""
 
         from app.services.vector_store_service import get_vector_store_service
+
         vector_store = get_vector_store_service()
         stats = vector_store.get_stats()
 
@@ -45,6 +46,7 @@ async def get_kb_context(message: str) -> str:
             return ""
 
         from app.services.embeddings_service import get_embeddings_service
+
         embeddings_svc = get_embeddings_service()
         query_embedding = await embeddings_svc.generate_embedding(message)
 
@@ -91,6 +93,7 @@ async def get_memory_context(message: str) -> MemoryContextResult:
     empty = MemoryContextResult(xml="", items=[])
     try:
         from app.services.memory_service import get_memory_service
+
         svc = get_memory_service()
         if svc.collection.count() == 0:
             return empty
@@ -169,10 +172,7 @@ async def enrich_message(
     # Apply KB context
     kb_context = result_map.get("kb")
     if kb_context:
-        llm_message = (
-            f"{message}\n\n"
-            f"{kb_context}"
-        )
+        llm_message = f"{message}\n\n" f"{kb_context}"
         meta["kb_context_used"] = True
         meta["kb_used"] = True
 

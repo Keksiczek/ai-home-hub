@@ -1,4 +1,5 @@
 """Tests for the extended Prometheus metrics (PR #44)."""
+
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -62,9 +63,13 @@ class TestChatMetrics:
         assert counter is not None
 
     def test_chat_requests_counter_increments(self):
-        before = chat_requests_total.labels(profile="test", model="test-model")._value.get()
+        before = chat_requests_total.labels(
+            profile="test", model="test-model"
+        )._value.get()
         chat_requests_total.labels(profile="test", model="test-model").inc()
-        after = chat_requests_total.labels(profile="test", model="test-model")._value.get()
+        after = chat_requests_total.labels(
+            profile="test", model="test-model"
+        )._value.get()
         assert after == before + 1
 
     def test_chat_latency_histogram_has_model_label(self):

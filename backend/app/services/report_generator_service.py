@@ -1,4 +1,5 @@
 """ReportGeneratorService – generate PDF, HTML reports, and HTML slide decks."""
+
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +23,7 @@ def generate_pdf(markdown_text: str, output_path: str, title: str) -> str:
 
     try:
         from weasyprint import HTML
+
         HTML(string=full_html).write_pdf(output_path)
         logger.info("PDF generated: %s", output_path)
         return output_path
@@ -37,7 +39,9 @@ def generate_pdf(markdown_text: str, output_path: str, title: str) -> str:
         return fallback_path
 
 
-def generate_html_report(result: DocumentAnalysisResult, output_path: str, title: str) -> str:
+def generate_html_report(
+    result: DocumentAnalysisResult, output_path: str, title: str
+) -> str:
     """Build a structured HTML report from DocumentAnalysisResult."""
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
@@ -76,7 +80,9 @@ def generate_html_report(result: DocumentAnalysisResult, output_path: str, title
     # Recommendations
     recs_html = ""
     if result.recommendations:
-        items = "".join(f"<li>{_esc(r)}</li>" for i, r in enumerate(result.recommendations, 1))
+        items = "".join(
+            f"<li>{_esc(r)}</li>" for i, r in enumerate(result.recommendations, 1)
+        )
         recs_html = f"<h2>Recommendations</h2><ol class='recommendations'>{items}</ol>"
 
     body = f"""
@@ -112,7 +118,9 @@ def generate_html_report(result: DocumentAnalysisResult, output_path: str, title
     return output_path
 
 
-def generate_slides_html(result: DocumentAnalysisResult, output_path: str, title: str) -> str:
+def generate_slides_html(
+    result: DocumentAnalysisResult, output_path: str, title: str
+) -> str:
     """Generate a self-contained HTML slide deck with pure CSS navigation."""
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 

@@ -1,4 +1,5 @@
 """Background task supervisor with automatic restart and exponential backoff."""
+
 import asyncio
 import logging
 from collections.abc import Callable
@@ -15,8 +16,13 @@ _sleep = asyncio.sleep
 
 class _TaskEntry:
     __slots__ = (
-        "name", "task", "restart_fn", "restart_count",
-        "last_restart_delay_s", "final_status", "_pending_restart",
+        "name",
+        "task",
+        "restart_fn",
+        "restart_count",
+        "last_restart_delay_s",
+        "final_status",
+        "_pending_restart",
     )
 
     def __init__(
@@ -158,7 +164,7 @@ class TaskSupervisor:
                 return
 
             # Exponential backoff: 1s, 2s, 4s, …, capped at 60s
-            delay = min(2 ** entry.restart_count, _MAX_BACKOFF_S)
+            delay = min(2**entry.restart_count, _MAX_BACKOFF_S)
             entry.last_restart_delay_s = delay
             logger.warning(
                 "TaskSupervisor: task %r failed, restarting in %ds (attempt %d/%d)",

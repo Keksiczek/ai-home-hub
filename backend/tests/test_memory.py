@@ -1,8 +1,8 @@
 """Tests for Shared Memory CRUD and search operations."""
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -18,26 +18,28 @@ def mock_memory_service(monkeypatch):
     svc.add_memory = AsyncMock(return_value="mem_test123456")
 
     # search_memory returns a list of MemoryRecord
-    svc.search_memory = AsyncMock(return_value=[
-        MemoryRecord(
-            id="mem_aaa",
-            text="User prefers short answers in Czech",
-            tags=["preference", "language"],
-            source="ui",
-            importance=8,
-            timestamp="2025-01-01T00:00:00+00:00",
-            distance=0.15,
-        ),
-        MemoryRecord(
-            id="mem_bbb",
-            text="User likes Power BI and DAX",
-            tags=["powerbi"],
-            source="chat_session_1",
-            importance=6,
-            timestamp="2025-01-02T00:00:00+00:00",
-            distance=0.35,
-        ),
-    ])
+    svc.search_memory = AsyncMock(
+        return_value=[
+            MemoryRecord(
+                id="mem_aaa",
+                text="User prefers short answers in Czech",
+                tags=["preference", "language"],
+                source="ui",
+                importance=8,
+                timestamp="2025-01-01T00:00:00+00:00",
+                distance=0.15,
+            ),
+            MemoryRecord(
+                id="mem_bbb",
+                text="User likes Power BI and DAX",
+                tags=["powerbi"],
+                source="chat_session_1",
+                importance=6,
+                timestamp="2025-01-02T00:00:00+00:00",
+                distance=0.35,
+            ),
+        ]
+    )
 
     # get_all_memories returns a list
     svc.get_all_memories.return_value = [
@@ -65,9 +67,7 @@ def mock_memory_service(monkeypatch):
     # update_memory returns True
     svc.update_memory = AsyncMock(return_value=True)
 
-    monkeypatch.setattr(
-        "app.routers.memory.get_memory_service", lambda: svc
-    )
+    monkeypatch.setattr("app.routers.memory.get_memory_service", lambda: svc)
     return svc
 
 
@@ -76,12 +76,15 @@ def mock_memory_service(monkeypatch):
 
 def test_add_memory(client, mock_memory_service):
     """POST /api/memory/add stores a memory and returns its ID."""
-    resp = client.post("/api/memory/add", json={
-        "text": "User prefers short answers in Czech",
-        "tags": ["preference", "language"],
-        "source": "ui",
-        "importance": 8,
-    })
+    resp = client.post(
+        "/api/memory/add",
+        json={
+            "text": "User prefers short answers in Czech",
+            "tags": ["preference", "language"],
+            "source": "ui",
+            "importance": 8,
+        },
+    )
 
     assert resp.status_code == 200
     data = resp.json()
@@ -96,35 +99,47 @@ def test_add_memory(client, mock_memory_service):
 
 def test_add_memory_validation_empty_text(client, mock_memory_service):
     """POST /api/memory/add rejects empty text."""
-    resp = client.post("/api/memory/add", json={
-        "text": "",
-        "tags": [],
-        "importance": 5,
-    })
+    resp = client.post(
+        "/api/memory/add",
+        json={
+            "text": "",
+            "tags": [],
+            "importance": 5,
+        },
+    )
     assert resp.status_code == 422
 
 
 def test_add_memory_validation_importance_range(client, mock_memory_service):
     """POST /api/memory/add rejects importance outside 1-10."""
-    resp = client.post("/api/memory/add", json={
-        "text": "Some memory",
-        "importance": 11,
-    })
+    resp = client.post(
+        "/api/memory/add",
+        json={
+            "text": "Some memory",
+            "importance": 11,
+        },
+    )
     assert resp.status_code == 422
 
-    resp = client.post("/api/memory/add", json={
-        "text": "Some memory",
-        "importance": 0,
-    })
+    resp = client.post(
+        "/api/memory/add",
+        json={
+            "text": "Some memory",
+            "importance": 0,
+        },
+    )
     assert resp.status_code == 422
 
 
 def test_search_memory(client, mock_memory_service):
     """POST /api/memory/search returns relevant results with distance."""
-    resp = client.post("/api/memory/search", json={
-        "query": "Czech language preference",
-        "top_k": 5,
-    })
+    resp = client.post(
+        "/api/memory/search",
+        json={
+            "query": "Czech language preference",
+            "top_k": 5,
+        },
+    )
 
     assert resp.status_code == 200
     data = resp.json()
@@ -137,11 +152,14 @@ def test_search_memory(client, mock_memory_service):
 
 def test_search_memory_with_filters(client, mock_memory_service):
     """POST /api/memory/search passes filters to service."""
-    resp = client.post("/api/memory/search", json={
-        "query": "powerbi",
-        "top_k": 3,
-        "filters": {"tags": ["powerbi"]},
-    })
+    resp = client.post(
+        "/api/memory/search",
+        json={
+            "query": "powerbi",
+            "top_k": 3,
+            "filters": {"tags": ["powerbi"]},
+        },
+    )
 
     assert resp.status_code == 200
     mock_memory_service.search_memory.assert_called_once_with(
@@ -184,11 +202,14 @@ def test_delete_memory_not_found(client, mock_memory_service):
 
 def test_update_memory(client, mock_memory_service):
     """PUT /api/memory/{id} updates text/tags/importance."""
-    resp = client.put("/api/memory/mem_aaa", json={
-        "text": "Updated memory text",
-        "tags": ["updated"],
-        "importance": 10,
-    })
+    resp = client.put(
+        "/api/memory/mem_aaa",
+        json={
+            "text": "Updated memory text",
+            "tags": ["updated"],
+            "importance": 10,
+        },
+    )
 
     assert resp.status_code == 200
     data = resp.json()
@@ -203,9 +224,12 @@ def test_update_memory(client, mock_memory_service):
 
 def test_update_memory_partial(client, mock_memory_service):
     """PUT /api/memory/{id} allows partial updates."""
-    resp = client.put("/api/memory/mem_aaa", json={
-        "importance": 9,
-    })
+    resp = client.put(
+        "/api/memory/mem_aaa",
+        json={
+            "importance": 9,
+        },
+    )
 
     assert resp.status_code == 200
     mock_memory_service.update_memory.assert_called_once_with(
@@ -220,9 +244,12 @@ def test_update_memory_not_found(client, mock_memory_service):
     """PUT /api/memory/{id} returns 404 for unknown ID."""
     mock_memory_service.update_memory = AsyncMock(return_value=False)
 
-    resp = client.put("/api/memory/mem_nonexistent", json={
-        "text": "Updated text",
-    })
+    resp = client.put(
+        "/api/memory/mem_nonexistent",
+        json={
+            "text": "Updated text",
+        },
+    )
 
     assert resp.status_code == 404
 
@@ -231,10 +258,13 @@ def test_filters_tag_search(client, mock_memory_service):
     """POST /api/memory/search with tag filter passes correct filters."""
     mock_memory_service.search_memory = AsyncMock(return_value=[])
 
-    resp = client.post("/api/memory/search", json={
-        "query": "anything",
-        "filters": {"tags": ["preference", "language"]},
-    })
+    resp = client.post(
+        "/api/memory/search",
+        json={
+            "query": "anything",
+            "filters": {"tags": ["preference", "language"]},
+        },
+    )
 
     assert resp.status_code == 200
     assert resp.json()["count"] == 0
@@ -257,9 +287,12 @@ def test_summarize_session_empty(client, mock_memory_service, monkeypatch):
         "app.services.session_service.get_session_service", lambda: mock_session_svc
     )
 
-    resp = client.post("/api/memory/summarize-session", json={
-        "session_id": "test-session",
-    })
+    resp = client.post(
+        "/api/memory/summarize-session",
+        json={
+            "session_id": "test-session",
+        },
+    )
 
     assert resp.status_code == 400
     assert "No messages" in resp.json()["detail"]
@@ -273,9 +306,12 @@ def test_summarize_session_not_found(client, mock_memory_service, monkeypatch):
         "app.services.session_service.get_session_service", lambda: mock_session_svc
     )
 
-    resp = client.post("/api/memory/summarize-session", json={
-        "session_id": "nonexistent",
-    })
+    resp = client.post(
+        "/api/memory/summarize-session",
+        json={
+            "session_id": "nonexistent",
+        },
+    )
 
     assert resp.status_code == 404
 
@@ -293,20 +329,23 @@ def test_summarize_session_creates_memories(client, mock_memory_service, monkeyp
     )
 
     mock_llm = MagicMock()
-    mock_llm.generate = AsyncMock(return_value=(
-        "Uživatel rád používá Power BI\nUživatel se zajímá o datové nástroje",
-        {"provider": "ollama"},
-    ))
-    monkeypatch.setattr(
-        "app.services.llm_service.get_llm_service", lambda: mock_llm
+    mock_llm.generate = AsyncMock(
+        return_value=(
+            "Uživatel rád používá Power BI\nUživatel se zajímá o datové nástroje",
+            {"provider": "ollama"},
+        )
     )
+    monkeypatch.setattr("app.services.llm_service.get_llm_service", lambda: mock_llm)
 
     # add_memory returns different IDs for each call
     mock_memory_service.add_memory = AsyncMock(side_effect=["mem_s1", "mem_s2"])
 
-    resp = client.post("/api/memory/summarize-session", json={
-        "session_id": "test-session",
-    })
+    resp = client.post(
+        "/api/memory/summarize-session",
+        json={
+            "session_id": "test-session",
+        },
+    )
 
     assert resp.status_code == 200
     data = resp.json()

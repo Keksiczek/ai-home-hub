@@ -1,4 +1,5 @@
 """Task manager – background asyncio tasks with WebSocket progress broadcasting."""
+
 import asyncio
 import logging
 import uuid
@@ -16,7 +17,9 @@ STATUS_CANCELLED = "cancelled"
 
 
 class TaskRecord:
-    def __init__(self, task_id: str, name: str, task_type: str, params: Dict[str, Any]) -> None:
+    def __init__(
+        self, task_id: str, name: str, task_type: str, params: Dict[str, Any]
+    ) -> None:
         self.task_id = task_id
         self.name = name
         self.task_type = task_type
@@ -104,7 +107,9 @@ class TaskManager:
         logger.info("Task %s (%s) created", task_id, name)
         return task_id
 
-    async def update_progress(self, task_id: str, progress: int, message: Optional[str] = None) -> None:
+    async def update_progress(
+        self, task_id: str, progress: int, message: Optional[str] = None
+    ) -> None:
         """Update task progress from within the running coroutine."""
         record = self._tasks.get(task_id)
         if record:

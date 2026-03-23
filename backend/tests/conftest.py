@@ -1,4 +1,5 @@
 """Shared pytest fixtures for the ai-home-hub backend test suite."""
+
 import sys
 from typing import Any, Dict
 from unittest.mock import AsyncMock, MagicMock, patch

@@ -1,4 +1,5 @@
 """Tests for structured logging integration (structlog)."""
+
 import pytest
 from app.services.resident_agent import get_resident_agent, LogEntry, CycleRecord
 
@@ -6,6 +7,7 @@ from app.services.resident_agent import get_resident_agent, LogEntry, CycleRecor
 def test_structlog_import():
     """structlog is importable and configured."""
     import structlog
+
     log = structlog.get_logger("resident_agent")
     assert log is not None
 
@@ -41,6 +43,7 @@ def test_log_levels():
 def test_log_ring_buffer_limit():
     """Log ring buffer respects MAX_LOG_ENTRIES."""
     from app.services.resident_agent import MAX_LOG_ENTRIES
+
     agent = get_resident_agent()
     agent._log_entries.clear()
     for i in range(MAX_LOG_ENTRIES + 50):
@@ -51,15 +54,18 @@ def test_log_ring_buffer_limit():
 def test_cycle_history_ring_buffer():
     """Cycle history respects MAX_CYCLE_HISTORY."""
     from app.services.resident_agent import MAX_CYCLE_HISTORY
+
     agent = get_resident_agent()
     agent._cycle_history.clear()
     for i in range(MAX_CYCLE_HISTORY + 10):
-        agent._add_cycle_record(CycleRecord(
-            cycle_id=f"cycle-{i:04d}",
-            cycle_number=i,
-            timestamp="2025-01-01T00:00:00Z",
-            status="success",
-        ))
+        agent._add_cycle_record(
+            CycleRecord(
+                cycle_id=f"cycle-{i:04d}",
+                cycle_number=i,
+                timestamp="2025-01-01T00:00:00Z",
+                status="success",
+            )
+        )
     assert len(agent._cycle_history) == MAX_CYCLE_HISTORY
 
 
@@ -67,12 +73,17 @@ def test_reset_clears_logs_and_history():
     """Agent reset clears logs and cycle history."""
     agent = get_resident_agent()
     agent._add_log("INFO", "pre_reset")
-    agent._add_cycle_record(CycleRecord(
-        cycle_id="cycle-0001", cycle_number=1,
-        timestamp="2025-01-01T00:00:00Z", status="success",
-    ))
+    agent._add_cycle_record(
+        CycleRecord(
+            cycle_id="cycle-0001",
+            cycle_number=1,
+            timestamp="2025-01-01T00:00:00Z",
+            status="success",
+        )
+    )
 
     import asyncio
+
     asyncio.get_event_loop().run_until_complete(agent.reset())
 
     # After reset, the only log should be the "agent_reset" log

@@ -1,4 +1,5 @@
 """Tests for response quality improvements (5H)."""
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -24,8 +25,11 @@ def _patch_settings():
     mock_cb.record_failure = AsyncMock()
     mock_cb.recovery_timeout = 30.0
 
-    with patch("app.services.llm_service.get_settings_service", return_value=mock_svc), \
-         patch("app.services.llm_service.get_ollama_circuit_breaker", return_value=mock_cb):
+    with patch(
+        "app.services.llm_service.get_settings_service", return_value=mock_svc
+    ), patch(
+        "app.services.llm_service.get_ollama_circuit_breaker", return_value=mock_cb
+    ):
         yield mock_svc
 
 
@@ -46,9 +50,13 @@ async def test_empty_response_triggers_retry():
             return ""  # First call returns empty
         return "Actual response"
 
-    with patch("app.services.llm_service._call_ollama_with_retry", side_effect=_fake_call):
+    with patch(
+        "app.services.llm_service._call_ollama_with_retry", side_effect=_fake_call
+    ):
         svc = LLMService()
-        reply, meta = await svc._generate_ollama("test", "general", [], svc._settings.get_llm_config())
+        reply, meta = await svc._generate_ollama(
+            "test", "general", [], svc._settings.get_llm_config()
+        )
 
     assert reply == "Actual response"
     assert call_count == 2  # 1 initial + 1 retry
@@ -62,9 +70,13 @@ async def test_empty_response_fallback_after_retries():
     async def _always_empty(ollama_url, payload, timeout):
         return ""
 
-    with patch("app.services.llm_service._call_ollama_with_retry", side_effect=_always_empty):
+    with patch(
+        "app.services.llm_service._call_ollama_with_retry", side_effect=_always_empty
+    ):
         svc = LLMService()
-        reply, meta = await svc._generate_ollama("test", "general", [], svc._settings.get_llm_config())
+        reply, meta = await svc._generate_ollama(
+            "test", "general", [], svc._settings.get_llm_config()
+        )
 
     assert "nevrátil odpověď" in reply.lower() or "nevratil" in reply.lower()
     assert meta.get("empty_response_fallback") is True
@@ -103,7 +115,9 @@ def test_comparison_hint_added():
     """Messages with comparison keywords should get table/list hint."""
     from app.services.llm_service import LLMService
 
-    result = LLMService._add_structured_hints("Base prompt.", "Porovnej Python a JavaScript")
+    result = LLMService._add_structured_hints(
+        "Base prompt.", "Porovnej Python a JavaScript"
+    )
     assert "tabulku" in result.lower() or "seznam" in result.lower()
 
 
@@ -111,7 +125,9 @@ def test_step_hint_added():
     """Messages with how-to keywords should get numbered steps hint."""
     from app.services.llm_service import LLMService
 
-    result = LLMService._add_structured_hints("Base prompt.", "Jak nainstalovat Docker?")
+    result = LLMService._add_structured_hints(
+        "Base prompt.", "Jak nainstalovat Docker?"
+    )
     assert "číslovaný" in result.lower() or "kroků" in result.lower()
 
 
@@ -135,6 +151,7 @@ def test_kb_context_uses_xml_tags():
     # Since get_kb_context uses ChromaDB, we just verify the format expectation
     # by checking the source code pattern
     import inspect
+
     source = inspect.getsource(get_kb_context)
     assert "kb_context" in source
     assert "relevance" in source
@@ -145,7 +162,9 @@ async def test_auto_translate_disabled():
     """When auto_translate_to_czech is False, no translation should happen."""
     from app.services.llm_service import LLMService
 
-    english_reply = " ".join(["This is a long English response about programming."] * 10)
+    english_reply = " ".join(
+        ["This is a long English response about programming."] * 10
+    )
 
     call_count = 0
 
@@ -169,11 +188,17 @@ async def test_auto_translate_disabled():
     mock_cb.record_failure = AsyncMock()
     mock_cb.recovery_timeout = 30.0
 
-    with patch("app.services.llm_service.get_settings_service", return_value=mock_svc), \
-         patch("app.services.llm_service.get_ollama_circuit_breaker", return_value=mock_cb), \
-         patch("app.services.llm_service._call_ollama_with_retry", side_effect=_fake_call):
+    with patch(
+        "app.services.llm_service.get_settings_service", return_value=mock_svc
+    ), patch(
+        "app.services.llm_service.get_ollama_circuit_breaker", return_value=mock_cb
+    ), patch(
+        "app.services.llm_service._call_ollama_with_retry", side_effect=_fake_call
+    ):
         svc = LLMService()
-        reply, meta = await svc._generate_ollama("test", "general", [], svc._settings.get_llm_config())
+        reply, meta = await svc._generate_ollama(
+            "test", "general", [], svc._settings.get_llm_config()
+        )
 
     # Should only have 1 call (no translation call)
     assert call_count == 1

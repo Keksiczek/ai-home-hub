@@ -1,4 +1,5 @@
 """Tests for ShellSkill whitelist enforcement."""
+
 import pytest
 from app.services.skills_runtime_service import ShellSkill
 

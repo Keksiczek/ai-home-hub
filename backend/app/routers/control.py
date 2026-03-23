@@ -6,6 +6,7 @@ Provides:
 - POST /api/control/shutdown-graceful     – graceful SIGTERM shutdown
 - POST /api/control/kb/purge-cache        – purge KB stats cache
 """
+
 import asyncio
 import csv
 import io
@@ -27,10 +28,13 @@ from app.services.resident_agent import get_resident_agent  # noqa: E402
 from app.db.resident_state import get_resident_state_db  # noqa: E402
 from app.services import kb_stats_cache as _kb_stats_cache_mod  # noqa: E402
 
-GRACEFUL_SHUTDOWN_ENABLED = os.environ.get("ENABLE_GRACEFUL_SHUTDOWN", "true").lower() != "false"
+GRACEFUL_SHUTDOWN_ENABLED = (
+    os.environ.get("ENABLE_GRACEFUL_SHUTDOWN", "true").lower() != "false"
+)
 
 
 # ── Force Resident Cycle ─────────────────────────────────────
+
 
 @router.post("/resident/force-cycle")
 async def force_resident_cycle() -> dict:
@@ -64,7 +68,10 @@ async def force_resident_cycle() -> dict:
             agent._force_cycle_event.set()
             return {"status": "triggered", "message": "Force cycle event set"}
 
-        return {"status": "noop", "message": "Agent does not support force-cycle signal"}
+        return {
+            "status": "noop",
+            "message": "Agent does not support force-cycle signal",
+        }
     except Exception as exc:
         logger.error("Force cycle error: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
@@ -73,8 +80,16 @@ async def force_resident_cycle() -> dict:
 # ── History CSV Export ────────────────────────────────────────
 
 _CSV_COLUMNS = [
-    "id", "timestamp", "cycle_id", "cycle_number", "status",
-    "action_type", "action_target", "output_preview", "duration_ms", "error",
+    "id",
+    "timestamp",
+    "cycle_id",
+    "cycle_number",
+    "status",
+    "action_type",
+    "action_target",
+    "output_preview",
+    "duration_ms",
+    "error",
 ]
 
 
@@ -122,6 +137,7 @@ async def download_history_csv(
 
 # ── Graceful Shutdown ─────────────────────────────────────────
 
+
 class ShutdownRequest(BaseModel):
     reason: str = "User-initiated graceful shutdown"
     delay_seconds: int = 2
@@ -143,7 +159,9 @@ async def graceful_shutdown(req: ShutdownRequest) -> dict:
         )
 
     delay = max(1, min(req.delay_seconds, 30))
-    logger.warning("Graceful shutdown requested: reason='%s' delay=%ds", req.reason, delay)
+    logger.warning(
+        "Graceful shutdown requested: reason='%s' delay=%ds", req.reason, delay
+    )
 
     async def _send_sigterm():
         await asyncio.sleep(delay)
@@ -160,6 +178,7 @@ async def graceful_shutdown(req: ShutdownRequest) -> dict:
 
 
 # ── KB Cache Purge ────────────────────────────────────────────
+
 
 @router.post("/kb/purge-cache")
 async def purge_kb_cache() -> dict:

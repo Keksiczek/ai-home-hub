@@ -1,4 +1,5 @@
 """Job service – persistent job queue with JSON storage."""
+
 import json
 import logging
 import threading
@@ -25,7 +26,9 @@ class Job(BaseModel):
     input_summary: str = ""
     payload: Dict[str, Any] = Field(default_factory=dict)
     priority: str = "normal"  # "high" | "normal" | "low"
-    status: str = "queued"  # "queued" | "running" | "paused" | "succeeded" | "failed" | "cancelled"
+    status: str = (
+        "queued"  # "queued" | "running" | "paused" | "succeeded" | "failed" | "cancelled"
+    )
     progress: float = 0.0  # 0–100
     created_at: str = Field(default_factory=lambda: _now())
     started_at: Optional[str] = None
@@ -171,7 +174,9 @@ class JobService:
         return {
             "tasks_total": total,
             "success_rate": round(succeeded / total, 2) if total > 0 else 0.0,
-            "avg_task_duration_s": round(sum(durations) / len(durations), 1) if durations else 0.0,
+            "avg_task_duration_s": (
+                round(sum(durations) / len(durations), 1) if durations else 0.0
+            ),
         }
 
     def delete_job(self, job_id: str) -> bool:

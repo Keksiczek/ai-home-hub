@@ -1,4 +1,5 @@
 """Claude MCP service – interface with Claude Desktop MCP servers."""
+
 import asyncio
 import json
 import logging
@@ -38,7 +39,9 @@ class ClaudeMCPService:
 
     # ── HTTP mode ──────────────────────────────────────────────
 
-    async def call_tool_http(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    async def call_tool_http(
+        self, tool_name: str, arguments: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Call an MCP tool via HTTP endpoint."""
         endpoint = self._cfg().get("http_endpoint", "http://localhost:3000")
         url = f"{endpoint}/tools/{tool_name}"
@@ -54,7 +57,9 @@ class ClaudeMCPService:
 
     # ── Unified tool caller ────────────────────────────────────
 
-    async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    async def call_tool(
+        self, tool_name: str, arguments: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Call any MCP tool, routing to the configured connection type."""
         if not self._is_enabled():
             return {
@@ -84,10 +89,12 @@ class ClaudeMCPService:
 
     # ── Convenience wrappers ───────────────────────────────────
 
-    async def github_create_issue(self, repo: str, title: str, body: str) -> Dict[str, Any]:
-        return await self.call_tool("github_create_issue", {
-            "repository": repo, "title": title, "body": body
-        })
+    async def github_create_issue(
+        self, repo: str, title: str, body: str
+    ) -> Dict[str, Any]:
+        return await self.call_tool(
+            "github_create_issue", {"repository": repo, "title": title, "body": body}
+        )
 
     async def github_list_issues(self, repo: str) -> Dict[str, Any]:
         return await self.call_tool("github_list_issues", {"repository": repo})
@@ -96,7 +103,9 @@ class ClaudeMCPService:
         return await self.call_tool("filesystem_read", {"path": path})
 
     async def filesystem_search(self, path: str, pattern: str) -> Dict[str, Any]:
-        return await self.call_tool("filesystem_search", {"path": path, "pattern": pattern})
+        return await self.call_tool(
+            "filesystem_search", {"path": path, "pattern": pattern}
+        )
 
     async def browser_navigate(self, url: str) -> Dict[str, Any]:
         return await self.call_tool("puppeteer_navigate", {"url": url})

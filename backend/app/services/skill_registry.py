@@ -1,4 +1,5 @@
 """Builtin skill registry – manifest definitions for all built-in runtime skills."""
+
 from typing import Dict, List, Optional
 
 from app.models.skill_manifest import SkillInputField, SkillManifest

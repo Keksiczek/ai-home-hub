@@ -1,4 +1,5 @@
 """Tests for TaskSupervisor: registration, error detection, restart, backoff, stop_all."""
+
 import asyncio
 from unittest.mock import AsyncMock, patch
 
@@ -6,10 +7,10 @@ import pytest
 
 from app.services.task_supervisor import TaskSupervisor, _MAX_RESTARTS, _MAX_BACKOFF_S
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 async def _long_task() -> None:
     """Never finishes on its own – must be cancelled."""
@@ -24,6 +25,7 @@ async def _failing_task() -> None:
 # ---------------------------------------------------------------------------
 # Test 1 – registered task is visible as "running"
 # ---------------------------------------------------------------------------
+
 
 async def test_running_task_shows_running_status() -> None:
     sup = TaskSupervisor()
@@ -42,6 +44,7 @@ async def test_running_task_shows_running_status() -> None:
 # Test 2 – task that raises ends up with "error" status
 # ---------------------------------------------------------------------------
 
+
 async def test_failing_task_shows_error_status() -> None:
     sup = TaskSupervisor()
     task = asyncio.create_task(_failing_task())
@@ -57,6 +60,7 @@ async def test_failing_task_shows_error_status() -> None:
 # ---------------------------------------------------------------------------
 # Test 3a – task with restart_fn is restarted after backoff delay
 # ---------------------------------------------------------------------------
+
 
 async def test_failed_task_is_restarted() -> None:
     sup = TaskSupervisor()
@@ -86,6 +90,7 @@ async def test_failed_task_is_restarted() -> None:
 # Test 3b – after exhausting _MAX_RESTARTS the status becomes "error"
 # ---------------------------------------------------------------------------
 
+
 async def test_max_restarts_reached_marks_error() -> None:
     sup = TaskSupervisor()
     restart_count = 0
@@ -111,6 +116,7 @@ async def test_max_restarts_reached_marks_error() -> None:
 # Test 4 – stop_all cancels every running task
 # ---------------------------------------------------------------------------
 
+
 async def test_stop_all_cancels_all_tasks() -> None:
     sup = TaskSupervisor()
     t1 = asyncio.create_task(_long_task())
@@ -124,14 +130,15 @@ async def test_stop_all_cancels_all_tasks() -> None:
     await sup.stop_all()
 
     statuses = sup.status()
-    assert all(s["status"] != "running" for s in statuses.values()), (
-        f"Expected no running tasks after stop_all, got: {statuses}"
-    )
+    assert all(
+        s["status"] != "running" for s in statuses.values()
+    ), f"Expected no running tasks after stop_all, got: {statuses}"
 
 
 # ---------------------------------------------------------------------------
 # Test 5 – cancelled task shows "cancelled", not "error"
 # ---------------------------------------------------------------------------
+
 
 async def test_cancelled_task_shows_cancelled_status() -> None:
     sup = TaskSupervisor()
@@ -149,6 +156,7 @@ async def test_cancelled_task_shows_cancelled_status() -> None:
 # Test 6 – normally completing task shows "done"
 # ---------------------------------------------------------------------------
 
+
 async def test_completed_task_shows_done_status() -> None:
     sup = TaskSupervisor()
 
@@ -165,6 +173,7 @@ async def test_completed_task_shows_done_status() -> None:
 # ---------------------------------------------------------------------------
 # Test 7 – backoff delay grows exponentially (1s → 2s → 4s)
 # ---------------------------------------------------------------------------
+
 
 async def test_backoff_delay_grows_exponentially() -> None:
     """Verify that the backoff sequence is 1, 2, 4 seconds."""
@@ -195,18 +204,20 @@ async def test_backoff_delay_grows_exponentially() -> None:
 # Test 8 – backoff delay is capped at _MAX_BACKOFF_S (60s)
 # ---------------------------------------------------------------------------
 
+
 async def test_backoff_delay_capped_at_max() -> None:
     """Delay must never exceed _MAX_BACKOFF_S even after many failures."""
     # _MAX_BACKOFF_S = 60, and 2**6 = 64 > 60 so cap kicks in at attempt 6
     # We only have _MAX_RESTARTS=3 but we can verify the cap formula directly
     assert _MAX_BACKOFF_S == 60
-    assert min(2 ** 6, _MAX_BACKOFF_S) == 60
-    assert min(2 ** 10, _MAX_BACKOFF_S) == 60
+    assert min(2**6, _MAX_BACKOFF_S) == 60
+    assert min(2**10, _MAX_BACKOFF_S) == 60
 
 
 # ---------------------------------------------------------------------------
 # Test 9 – restart_count increments correctly in status()
 # ---------------------------------------------------------------------------
+
 
 async def test_restart_count_in_status() -> None:
     """status() must report correct restart_count after one restart."""
@@ -231,6 +242,7 @@ async def test_restart_count_in_status() -> None:
 # ---------------------------------------------------------------------------
 # Test 10 – last_restart_delay_s reflects the delay used for most recent restart
 # ---------------------------------------------------------------------------
+
 
 async def test_last_restart_delay_s_in_status() -> None:
     """status() must expose the backoff delay used for the last restart."""

@@ -1,4 +1,5 @@
 """Tests for agent structured log filtering."""
+
 import pytest
 from app.services.resident_agent import get_resident_agent, LogEntry
 

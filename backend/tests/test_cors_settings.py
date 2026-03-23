@@ -1,4 +1,5 @@
 """Tests for CORS settings endpoint: GET and PATCH /api/settings/cors."""
+
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -26,6 +27,7 @@ def client():
 # Test 1 – GET /api/settings/cors returns allowed_origins list
 # ---------------------------------------------------------------------------
 
+
 def test_get_cors_returns_allowed_origins(client):
     resp = client.get("/api/settings/cors")
     assert resp.status_code == 200
@@ -37,6 +39,7 @@ def test_get_cors_returns_allowed_origins(client):
 # ---------------------------------------------------------------------------
 # Test 2 – PATCH with valid origins updates settings
 # ---------------------------------------------------------------------------
+
 
 def test_patch_cors_valid_origins(client):
     origins = ["http://localhost:8000", "https://myapp.ts.net"]
@@ -59,6 +62,7 @@ def test_patch_cors_valid_origins(client):
 # Test 3 – PATCH with invalid URL returns 422
 # ---------------------------------------------------------------------------
 
+
 def test_patch_cors_invalid_url_returns_422(client):
     resp = client.patch(
         "/api/settings/cors",
@@ -70,6 +74,7 @@ def test_patch_cors_invalid_url_returns_422(client):
 # ---------------------------------------------------------------------------
 # Test 4 – PATCH with non-list body returns 400
 # ---------------------------------------------------------------------------
+
 
 def test_patch_cors_non_list_returns_400(client):
     resp = client.patch(

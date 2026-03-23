@@ -1,4 +1,5 @@
 """Session service – persists conversation history as JSON files."""
+
 import asyncio
 import json
 import logging
@@ -38,9 +39,9 @@ class SessionService:
     def list_sessions(self) -> List[Dict[str, Any]]:
         """Return metadata for all sessions, sorted by modification time (newest first)."""
         result = []
-        for f in sorted(SESSIONS_DIR.glob("*.json"),
-                        key=lambda p: p.stat().st_mtime,
-                        reverse=True):
+        for f in sorted(
+            SESSIONS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True
+        ):
             try:
                 data = self._read_raw(f.stem)
                 messages = data.get("messages", [])
@@ -53,13 +54,15 @@ class SessionService:
                         preview = content[:50]
                         break
 
-                result.append({
-                    "session_id": data["session_id"],
-                    "created_at": data.get("created_at", ""),
-                    "updated_at": f.stat().st_mtime,
-                    "message_count": len(messages),
-                    "preview": preview + ("..." if len(preview) == 50 else ""),
-                })
+                result.append(
+                    {
+                        "session_id": data["session_id"],
+                        "created_at": data.get("created_at", ""),
+                        "updated_at": f.stat().st_mtime,
+                        "message_count": len(messages),
+                        "preview": preview + ("..." if len(preview) == 50 else ""),
+                    }
+                )
             except Exception as e:
                 logger.warning("Failed to load session %s: %s", f, e)
                 continue
@@ -74,7 +77,9 @@ class SessionService:
 
     # ── Message management ────────────────────────────────────
 
-    def save_message(self, session_id: str, role: str, content: str, meta: Optional[Dict] = None) -> None:
+    def save_message(
+        self, session_id: str, role: str, content: str, meta: Optional[Dict] = None
+    ) -> None:
         """Append a message to the session history."""
         if not self.session_exists(session_id):
             self.create_session()
@@ -122,8 +127,11 @@ class SessionService:
         if max_messages_before_summary is None:
             try:
                 from app.services.settings_service import get_settings_service
+
                 settings = get_settings_service().load()
-                max_messages_before_summary = settings.get("session_max_messages_before_summary", 20)
+                max_messages_before_summary = settings.get(
+                    "session_max_messages_before_summary", 20
+                )
             except Exception:
                 max_messages_before_summary = 20
 
@@ -138,7 +146,12 @@ class SessionService:
         if cached_summary and new_since_summary < 10:
             # Use cached summary + recent messages
             recent = all_msgs[-limit:]
-            return [{"role": "system", "content": f"Summary of earlier conversation: {cached_summary}"}] + recent
+            return [
+                {
+                    "role": "system",
+                    "content": f"Summary of earlier conversation: {cached_summary}",
+                }
+            ] + recent
 
         # Need to generate a new summary – mark for async summarization
         # Store the messages that need summarization
@@ -152,7 +165,12 @@ class SessionService:
             self._write(session_id, data)
 
             recent = all_msgs[-limit:]
-            return [{"role": "system", "content": f"Summary of earlier conversation: {summary}"}] + recent
+            return [
+                {
+                    "role": "system",
+                    "content": f"Summary of earlier conversation: {summary}",
+                }
+            ] + recent
 
         return all_msgs[-limit:]
 
@@ -185,9 +203,7 @@ class SessionService:
         from app.services.llm_service import get_llm_service
 
         llm_svc = get_llm_service()
-        conversation = "\n".join(
-            f"{m['role']}: {m['content']}" for m in messages
-        )
+        conversation = "\n".join(f"{m['role']}: {m['content']}" for m in messages)
         prompt = (
             "Shrň tuto konverzaci do 3-5 vět. "
             "Zaměř se na klíčová fakta, rozhodnutí a kontext. Buď stručný.\n\n"
@@ -268,8 +284,12 @@ class SessionService:
             "count": len(files),
             "total_size_bytes": total_size,
             "total_size_mb": round(total_size / (1024 * 1024), 2),
-            "oldest_session": datetime.fromtimestamp(oldest_mtime, tz=timezone.utc).isoformat(),
-            "newest_session": datetime.fromtimestamp(newest_mtime, tz=timezone.utc).isoformat(),
+            "oldest_session": datetime.fromtimestamp(
+                oldest_mtime, tz=timezone.utc
+            ).isoformat(),
+            "newest_session": datetime.fromtimestamp(
+                newest_mtime, tz=timezone.utc
+            ).isoformat(),
         }
 
     def cleanup_old_sessions(self, older_than_days: int) -> Dict[str, Any]:
@@ -291,7 +311,11 @@ class SessionService:
                 logger.warning("Failed to delete session %s: %s", f.name, exc)
 
         if deleted_count > 0:
-            logger.info("Cleaned up %d old sessions (older than %d days)", deleted_count, older_than_days)
+            logger.info(
+                "Cleaned up %d old sessions (older than %d days)",
+                deleted_count,
+                older_than_days,
+            )
 
         return {
             "deleted_count": deleted_count,
@@ -302,22 +326,24 @@ class SessionService:
     def list_sessions_detailed(self) -> List[Dict[str, Any]]:
         """List all sessions with full metadata (created_at, message_count, last_activity)."""
         result = []
-        for f in sorted(SESSIONS_DIR.glob("*.json"),
-                        key=lambda p: p.stat().st_mtime,
-                        reverse=True):
+        for f in sorted(
+            SESSIONS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True
+        ):
             try:
                 data = self._read_raw(f.stem)
                 messages = data.get("messages", [])
                 last_activity = None
                 if messages:
                     last_activity = messages[-1].get("timestamp")
-                result.append({
-                    "session_id": data.get("session_id", f.stem),
-                    "created_at": data.get("created_at", ""),
-                    "message_count": len(messages),
-                    "last_activity": last_activity or data.get("created_at", ""),
-                    "size_bytes": f.stat().st_size,
-                })
+                result.append(
+                    {
+                        "session_id": data.get("session_id", f.stem),
+                        "created_at": data.get("created_at", ""),
+                        "message_count": len(messages),
+                        "last_activity": last_activity or data.get("created_at", ""),
+                        "size_bytes": f.stat().st_size,
+                    }
+                )
             except Exception as exc:
                 logger.warning("Failed to load session %s: %s", f, exc)
         return result
@@ -359,15 +385,21 @@ async def start_session_auto_cleanup() -> None:
     """
     try:
         from app.services.settings_service import get_settings_service
+
         settings = get_settings_service().load()
         cleanup_days = settings.get("session_auto_cleanup_days")
 
         if cleanup_days is None:
-            logger.info("Session auto-cleanup disabled (session_auto_cleanup_days not set)")
+            logger.info(
+                "Session auto-cleanup disabled (session_auto_cleanup_days not set)"
+            )
             return
 
         cleanup_days = int(cleanup_days)
-        logger.info("Session auto-cleanup started: deleting sessions older than %d days", cleanup_days)
+        logger.info(
+            "Session auto-cleanup started: deleting sessions older than %d days",
+            cleanup_days,
+        )
 
         svc = get_session_service()
         result = svc.cleanup_old_sessions(cleanup_days)

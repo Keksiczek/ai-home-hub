@@ -18,9 +18,15 @@ from typing import Any, Callable, Dict, List, Optional
 
 import structlog
 
-from app.core.settings import ActionBlockedError  # noqa: F401 – re-exported for convenience
+from app.core.settings import (
+    ActionBlockedError,
+)  # noqa: F401 – re-exported for convenience
 from app.services.background_service import BackgroundService
-from app.services.metrics_service import agent_cycles_total, resident_cycles_total, resident_queue_depth
+from app.services.metrics_service import (
+    agent_cycles_total,
+    resident_cycles_total,
+    resident_queue_depth,
+)
 
 logger = logging.getLogger(__name__)
 log = structlog.get_logger("resident_agent")
@@ -51,42 +57,66 @@ ALLOWED_ACTIONS = [
 
 ACTION_TIERS: dict[str, list[str]] = {
     "safe": [
-        "observe_status", "check_logs", "read_kb", "propose_mission",
-        "system_health", "github_ci_status", "system_status", "no_op",
+        "observe_status",
+        "check_logs",
+        "read_kb",
+        "propose_mission",
+        "system_health",
+        "github_ci_status",
+        "system_status",
+        "no_op",
     ],
     "medium": [
-        "read_file", "list_directory", "git_status", "git_log",
-        "kb_search", "memory_search", "memory_store", "web_search",
-        "send_notification", "lean_metrics",
-        "spawn_general_agent", "queue_job", "update_settings",
+        "read_file",
+        "list_directory",
+        "git_status",
+        "git_log",
+        "kb_search",
+        "memory_search",
+        "memory_store",
+        "web_search",
+        "send_notification",
+        "lean_metrics",
+        "spawn_general_agent",
+        "queue_job",
+        "update_settings",
         "spawn_specialist",
     ],
     "dangerous": [
-        "spawn_devops_agent", "git_operations", "system_commands",
-        "delete_files", "write_file",
+        "spawn_devops_agent",
+        "git_operations",
+        "system_commands",
+        "delete_files",
+        "write_file",
     ],
 }
 
 # Cooldown per action in seconds – prevents rapid repeated execution
 ACTION_COOLDOWNS: dict[str, int] = {
-    "git_operations":    3_600,    # 1 hour
-    "system_commands":   7_200,    # 2 hours
+    "git_operations": 3_600,  # 1 hour
+    "system_commands": 7_200,  # 2 hours
     "spawn_devops_agent": 86_400,  # 24 hours
-    "write_file":          300,    # 5 minutes
-    "delete_files":       3_600,   # 1 hour
+    "write_file": 300,  # 5 minutes
+    "delete_files": 3_600,  # 1 hour
 }
 
 # Mode-based guardrails: which actions each mode can execute
 MODE_ALLOWED_ACTIONS = {
     "observer": {"system_health", "github_ci_status", "system_status", "no_op"},
     "advisor": {
-        "system_health", "github_ci_status", "system_status", "no_op",
-        "read_file", "list_directory", "git_status", "git_log",
-        "kb_search", "memory_search",
+        "system_health",
+        "github_ci_status",
+        "system_status",
+        "no_op",
+        "read_file",
+        "list_directory",
+        "git_status",
+        "git_log",
+        "kb_search",
+        "memory_search",
     },
     "autonomous": set(ALLOWED_ACTIONS),  # all actions
 }
-
 
 
 # Heartbeat / self-healing constants
@@ -126,7 +156,7 @@ class ResidentAgentState:
 
 
 THOUGHT_TICK_INTERVAL = 20  # run reasoner every 20th tick (~10 min at 30s interval)
-MISSION_TICK_INTERVAL = 4   # check missions every 4th tick (~2 min)
+MISSION_TICK_INTERVAL = 4  # check missions every 4th tick (~2 min)
 MAX_SUGGESTIONS_HISTORY = 20
 MAX_REFLECTIONS_HISTORY = 50
 MAX_CYCLE_HISTORY = 200
@@ -143,6 +173,7 @@ WS_EVENT_RESIDENT_SUGGESTION = "resident_suggestion"
 @dataclass
 class CycleRecord:
     """A single cycle history entry."""
+
     cycle_id: str
     cycle_number: int
     timestamp: str
@@ -160,6 +191,7 @@ class CycleRecord:
 @dataclass
 class LogEntry:
     """A single structured log entry."""
+
     timestamp: str
     level: str  # INFO | WARN | ERROR
     event: str
@@ -173,6 +205,7 @@ class LogEntry:
 @dataclass
 class MissionProposal:
     """A proposed mission awaiting user approval."""
+
     id: str
     name: str
     description: str
@@ -189,11 +222,12 @@ class MissionProposal:
 @dataclass
 class AgentSettings:
     """Runtime-configurable agent settings."""
+
     interval_seconds: int = 30
     model: str = ""  # empty = use default from settings
     max_cycles_per_day: int = 100
     quiet_hours_start: str = "22:00"  # HH:MM
-    quiet_hours_end: str = "07:00"    # HH:MM
+    quiet_hours_end: str = "07:00"  # HH:MM
     quiet_hours_enabled: bool = False
     # Mission proposal settings
     proposal_interval_minutes: int = 60  # how often to propose missions
@@ -262,7 +296,11 @@ class ResidentAgent(BackgroundService):
         )
         self._log_entries.append(entry)
         # Also emit via structlog
-        log_fn = log.info if level == "INFO" else (log.warning if level == "WARN" else log.error)
+        log_fn = (
+            log.info
+            if level == "INFO"
+            else (log.warning if level == "WARN" else log.error)
+        )
         log_fn(event, cycle_id=cycle_id, **data)
 
     def _add_cycle_record(self, record: CycleRecord) -> None:
@@ -271,6 +309,7 @@ class ResidentAgent(BackgroundService):
         # Persist to SQLite in background (fire-and-forget)
         try:
             from app.db.resident_state import get_resident_state_db
+
             db = get_resident_state_db()
             db.save_cycle(
                 cycle_id=record.cycle_id,
@@ -319,7 +358,9 @@ class ResidentAgent(BackgroundService):
         self._paused = True
         self._state.status = "paused"
         self._add_log("INFO", "agent_paused")
-        await self._broadcast({"type": "agent_status", "status": "paused", "is_running": True})
+        await self._broadcast(
+            {"type": "agent_status", "status": "paused", "is_running": True}
+        )
         return {"status": "paused", "message": "Agent paused."}
 
     async def resume(self) -> dict:
@@ -343,7 +384,11 @@ class ResidentAgent(BackgroundService):
         finally:
             if was_paused:
                 self._paused = True
-        return {"status": "ok", "message": "Immediate cycle completed.", "cycle": self._state.tick_count}
+        return {
+            "status": "ok",
+            "message": "Immediate cycle completed.",
+            "cycle": self._state.tick_count,
+        }
 
     async def reset(self) -> dict:
         """Reset counters, history, and agent memory."""
@@ -407,7 +452,9 @@ class ResidentAgent(BackgroundService):
         now = datetime.now()
         current_minutes = now.hour * 60 + now.minute
         try:
-            start_h, start_m = map(int, self._agent_settings.quiet_hours_start.split(":"))
+            start_h, start_m = map(
+                int, self._agent_settings.quiet_hours_start.split(":")
+            )
             end_h, end_m = map(int, self._agent_settings.quiet_hours_end.split(":"))
         except (ValueError, AttributeError):
             return False
@@ -445,6 +492,7 @@ class ResidentAgent(BackgroundService):
         3. Daily budget
         """
         from app.core.settings import get_guardrail_settings
+
         gs = get_guardrail_settings()
         autonomy = gs.effective_resident_autonomy()
         tier = self._get_action_tier(action)
@@ -496,12 +544,15 @@ class ResidentAgent(BackgroundService):
                 resident_action_budget_remaining,
             )
             from app.core.settings import get_guardrail_settings
+
             gs = get_guardrail_settings()
             budget = gs.resident.max_daily_actions.get(action, 0)
             used = self._daily_action_counts.get(action, 1)
             resident_action_budget_daily.labels(action=action).set(used)
             if budget:
-                resident_action_budget_remaining.labels(action=action).set(max(0, budget - used))
+                resident_action_budget_remaining.labels(action=action).set(
+                    max(0, budget - used)
+                )
         except Exception:
             pass
 
@@ -520,6 +571,7 @@ class ResidentAgent(BackgroundService):
     def get_guardrail_status(self) -> dict:
         """Return current guardrail state for API/UI."""
         from app.core.settings import get_guardrail_settings
+
         gs = get_guardrail_settings()
         self._refresh_daily_action_counts()
         now = time.monotonic()
@@ -551,6 +603,7 @@ class ResidentAgent(BackgroundService):
     async def _on_start(self) -> None:
         try:
             from app.services.memory_service import get_memory_service
+
             mem = get_memory_service()
             await mem.add_memory(
                 text="Resident agent started",
@@ -564,10 +617,11 @@ class ResidentAgent(BackgroundService):
     async def _on_stop(self) -> None:
         try:
             from app.services.memory_service import get_memory_service
+
             mem = get_memory_service()
             await mem.add_memory(
                 text=f"Resident agent stopped after {self._state.tick_count} ticks, "
-                     f"{self._state.errors_since_start} errors",
+                f"{self._state.errors_since_start} errors",
                 tags=["resident", "lifecycle"],
                 source="resident_agent",
                 importance=3,
@@ -618,7 +672,10 @@ class ResidentAgent(BackgroundService):
     async def start(self) -> dict:
         """Spustí async loop jako asyncio.Task, uloží do memory_service záznam o startu."""
         if self._state.is_running:
-            return {"status": "already_running", "message": "Resident agent is already running."}
+            return {
+                "status": "already_running",
+                "message": "Resident agent is already running.",
+            }
 
         self._state.is_running = True
         self._state.status = "idle"
@@ -647,7 +704,10 @@ class ResidentAgent(BackgroundService):
     async def stop(self) -> dict:
         """Graceful shutdown, uloží stav do memory."""
         if not self._state.is_running:
-            return {"status": "not_running", "message": "Resident agent is not running."}
+            return {
+                "status": "not_running",
+                "message": "Resident agent is not running.",
+            }
 
         self._state.is_running = False
         self._state.status = "idle"
@@ -682,9 +742,13 @@ class ResidentAgent(BackgroundService):
         # Skip if daily limit reached
         if not self._check_daily_limit():
             self._state.status = "limit_reached"
-            self._add_log("WARN", "daily_limit_reached", cycle_id=cycle_id,
-                          count=self._daily_cycle_count,
-                          max=self._agent_settings.max_cycles_per_day)
+            self._add_log(
+                "WARN",
+                "daily_limit_reached",
+                cycle_id=cycle_id,
+                count=self._daily_cycle_count,
+                max=self._agent_settings.max_cycles_per_day,
+            )
             await self._heartbeat_broadcast()
             await asyncio.sleep(self._agent_settings.interval_seconds)
             return
@@ -695,10 +759,14 @@ class ResidentAgent(BackgroundService):
         self._state.last_heartbeat = _now()
         self._update_heartbeat_status()
 
-        self._add_log("INFO", "cycle_start", cycle_id=cycle_id,
-                       status="thinking",
-                       last_action=self._state.last_action or "",
-                       memory_items=len(self._state.recent_steps))
+        self._add_log(
+            "INFO",
+            "cycle_start",
+            cycle_id=cycle_id,
+            status="thinking",
+            last_action=self._state.last_action or "",
+            memory_items=len(self._state.recent_steps),
+        )
 
         cycle_record = CycleRecord(
             cycle_id=cycle_id,
@@ -720,9 +788,13 @@ class ResidentAgent(BackgroundService):
             duration_ms = (time.monotonic() - tick_start) * 1000
             cycle_record.duration_ms = round(duration_ms, 1)
             cycle_record.action_type = self._state.last_action or "periodic"
-            self._add_log("INFO", "cycle_end", cycle_id=cycle_id,
-                           duration_ms=cycle_record.duration_ms,
-                           next_run_in=self._agent_settings.interval_seconds)
+            self._add_log(
+                "INFO",
+                "cycle_end",
+                cycle_id=cycle_id,
+                duration_ms=cycle_record.duration_ms,
+                next_run_in=self._agent_settings.interval_seconds,
+            )
         except Exception as exc:
             self._state.errors_since_start += 1
             self._state.consecutive_errors += 1
@@ -732,8 +804,13 @@ class ResidentAgent(BackgroundService):
             cycle_record.error = str(exc)
             cycle_record.duration_ms = round(duration_ms, 1)
 
-            self._add_log("ERROR", "cycle_failed", cycle_id=cycle_id,
-                           error=str(exc), traceback=traceback.format_exc())
+            self._add_log(
+                "ERROR",
+                "cycle_failed",
+                cycle_id=cycle_id,
+                error=str(exc),
+                traceback=traceback.format_exc(),
+            )
 
             # Self-healing: too many consecutive errors → request restart
             if self._state.consecutive_errors >= CONSECUTIVE_ERROR_THRESHOLD:
@@ -757,37 +834,42 @@ class ResidentAgent(BackgroundService):
 
     async def _heartbeat_broadcast(self) -> None:
         """Push status via WebSocket for the live widget."""
-        await self._broadcast({
-            "type": WS_EVENT_RESIDENT_TICK,
-            "tick": self._state.tick_count,
-            "status": self._state.status,
-            "last_tick": self._state.last_tick,
-            "heartbeat_status": self._state.heartbeat_status,
-            "mode_restricted_actions_count": self._blocked_actions_since_start,
-        })
-        await self._broadcast({
-            "type": "agent_status",
-            "status": self._state.status,
-            "current_thought": self._state.current_thought,
-            "last_action": self._state.last_action,
-            "cycle_count": self._state.tick_count,
-            "next_run_in": self._agent_settings.interval_seconds,
-            "last_heartbeat": self._state.last_heartbeat,
-            "is_running": self._state.is_running,
-            "paused": self._paused,
-            "quiet_hours_active": self._is_quiet_hours(),
-            "error_count": self._state.errors_since_start,
-            "uptime_seconds": round(self.get_uptime_seconds(), 1),
-            "memory_items": len(self._state.recent_steps),
-            "enabled_skills": list(ALLOWED_ACTIONS),
-            "active_skills": self._get_active_skill_names(),
-            "mode_restricted_actions_count": self._blocked_actions_since_start,
-        })
+        await self._broadcast(
+            {
+                "type": WS_EVENT_RESIDENT_TICK,
+                "tick": self._state.tick_count,
+                "status": self._state.status,
+                "last_tick": self._state.last_tick,
+                "heartbeat_status": self._state.heartbeat_status,
+                "mode_restricted_actions_count": self._blocked_actions_since_start,
+            }
+        )
+        await self._broadcast(
+            {
+                "type": "agent_status",
+                "status": self._state.status,
+                "current_thought": self._state.current_thought,
+                "last_action": self._state.last_action,
+                "cycle_count": self._state.tick_count,
+                "next_run_in": self._agent_settings.interval_seconds,
+                "last_heartbeat": self._state.last_heartbeat,
+                "is_running": self._state.is_running,
+                "paused": self._paused,
+                "quiet_hours_active": self._is_quiet_hours(),
+                "error_count": self._state.errors_since_start,
+                "uptime_seconds": round(self.get_uptime_seconds(), 1),
+                "memory_items": len(self._state.recent_steps),
+                "enabled_skills": list(ALLOWED_ACTIONS),
+                "active_skills": self._get_active_skill_names(),
+                "mode_restricted_actions_count": self._blocked_actions_since_start,
+            }
+        )
 
     def _get_active_skill_names(self) -> List[str]:
         """Return list of active skill names for UI display."""
         try:
             from app.services.skills_service import get_skills_service
+
             skills = get_skills_service().list()
             return [s.get("name", "") for s in skills if s.get("name")]
         except Exception:
@@ -813,10 +895,11 @@ class ResidentAgent(BackgroundService):
         )
         try:
             from app.services.memory_service import get_memory_service
+
             mem = get_memory_service()
             await mem.add_memory(
                 text=f"Resident agent self-healing restart triggered after "
-                     f"{self._state.consecutive_errors} consecutive errors",
+                f"{self._state.consecutive_errors} consecutive errors",
                 tags=["resident", "self_healing"],
                 source="resident_agent",
                 importance=8,
@@ -845,6 +928,7 @@ class ResidentAgent(BackgroundService):
         """
         try:
             from app.services.settings_service import get_settings_service
+
             mode = get_settings_service().load().get("resident_mode", "advisor")
         except Exception:
             mode = "advisor"
@@ -852,6 +936,7 @@ class ResidentAgent(BackgroundService):
         if self._last_known_mode and self._last_known_mode != mode:
             try:
                 from app.services.mode_audit_service import get_mode_audit_service
+
                 get_mode_audit_service().record_change(
                     from_mode=self._last_known_mode,
                     to_mode=mode,
@@ -859,8 +944,11 @@ class ResidentAgent(BackgroundService):
                     reason="detected on tick",
                 )
                 self._add_log(
-                    "INFO", "mode_changed",
-                    from_mode=self._last_known_mode, to_mode=mode, source="tick_detection",
+                    "INFO",
+                    "mode_changed",
+                    from_mode=self._last_known_mode,
+                    to_mode=mode,
+                    source="tick_detection",
                 )
             except Exception:
                 pass
@@ -886,6 +974,7 @@ class ResidentAgent(BackgroundService):
 
         try:
             from app.services.resident_reasoner import get_resident_reasoner
+
             reasoner = get_resident_reasoner()
             suggestion = await reasoner.generate_suggestions(mode)
             if suggestion is None:
@@ -901,16 +990,19 @@ class ResidentAgent(BackgroundService):
                 await self._auto_execute_safe_actions(suggestion)
             # advisor: suggestions stay as-is, pending user approval via UI
 
-            await self._broadcast({
-                "type": WS_EVENT_RESIDENT_SUGGESTION,
-                "suggestion_id": suggestion.id,
-                "action_count": len(suggestion.actions),
-                "mode": mode,
-            })
+            await self._broadcast(
+                {
+                    "type": WS_EVENT_RESIDENT_SUGGESTION,
+                    "suggestion_id": suggestion.id,
+                    "action_count": len(suggestion.actions),
+                    "mode": mode,
+                }
+            )
 
             logger.info(
                 "Resident reasoner generated %d suggestions (mode=%s)",
-                len(suggestion.actions), mode,
+                len(suggestion.actions),
+                mode,
             )
         except Exception as exc:
             logger.error("Thought tick failed: %s", exc)
@@ -918,6 +1010,7 @@ class ResidentAgent(BackgroundService):
     async def _auto_execute_safe_actions(self, suggestion) -> None:
         """In autonomous mode, execute actions that don't require confirmation."""
         from app.services.job_service import get_job_service
+
         job_svc = get_job_service()
 
         for action in suggestion.actions:
@@ -932,7 +1025,9 @@ class ResidentAgent(BackgroundService):
                 priority="normal",
             )
             suggestion.executed_action_ids.append(action.id)
-            logger.info("Auto-executed suggestion action: %s (job=%s)", action.title, job.id)
+            logger.info(
+                "Auto-executed suggestion action: %s (job=%s)", action.title, job.id
+            )
 
     async def _process_missions(self) -> None:
         """Process active resident_mission jobs – advance current step."""
@@ -941,11 +1036,14 @@ class ResidentAgent(BackgroundService):
 
         try:
             from app.services.job_service import get_job_service
+
             job_svc = get_job_service()
 
             # Find planned or in_progress missions
             for status_filter in ("queued", "running"):
-                missions = job_svc.list_jobs(status=status_filter, type="resident_mission", limit=5)
+                missions = job_svc.list_jobs(
+                    status=status_filter, type="resident_mission", limit=5
+                )
                 for mission_job in missions:
                     await self._advance_mission(mission_job, job_svc)
         except Exception as exc:
@@ -1019,6 +1117,7 @@ class ResidentAgent(BackgroundService):
         """Generate a reflection after a resident job completes."""
         try:
             from app.services.resident_reasoner import get_resident_reasoner
+
             reasoner = get_resident_reasoner()
             reflection = await reasoner.generate_reflection(
                 job_id=job.id,
@@ -1035,6 +1134,7 @@ class ResidentAgent(BackgroundService):
                 # Store in job meta
                 job.meta["reflection"] = reflection.model_dump()
                 from app.services.job_service import get_job_service
+
                 get_job_service().update_job(job)
         except Exception as exc:
             logger.debug("Reflection generation failed: %s", exc)
@@ -1054,7 +1154,9 @@ class ResidentAgent(BackgroundService):
         """Return recent reflections as dicts."""
         return [r.model_dump() for r in self._reflections[-limit:]]
 
-    async def accept_suggestion_action(self, suggestion_id: str, action_id: str) -> Optional[str]:
+    async def accept_suggestion_action(
+        self, suggestion_id: str, action_id: str
+    ) -> Optional[str]:
         """Accept a suggested action → create a job. Returns job_id or None."""
         suggestion = self.get_suggestion_by_id(suggestion_id)
         if not suggestion:
@@ -1070,6 +1172,7 @@ class ResidentAgent(BackgroundService):
             return None
 
         from app.services.job_service import get_job_service
+
         job_svc = get_job_service()
         job = job_svc.create_job(
             type="resident_task",
@@ -1095,6 +1198,7 @@ class ResidentAgent(BackgroundService):
         try:
             # Check job queue depth
             from app.services.job_service import get_job_service
+
             job_svc = get_job_service()
             queued = job_svc.list_jobs(status="queued", limit=100)
             if len(queued) >= QUEUE_DEPTH_ALERT_THRESHOLD:
@@ -1105,6 +1209,7 @@ class ResidentAgent(BackgroundService):
         try:
             # Check KB size
             from app.services.vector_store_service import get_vector_store_service
+
             vs = get_vector_store_service()
             stats = vs.get_stats()
             total_chunks = stats.get("total_chunks", 0)
@@ -1116,6 +1221,7 @@ class ResidentAgent(BackgroundService):
         try:
             # Check resource pressure
             from app.services.resource_monitor import get_resource_monitor
+
             monitor = get_resource_monitor()
             if monitor.is_blocked():
                 alerts.append("System resources critical (RAM blocked)")
@@ -1129,6 +1235,7 @@ class ResidentAgent(BackgroundService):
     def get_dashboard_data(self) -> dict:
         """Compile dashboard payload for GET /api/resident/dashboard."""
         from app.services.job_service import get_job_service
+
         job_svc = get_job_service()
 
         # Determine overall status
@@ -1158,23 +1265,26 @@ class ResidentAgent(BackgroundService):
                     duration_s = round((f - s).total_seconds(), 1)
                 except (ValueError, TypeError):
                     pass
-            recent_tasks.append({
-                "id": j.id,
-                "type": j.type,
-                "title": j.title,
-                "status": j.status,
-                "created_at": j.created_at,
-                "started_at": j.started_at,
-                "finished_at": j.finished_at,
-                "duration_s": duration_s,
-                "meta": {
-                    "auto_executed": j.payload.get("auto_executed", False),
-                    "action_type": j.payload.get("action_type", ""),
-                },
-            })
+            recent_tasks.append(
+                {
+                    "id": j.id,
+                    "type": j.type,
+                    "title": j.title,
+                    "status": j.status,
+                    "created_at": j.created_at,
+                    "started_at": j.started_at,
+                    "finished_at": j.finished_at,
+                    "duration_s": duration_s,
+                    "meta": {
+                        "auto_executed": j.payload.get("auto_executed", False),
+                        "action_type": j.payload.get("action_type", ""),
+                    },
+                }
+            )
 
         # Stats for last 24h
         from datetime import timedelta
+
         since_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
         stats_24h = job_svc.get_stats_since(since_24h, type="resident_task")
 
@@ -1189,20 +1299,23 @@ class ResidentAgent(BackgroundService):
         missions = []
         for mj in mission_jobs:
             plan = mj.payload.get("plan", {})
-            missions.append({
-                "id": mj.id,
-                "goal": plan.get("goal", mj.title),
-                "status": plan.get("status", mj.status),
-                "current_step": plan.get("current_step", 0),
-                "total_steps": len(plan.get("steps", [])),
-                "progress": mj.progress,
-                "created_at": mj.created_at,
-            })
+            missions.append(
+                {
+                    "id": mj.id,
+                    "goal": plan.get("goal", mj.title),
+                    "status": plan.get("status", mj.status),
+                    "current_step": plan.get("current_step", 0),
+                    "total_steps": len(plan.get("steps", [])),
+                    "progress": mj.progress,
+                    "created_at": mj.created_at,
+                }
+            )
 
         # KB chunk count for UI warning
         kb_chunks = 0
         try:
             from app.services.vector_store_service import get_vector_store_service
+
             vs = get_vector_store_service()
             kb_chunks = vs.get_stats().get("total_chunks", 0)
         except Exception:
@@ -1218,10 +1331,14 @@ class ResidentAgent(BackgroundService):
             "alerts": self._state.alerts,
             "stats_24h": stats_24h,
             "resident_mode": mode,
-            "suggestions_count": len(latest_suggestion.actions) if latest_suggestion else 0,
+            "suggestions_count": (
+                len(latest_suggestion.actions) if latest_suggestion else 0
+            ),
             "missions": missions,
             "reflections_count": len(self._reflections),
-            "proposals": [p.to_dict() for p in self._proposals if p.status == "pending"],
+            "proposals": [
+                p.to_dict() for p in self._proposals if p.status == "pending"
+            ],
             "kb_chunks": kb_chunks,
         }
 
@@ -1269,10 +1386,13 @@ class ResidentAgent(BackgroundService):
         if not proposal or proposal.status != "pending":
             return None
         proposal.status = "approved"
-        self._add_log("INFO", "proposal_approved", proposal_id=proposal_id, name=proposal.name)
+        self._add_log(
+            "INFO", "proposal_approved", proposal_id=proposal_id, name=proposal.name
+        )
 
         # Create a mission job
         from app.services.job_service import get_job_service
+
         job_svc = get_job_service()
         plan = {
             "goal": proposal.name,
@@ -1296,7 +1416,9 @@ class ResidentAgent(BackgroundService):
         if not proposal or proposal.status != "pending":
             return False
         proposal.status = "rejected"
-        self._add_log("INFO", "proposal_rejected", proposal_id=proposal_id, name=proposal.name)
+        self._add_log(
+            "INFO", "proposal_rejected", proposal_id=proposal_id, name=proposal.name
+        )
         return True
 
     async def propose_missions(self) -> List[dict]:
@@ -1318,11 +1440,11 @@ class ResidentAgent(BackgroundService):
         # Recent jobs
         try:
             from app.services.job_service import get_job_service
+
             job_svc = get_job_service()
             recent = job_svc.list_jobs(limit=5)
             context["recent_jobs"] = [
-                {"title": j.title, "status": j.status, "type": j.type}
-                for j in recent
+                {"title": j.title, "status": j.status, "type": j.type} for j in recent
             ]
         except Exception:
             context["recent_jobs"] = []
@@ -1330,6 +1452,7 @@ class ResidentAgent(BackgroundService):
         # Memory snippets
         try:
             from app.services.memory_service import get_memory_service
+
             mem = get_memory_service()
             snippets = await mem.search_memory("recent activity", limit=3)
             context["memory_snippets"] = [s.get("text", "")[:200] for s in snippets]
@@ -1339,11 +1462,14 @@ class ResidentAgent(BackgroundService):
         # KB status
         try:
             from app.services.vector_store_service import get_vector_store_service
+
             vs = get_vector_store_service()
             kb_stats = vs.get_stats()
             context["kb_chunks"] = kb_stats.get("total_chunks", 0)
             if context["kb_chunks"] == 0:
-                context["kb_note"] = "KB je prázdná – basuj rozhodnutí na systémovém stavu a paměti."
+                context["kb_note"] = (
+                    "KB je prázdná – basuj rozhodnutí na systémovém stavu a paměti."
+                )
         except Exception:
             context["kb_chunks"] = 0
             context["kb_note"] = "KB nedostupná."
@@ -1355,9 +1481,9 @@ class ResidentAgent(BackgroundService):
         max_proposals = self._agent_settings.max_proposals
 
         from app.services.llm_service import get_date_context
+
         prompt = (
-            get_date_context()
-            + "Jsi Resident Agent. Na základě kontextu navrhni 1-"
+            get_date_context() + "Jsi Resident Agent. Na základě kontextu navrhni 1-"
             f"{max_proposals} užitečné mise.\n"
             "Každá mise musí mít: name, description, type (research/code/analysis), "
             "estimated_minutes, relevance (proč je teď relevantní).\n"
@@ -1367,12 +1493,14 @@ class ResidentAgent(BackgroundService):
 
         try:
             from app.services.llm_service import get_llm_service
+
             llm = get_llm_service()
             raw, _meta = await llm.generate(prompt, mode="resident", profile="general")
 
             # Parse JSON from response
             import re
-            json_match = re.search(r'\[.*\]', raw, re.DOTALL)
+
+            json_match = re.search(r"\[.*\]", raw, re.DOTALL)
             if not json_match:
                 self._add_log("WARN", "proposal_parse_failed", raw=raw[:200])
                 return []
@@ -1394,8 +1522,11 @@ class ResidentAgent(BackgroundService):
 
             self._last_proposal_time = time.monotonic()
             self._add_log("INFO", "proposals_generated", count=len(new_proposals))
-            await self.emit_thought("tool_result", tool="propose_missions",
-                                     result_preview=f"Navrhl {len(new_proposals)} misí")
+            await self.emit_thought(
+                "tool_result",
+                tool="propose_missions",
+                result_preview=f"Navrhl {len(new_proposals)} misí",
+            )
 
             # Keep max 20 proposals total
             if len(self._proposals) > 20:
@@ -1405,7 +1536,9 @@ class ResidentAgent(BackgroundService):
 
         except Exception as exc:
             self._add_log("ERROR", "proposal_generation_failed", error=str(exc))
-            await self.emit_thought("error", content=f"Chyba při navrhování misí: {exc}")
+            await self.emit_thought(
+                "error", content=f"Chyba při navrhování misí: {exc}"
+            )
             return []
 
     async def _process_task_queue(self) -> None:
@@ -1416,6 +1549,7 @@ class ResidentAgent(BackgroundService):
         mode = self._get_resident_mode()
         try:
             from app.services.job_service import get_job_service
+
             job_svc = get_job_service()
             pending_jobs = job_svc.list_jobs(status="queued", type="resident_task")
             resident_queue_depth.set(len(pending_jobs))
@@ -1425,7 +1559,8 @@ class ResidentAgent(BackgroundService):
             if mode == "observer":
                 if pending_jobs:
                     self._add_log(
-                        "INFO", "observer_tasks_skipped",
+                        "INFO",
+                        "observer_tasks_skipped",
                         count=len(pending_jobs),
                         reason="observer mode – LLM disabled",
                     )
@@ -1435,7 +1570,9 @@ class ResidentAgent(BackgroundService):
                 self._state.current_task = job.title
                 self._state.status = "thinking"
                 self._state.current_thought = f"Analyzuji úkol: {job.title}"
-                await self.emit_thought("thinking", content=f"Analyzuji úkol: {job.title}")
+                await self.emit_thought(
+                    "thinking", content=f"Analyzuji úkol: {job.title}"
+                )
 
                 task = {
                     "job_id": job.id,
@@ -1450,14 +1587,19 @@ class ResidentAgent(BackgroundService):
                 job_svc.update_job(job)
 
                 try:
-                    await self.emit_thought("thinking", content=f"Spouštím úkol: {job.title}")
+                    await self.emit_thought(
+                        "thinking", content=f"Spouštím úkol: {job.title}"
+                    )
                     result = await self._execute_with_llm(task)
                     job.status = "succeeded"
                     job.progress = 100.0
                     job.finished_at = _now()
                     job.meta["result"] = str(result)[:500]
-                    await self.emit_thought("tool_result", tool="task",
-                                             result_preview=f"Úkol dokončen: {job.title}")
+                    await self.emit_thought(
+                        "tool_result",
+                        tool="task",
+                        result_preview=f"Úkol dokončen: {job.title}",
+                    )
                 except Exception as exc:
                     job.status = "failed"
                     job.last_error = str(exc)
@@ -1484,6 +1626,7 @@ class ResidentAgent(BackgroundService):
 
         try:
             from app.services.resource_monitor import get_resource_monitor
+
             monitor = get_resource_monitor()
             snapshot = monitor.to_dict()
 
@@ -1491,14 +1634,24 @@ class ResidentAgent(BackgroundService):
             git_statuses = {}
             try:
                 from app.services.settings_service import get_settings_service
+
                 settings = get_settings_service().load()
-                projects = settings.get("integrations", {}).get("vscode", {}).get("projects", {})
+                projects = (
+                    settings.get("integrations", {})
+                    .get("vscode", {})
+                    .get("projects", {})
+                )
 
                 if projects:
                     from app.services.git_service import GitService
+
                     git_svc = GitService()
                     for name, project in projects.items():
-                        path = project if isinstance(project, str) else project.get("path", "")
+                        path = (
+                            project
+                            if isinstance(project, str)
+                            else project.get("path", "")
+                        )
                         if path:
                             try:
                                 status = await git_svc.status(path)
@@ -1512,10 +1665,11 @@ class ResidentAgent(BackgroundService):
             if monitor.is_throttled():
                 try:
                     from app.services.memory_service import get_memory_service
+
                     mem = get_memory_service()
                     await mem.add_memory(
                         text=f"System resource warning: RAM {snapshot.get('ram_used_percent', '?')}%, "
-                             f"CPU {snapshot.get('cpu_percent', '?')}%",
+                        f"CPU {snapshot.get('cpu_percent', '?')}%",
                         tags=["resident", "resource_warning"],
                         source="resident_agent",
                         importance=7,
@@ -1533,6 +1687,7 @@ class ResidentAgent(BackgroundService):
             if monitor.is_throttled() or git_statuses:
                 try:
                     from app.services.memory_service import get_memory_service
+
                     mem = get_memory_service()
                     check_summary = (
                         f"System check: RAM {snapshot.get('ram_used_percent', '?')}%, "
@@ -1548,7 +1703,9 @@ class ResidentAgent(BackgroundService):
                 except Exception as exc:
                     logger.debug("Failed to store system check: %s", exc)
 
-            logger.info("Resident periodic check completed (tick %d)", self._state.tick_count)
+            logger.info(
+                "Resident periodic check completed (tick %d)", self._state.tick_count
+            )
 
         except Exception as exc:
             logger.error("Resident periodic check error: %s", exc)
@@ -1560,6 +1717,7 @@ class ResidentAgent(BackgroundService):
         try:
             from app.services.memory_service import get_memory_service
             from app.services.llm_service import get_llm_service
+
             mem = get_memory_service()
             llm = get_llm_service()
 
@@ -1575,7 +1733,9 @@ class ResidentAgent(BackgroundService):
                 f"Shrň tyto záznamy z paměti agenta do 2-3 vět. "
                 f"Zachovej jen důležité vzory a anomálie:\n\n{texts}"
             )
-            summary, _ = await llm.generate(message=prompt, mode="resident", profile="general")
+            summary, _ = await llm.generate(
+                message=prompt, mode="resident", profile="general"
+            )
 
             # Store summary
             await mem.add_memory(
@@ -1592,7 +1752,9 @@ class ResidentAgent(BackgroundService):
                 except Exception:
                     pass
 
-            logger.info("Memory summarized: %d records -> 1 summary", len(low_importance[:20]))
+            logger.info(
+                "Memory summarized: %d records -> 1 summary", len(low_importance[:20])
+            )
         except Exception as exc:
             logger.debug("Memory summarization failed: %s", exc)
 
@@ -1605,24 +1767,39 @@ class ResidentAgent(BackgroundService):
         # Throttle detection: skip LLM call if system is under load
         try:
             from app.services.resource_monitor import get_resource_monitor
+
             monitor = get_resource_monitor()
             if monitor.is_throttled():
-                self._add_log("WARN", "throttled_skip", cycle_id=cycle_id,
-                               reason="System under load – skipping LLM call")
-                log.warning("Resident agent throttled_skip – system under load", cycle_id=cycle_id)
+                self._add_log(
+                    "WARN",
+                    "throttled_skip",
+                    cycle_id=cycle_id,
+                    reason="System under load – skipping LLM call",
+                )
+                log.warning(
+                    "Resident agent throttled_skip – system under load",
+                    cycle_id=cycle_id,
+                )
                 return {"action": "no_op", "reason": "throttled_skip"}
         except Exception:
             pass
 
         self._state.status = "thinking"
-        self._state.current_thought = f"Přemýšlím nad úkolem: {task.get('goal', 'unknown')}"
+        self._state.current_thought = (
+            f"Přemýšlím nad úkolem: {task.get('goal', 'unknown')}"
+        )
 
-        self._add_log("INFO", "thought_generated", cycle_id=cycle_id,
-                       thought=self._state.current_thought[:100],
-                       tools_available=list(ALLOWED_ACTIONS))
+        self._add_log(
+            "INFO",
+            "thought_generated",
+            cycle_id=cycle_id,
+            thought=self._state.current_thought[:100],
+            tools_available=list(ALLOWED_ACTIONS),
+        )
 
         # 1. Sestav system_summary (max 300 tokenů)
         from app.services.resource_monitor import get_resource_monitor
+
         monitor = get_resource_monitor()
         resource_snapshot = monitor.to_dict()
 
@@ -1648,11 +1825,14 @@ class ResidentAgent(BackgroundService):
         kb_context = ""
         try:
             from app.services.vector_store_service import get_vector_store_service
+
             vs = get_vector_store_service()
             kb_stats = vs.get_stats()
             total_chunks = kb_stats.get("total_chunks", 0)
             if total_chunks == 0:
-                kb_context = "\nKB je prázdná – basuj rozhodnutí na systémovém stavu a paměti."
+                kb_context = (
+                    "\nKB je prázdná – basuj rozhodnutí na systémovém stavu a paměti."
+                )
             else:
                 kb_context = f"\nKB: {total_chunks} chunků k dispozici."
         except Exception:
@@ -1662,6 +1842,7 @@ class ResidentAgent(BackgroundService):
         skills_context = ""
         try:
             from app.services.skills_service import get_skills_service
+
             skills_svc = get_skills_service()
             active_skills = skills_svc.list()
             if active_skills:
@@ -1671,7 +1852,9 @@ class ResidentAgent(BackgroundService):
                         f"- {skill.get('name', '?')}: {skill.get('description', '')}"
                     )
                     if skill.get("system_prompt_addition"):
-                        skills_lines.append(f"  Instrukce: {skill['system_prompt_addition'][:200]}")
+                        skills_lines.append(
+                            f"  Instrukce: {skill['system_prompt_addition'][:200]}"
+                        )
                 skills_context = "\n\nDostupné dovednosti:\n" + "\n".join(skills_lines)
         except Exception as exc:
             logger.debug("Failed to load skills for context: %s", exc)
@@ -1684,9 +1867,9 @@ class ResidentAgent(BackgroundService):
         system_prompt = get_settings_service().get_system_prompt("resident")
 
         from app.services.llm_service import get_date_context
+
         user_message = (
-            get_date_context()
-            + f"{system_summary}"
+            get_date_context() + f"{system_summary}"
             f"{kb_context}\n\n"
             f"{allowed_actions_text}"
             f"{skills_context}\n\n"
@@ -1696,7 +1879,9 @@ class ResidentAgent(BackgroundService):
 
         # Use longer timeout for LLM calls (90s) – small local models need time
         step_timeout = max(
-            get_settings_service().get_agent_config("general").get("step_timeout_s", 30),
+            get_settings_service()
+            .get_agent_config("general")
+            .get("step_timeout_s", 30),
             90,
         )
 
@@ -1723,27 +1908,50 @@ class ResidentAgent(BackgroundService):
                     error_msg = meta.get("message", "LLM nedostupné")
                     logger.error(
                         "Resident agent LLM unavailable (tick=%d, model=%s): %s",
-                        self._state.tick_count, model_override or "default", error_msg,
+                        self._state.tick_count,
+                        model_override or "default",
+                        error_msg,
                     )
-                    self._add_log("ERROR", "llm_unavailable", cycle_id=cycle_id,
-                                   model=model_override or "default", message=error_msg)
-                    return {"error": "llm_unavailable", "action": "no_op", "message": error_msg}
+                    self._add_log(
+                        "ERROR",
+                        "llm_unavailable",
+                        cycle_id=cycle_id,
+                        model=model_override or "default",
+                        message=error_msg,
+                    )
+                    return {
+                        "error": "llm_unavailable",
+                        "action": "no_op",
+                        "message": error_msg,
+                    }
                 last_error = None
                 break  # success
             except asyncio.TimeoutError:
                 last_error = "timeout"
                 logger.warning(
                     "Resident agent LLM call timed out (tick=%d, timeout=%ds, attempt=%d/3)",
-                    self._state.tick_count, step_timeout, attempt + 1,
+                    self._state.tick_count,
+                    step_timeout,
+                    attempt + 1,
                 )
                 if attempt < 2:
-                    self._add_log("WARN", "llm_timeout_retry", cycle_id=cycle_id,
-                                   attempt=attempt + 1, timeout_s=step_timeout)
+                    self._add_log(
+                        "WARN",
+                        "llm_timeout_retry",
+                        cycle_id=cycle_id,
+                        attempt=attempt + 1,
+                        timeout_s=step_timeout,
+                    )
                     await asyncio.sleep(2)  # brief pause before retry
 
         if last_error == "timeout":
-            self._add_log("ERROR", "llm_timeout_final", cycle_id=cycle_id,
-                           timeout_s=step_timeout, model=model_override or "default")
+            self._add_log(
+                "ERROR",
+                "llm_timeout_final",
+                cycle_id=cycle_id,
+                timeout_s=step_timeout,
+                model=model_override or "default",
+            )
             return {"error": "llm_timeout", "action": "no_op"}
 
         # 4. Parsuj JSON response
@@ -1755,6 +1963,7 @@ class ResidentAgent(BackgroundService):
             # Ulož do memory jako failed
             try:
                 from app.services.memory_service import get_memory_service
+
                 mem = get_memory_service()
                 await mem.add_memory(
                     text=f"Resident agent LLM invalid JSON response for task: {task.get('goal', '?')}",
@@ -1768,9 +1977,12 @@ class ResidentAgent(BackgroundService):
 
         # 5. Check risk_level
         if payload.get("risk_level") == "high":
-            logger.warning("Resident agent blocked high-risk action: %s", payload.get("action"))
+            logger.warning(
+                "Resident agent blocked high-risk action: %s", payload.get("action")
+            )
             try:
                 from app.services.memory_service import get_memory_service
+
                 mem = get_memory_service()
                 await mem.add_memory(
                     text=f"Blocked high-risk action: {payload.get('action')} - {payload.get('reasoning_summary', '')}",
@@ -1780,23 +1992,41 @@ class ResidentAgent(BackgroundService):
                 )
             except Exception:
                 pass
-            return {"blocked": True, "reason": "high_risk", "action": payload.get("action")}
+            return {
+                "blocked": True,
+                "reason": "high_risk",
+                "action": payload.get("action"),
+            }
 
         # 6. Exekuuj akci deterministicky
         self._state.status = "executing"
         self._state.current_thought = f"Provádím: {payload.get('action', 'unknown')}"
 
-        self._add_log("INFO", "action_planned", cycle_id=cycle_id,
-                       action_type=payload.get("action", "unknown"),
-                       action_target=str(payload.get("params", {})).get("query", payload.get("action", ""))[:80] if isinstance(payload.get("params"), dict) else "",
-                       confidence=payload.get("priority", "low"))
+        self._add_log(
+            "INFO",
+            "action_planned",
+            cycle_id=cycle_id,
+            action_type=payload.get("action", "unknown"),
+            action_target=(
+                str(payload.get("params", {})).get("query", payload.get("action", ""))[
+                    :80
+                ]
+                if isinstance(payload.get("params"), dict)
+                else ""
+            ),
+            confidence=payload.get("priority", "low"),
+        )
 
         result = await self._dispatch_action(payload)
 
-        self._add_log("INFO", "action_executed", cycle_id=cycle_id,
-                       success=True,
-                       output_preview=str(result)[:80],
-                       action=payload.get("action", "unknown"))
+        self._add_log(
+            "INFO",
+            "action_executed",
+            cycle_id=cycle_id,
+            success=True,
+            output_preview=str(result)[:80],
+            action=payload.get("action", "unknown"),
+        )
 
         # 7. Výsledek přidej do recent_steps (max 5)
         step_record = {
@@ -1814,16 +2044,19 @@ class ResidentAgent(BackgroundService):
         self._state.last_action = payload.get("action")
 
         # Broadcast action
-        await self._broadcast({
-            "type": WS_EVENT_RESIDENT_ACTION,
-            "action": payload.get("action"),
-            "reasoning": payload.get("reasoning_summary", ""),
-            "result_preview": str(result)[:200],
-        })
+        await self._broadcast(
+            {
+                "type": WS_EVENT_RESIDENT_ACTION,
+                "action": payload.get("action"),
+                "reasoning": payload.get("reasoning_summary", ""),
+                "result_preview": str(result)[:200],
+            }
+        )
 
         # 8. Ulož do memory_service jako entry
         try:
             from app.services.memory_service import get_memory_service
+
             mem = get_memory_service()
             await mem.add_memory(
                 text=f"Resident action: {payload.get('action')} - {payload.get('reasoning_summary', '')} | Result: {str(result)[:300]}",
@@ -1861,7 +2094,7 @@ class ResidentAgent(BackgroundService):
         brace_start = reply.find("{")
         brace_end = reply.rfind("}")
         if brace_start != -1 and brace_end != -1:
-            return json.loads(reply[brace_start:brace_end + 1])
+            return json.loads(reply[brace_start : brace_end + 1])
 
         raise ValueError("No valid JSON found in response")
 
@@ -1888,72 +2121,100 @@ class ResidentAgent(BackgroundService):
         except ActionBlockedError as exc:
             self._blocked_actions_since_start += 1
             self._add_log(
-                "INFO", "action_blocked",
-                action=action, mode=mode, reason=str(exc),
+                "INFO",
+                "action_blocked",
+                action=action,
+                mode=mode,
+                reason=str(exc),
             )
             return {"action": action, "blocked": True, "reason": str(exc), "mode": mode}
 
         # ── Additional mode-based routing ─────────────────────────
         # (check_action_allowed already blocks by tier, but we also keep the
         #  explicit MODE_ALLOWED_ACTIONS set check for actions not in ACTION_TIERS)
-        allowed_for_mode = MODE_ALLOWED_ACTIONS.get(mode, MODE_ALLOWED_ACTIONS["advisor"])
+        allowed_for_mode = MODE_ALLOWED_ACTIONS.get(
+            mode, MODE_ALLOWED_ACTIONS["advisor"]
+        )
         if action not in allowed_for_mode and action not in ALLOWED_ACTIONS:
             self._blocked_actions_since_start += 1
             log.warning("Action not allowed for mode", action=action, mode=mode)
-            return {"error": "action_not_allowed_for_mode", "action": action, "mode": mode}
+            return {
+                "error": "action_not_allowed_for_mode",
+                "action": action,
+                "mode": mode,
+            }
 
         # ── Log dangerous actions before execution (autonomous mode) ──────────
         if mode == "autonomous" and self._get_action_tier(action) == "dangerous":
             self._add_log(
-                "WARN", "dangerous_action_pre_dispatch",
-                action=action, params=str(params)[:200], mode=mode,
+                "WARN",
+                "dangerous_action_pre_dispatch",
+                action=action,
+                params=str(params)[:200],
+                mode=mode,
             )
 
         if action == "read_file":
             from app.services.filesystem_service import get_filesystem_service
+
             fs = get_filesystem_service()
             content = await fs.read_file(params.get("path", ""))
             return {"action": "read_file", "content": content[:2000]}
 
         elif action == "list_directory":
             from app.services.filesystem_service import get_filesystem_service
+
             fs = get_filesystem_service()
             entries = await fs.list_directory(params.get("path", ""))
             return {"action": "list_directory", "entries": entries}
 
         elif action == "git_status":
             from app.services.git_service import GitService
+
             git_svc = GitService()
             status = await git_svc.status(params.get("repo_path", ""))
             return {"action": "git_status", "status": status}
 
         elif action == "git_log":
             from app.services.git_service import GitService
+
             git_svc = GitService()
-            log = await git_svc.log(params.get("repo_path", ""), limit=params.get("limit", 5))
+            log = await git_svc.log(
+                params.get("repo_path", ""), limit=params.get("limit", 5)
+            )
             return {"action": "git_log", "log": log}
 
         elif action == "kb_search":
             from app.services.vector_store_service import get_vector_store_service
             from app.services.embeddings_service import get_embeddings_service
+
             vs = get_vector_store_service()
             emb_svc = get_embeddings_service()
             query = params.get("query", "")
             embedding = await emb_svc.generate_embedding(query)
             if not embedding:
-                return {"action": "kb_search", "results": [], "error": "embedding_failed"}
+                return {
+                    "action": "kb_search",
+                    "results": [],
+                    "error": "embedding_failed",
+                }
             results = vs.search(query_embedding=embedding, top_k=params.get("top_k", 5))
             # Format results
             formatted = []
-            for doc, meta in zip(results.get("documents", []), results.get("metadatas", [])):
-                formatted.append({
-                    "text": doc[:300],
-                    "file_name": meta.get("file_name", ""),
-                })
+            for doc, meta in zip(
+                results.get("documents", []), results.get("metadatas", [])
+            ):
+                formatted.append(
+                    {
+                        "text": doc[:300],
+                        "file_name": meta.get("file_name", ""),
+                    }
+                )
             return {"action": "kb_search", "results": formatted}
 
         elif action == "memory_store":
             from app.services.memory_service import get_memory_service
+
             mem = get_memory_service()
             memory_id = await mem.add_memory(
                 text=params.get("content", ""),
@@ -1965,8 +2226,11 @@ class ResidentAgent(BackgroundService):
 
         elif action == "memory_search":
             from app.services.memory_service import get_memory_service
+
             mem = get_memory_service()
-            records = await mem.search_memory(params.get("query", ""), top_k=params.get("top_k", 5))
+            records = await mem.search_memory(
+                params.get("query", ""), top_k=params.get("top_k", 5)
+            )
             return {
                 "action": "memory_search",
                 "results": [r.to_dict() for r in records],
@@ -1974,6 +2238,7 @@ class ResidentAgent(BackgroundService):
 
         elif action == "send_notification":
             from app.services.notification_service import get_notification_service
+
             notif = get_notification_service()
             success = await notif.send(
                 title="Resident Agent",
@@ -1983,6 +2248,7 @@ class ResidentAgent(BackgroundService):
 
         elif action == "system_status":
             from app.services.resource_monitor import get_resource_monitor
+
             monitor = get_resource_monitor()
             return {"action": "system_status", **monitor.to_dict()}
 
@@ -1990,12 +2256,18 @@ class ResidentAgent(BackgroundService):
             return await self._dispatch_spawn_specialist(params)
 
         elif action == "no_op":
-            logger.info("Resident agent no_op: %s", payload.get("reasoning_summary", ""))
-            return {"action": "no_op", "reasoning": payload.get("reasoning_summary", "")}
+            logger.info(
+                "Resident agent no_op: %s", payload.get("reasoning_summary", "")
+            )
+            return {
+                "action": "no_op",
+                "reasoning": payload.get("reasoning_summary", ""),
+            }
 
         elif action == "web_search":
             try:
                 from app.services.skills_runtime_service import WebSearchSkill
+
                 skill = WebSearchSkill()
                 query = params.get("query", task.get("goal", ""))
                 max_results = params.get("max_results", 5)
@@ -2009,6 +2281,7 @@ class ResidentAgent(BackgroundService):
             # Dynamic skill dispatch fallback
             try:
                 from app.services.skills_runtime_service import SKILL_REGISTRY
+
                 if action in SKILL_REGISTRY:
                     skill_cls = SKILL_REGISTRY[action]
                     skill_instance = skill_cls()
@@ -2035,8 +2308,11 @@ class ResidentAgent(BackgroundService):
 
         # Ověř že agent_type je "code" nebo "research"
         if agent_type not in ("code", "research"):
-            return {"error": "agent_type_not_allowed", "agent_type": agent_type,
-                    "allowed": ["code", "research"]}
+            return {
+                "error": "agent_type_not_allowed",
+                "agent_type": agent_type,
+                "allowed": ["code", "research"],
+            }
 
         goal = params.get("goal", "unknown")
         task: Dict[str, Any] = {"goal": goal}
@@ -2044,16 +2320,22 @@ class ResidentAgent(BackgroundService):
         # Load relevant skill context for the agent type
         try:
             from app.services.skills_service import get_skills_service
+
             skills_svc = get_skills_service()
             all_skills = skills_svc.list()
             # Map agent_type to relevant skill tags
-            tag_map = {"code": ["code", "quality"], "research": ["analytics", "lean", "process"]}
+            tag_map = {
+                "code": ["code", "quality"],
+                "research": ["analytics", "lean", "process"],
+            }
             relevant_tags = set(tag_map.get(agent_type, []))
             for skill in all_skills:
                 skill_tags = set(skill.get("tags", []))
                 if skill_tags & relevant_tags and skill.get("system_prompt_addition"):
                     task.setdefault("skill_context", "")
-                    task["skill_context"] += f"\n{skill['name']}: {skill['system_prompt_addition'][:300]}"
+                    task[
+                        "skill_context"
+                    ] += f"\n{skill['name']}: {skill['system_prompt_addition'][:300]}"
         except Exception as exc:
             logger.debug("Failed to load skill for specialist: %s", exc)
 
@@ -2062,6 +2344,7 @@ class ResidentAgent(BackgroundService):
         if context_query:
             try:
                 from app.services.memory_service import get_memory_service
+
                 mem = get_memory_service()
                 history = await mem.search_memory(context_query, top_k=5)
                 if history:
@@ -2071,6 +2354,7 @@ class ResidentAgent(BackgroundService):
 
         # Spawne agent přes orchestrator
         from app.services.agent_orchestrator import get_agent_orchestrator
+
         orchestrator = get_agent_orchestrator()
         agent_id = await orchestrator.spawn_agent(
             agent_type=agent_type,
@@ -2082,6 +2366,7 @@ class ResidentAgent(BackgroundService):
         # Ulož do memory
         try:
             from app.services.memory_service import get_memory_service
+
             mem = get_memory_service()
             await mem.add_memory(
                 text=f"Resident spawned {agent_type} agent: {goal}",
@@ -2094,11 +2379,11 @@ class ResidentAgent(BackgroundService):
 
         return {"spawned_agent_id": agent_id, "agent_type": agent_type, "goal": goal}
 
-
     async def get_agent_memory(self, limit: int = 50) -> List[dict]:
         """Retrieve agent memory entries from memory_service."""
         try:
             from app.services.memory_service import get_memory_service
+
             mem = get_memory_service()
             records = await mem.search_memory("resident agent", top_k=limit)
             return [r.to_dict() for r in records]
@@ -2110,6 +2395,7 @@ class ResidentAgent(BackgroundService):
         """Clear all resident agent memory entries."""
         try:
             from app.services.memory_service import get_memory_service
+
             mem = get_memory_service()
             # Search for resident-tagged memories and delete them
             records = await mem.search_memory("resident", top_k=200)
@@ -2131,6 +2417,7 @@ class ResidentAgent(BackgroundService):
         """Delete a single agent memory entry by ID."""
         try:
             from app.services.memory_service import get_memory_service
+
             mem = get_memory_service()
             deleted = await mem.delete_memory(memory_id)
             if not deleted:
@@ -2141,10 +2428,13 @@ class ResidentAgent(BackgroundService):
             logger.debug("Failed to delete agent memory %s: %s", memory_id, exc)
             return {"status": "error", "error": str(exc)}
 
-    async def add_agent_memory_manual(self, content: str, tags: list[str] | None = None) -> dict:
+    async def add_agent_memory_manual(
+        self, content: str, tags: list[str] | None = None
+    ) -> dict:
         """Manually add an entry to agent memory."""
         try:
             from app.services.memory_service import get_memory_service
+
             mem = get_memory_service()
             all_tags = list({"resident", "manual", *(tags or [])})
             memory_id = await mem.add_memory(

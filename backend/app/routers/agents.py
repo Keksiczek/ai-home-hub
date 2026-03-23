@@ -1,4 +1,5 @@
 """Agents router – spawn, monitor, and manage AI agents."""
+
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException
@@ -49,7 +50,9 @@ async def list_agents() -> Dict[str, Any]:
     return {"agents": agents, "count": len(agents)}
 
 
-@router.get("/agents/{agent_id}/status", response_model=AgentStatusResponse, tags=["agents"])
+@router.get(
+    "/agents/{agent_id}/status", response_model=AgentStatusResponse, tags=["agents"]
+)
 async def get_agent_status(agent_id: str) -> Dict[str, Any]:
     """Get the current status and progress of an agent."""
     orchestrator = get_agent_orchestrator()
@@ -201,8 +204,7 @@ async def spawn_sub_agent(body: SpawnSubAgentRequest) -> SpawnSubAgentResponse:
     orchestrator = get_agent_orchestrator()
 
     active = [
-        a for a in orchestrator.list_agents()
-        if a["status"] in ("pending", "running")
+        a for a in orchestrator.list_agents() if a["status"] in ("pending", "running")
     ]
     if len(active) >= MAX_SUB_AGENT_DEPTH:
         raise HTTPException(

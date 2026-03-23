@@ -1,4 +1,5 @@
 """Setup router – first-run wizard status and completion."""
+
 from fastapi import APIRouter
 
 from app.models.schemas import SetupStatusResponse

@@ -1,4 +1,5 @@
 """Tests: Agent Memory UI – add, list, delete memory via /api/memory/* endpoints."""
+
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -49,7 +50,11 @@ class TestMemoryAdd:
         with patch("app.routers.memory.get_memory_service", return_value=mock_svc):
             resp = client.post(
                 "/api/memory/add",
-                json={"text": "Remember: prefer short answers", "tags": ["#lean"], "importance": 7},
+                json={
+                    "text": "Remember: prefer short answers",
+                    "tags": ["#lean"],
+                    "importance": 7,
+                },
             )
         assert resp.status_code == 200
 
@@ -89,7 +94,10 @@ class TestMemoryList:
 
     def test_get_all_memories_returns_list(self, client):
         mock_svc = MagicMock()
-        mock_svc.get_all_memories.return_value = [_make_memory_record("m1"), _make_memory_record("m2")]
+        mock_svc.get_all_memories.return_value = [
+            _make_memory_record("m1"),
+            _make_memory_record("m2"),
+        ]
         with patch("app.routers.memory.get_memory_service", return_value=mock_svc):
             data = client.get("/api/memory/all").json()
         assert "memories" in data

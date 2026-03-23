@@ -1,4 +1,5 @@
 """LLM service – Ollama integration with circuit breaker, retry, and structured errors."""
+
 import asyncio
 import json
 import logging
@@ -25,8 +26,18 @@ logger = logging.getLogger(__name__)
 
 _DAYS_CS = ["pondělí", "úterý", "středa", "čtvrtek", "pátek", "sobota", "neděle"]
 _MONTHS_CS = [
-    "ledna", "února", "března", "dubna", "května", "června",
-    "července", "srpna", "září", "října", "listopadu", "prosince",
+    "ledna",
+    "února",
+    "března",
+    "dubna",
+    "května",
+    "června",
+    "července",
+    "srpna",
+    "září",
+    "října",
+    "listopadu",
+    "prosince",
 ]
 
 
@@ -42,17 +53,17 @@ def get_date_context() -> str:
 
 # Model routing table – maps task profile to Ollama model name
 MODEL_ROUTING: dict[str, str] = {
-    "code":       "qwen2.5-coder:3b",    # coding tasks, git, vscode
-    "research":   "llama3.2:latest",     # research, document analysis
-    "general":    "llama3.2:latest",     # general chat
-    "powerbi":    "qwen2.5-coder:3b",   # DAX, Power BI
-    "pbi":        "llama3.2:latest",     # Power BI chat (non-code)
-    "lean":       "llama3.2:latest",     # Lean/CI
-    "mac":        "llama3.2:latest",     # macOS admin
-    "agent":      "llama3.2:latest",     # agent orchestration
-    "summarize":  "llama3.2:latest",     # KB summarization, context compression
-    "vision":     "llava:7b",            # image analysis
-    "embed":      "nomic-embed-text",    # embeddings (nezměn stávající logiku)
+    "code": "qwen2.5-coder:3b",  # coding tasks, git, vscode
+    "research": "llama3.2:latest",  # research, document analysis
+    "general": "llama3.2:latest",  # general chat
+    "powerbi": "qwen2.5-coder:3b",  # DAX, Power BI
+    "pbi": "llama3.2:latest",  # Power BI chat (non-code)
+    "lean": "llama3.2:latest",  # Lean/CI
+    "mac": "llama3.2:latest",  # macOS admin
+    "agent": "llama3.2:latest",  # agent orchestration
+    "summarize": "llama3.2:latest",  # KB summarization, context compression
+    "vision": "llava:7b",  # image analysis
+    "embed": "nomic-embed-text",  # embeddings (nezměn stávající logiku)
 }
 
 
@@ -110,7 +121,9 @@ def _llm_unavailable_response(
     retry=retry_if_exception_type((httpx.ConnectError, httpx.TimeoutException)),
     reraise=True,
 )
-async def _call_ollama_with_retry(ollama_url: str, payload: dict, timeout: float) -> str:
+async def _call_ollama_with_retry(
+    ollama_url: str, payload: dict, timeout: float
+) -> str:
     """Make a single non-streaming call to Ollama with tenacity retry."""
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.post(f"{ollama_url}/api/chat", json=payload)
@@ -145,7 +158,9 @@ class LLMService:
         Returns (reply_text, meta_dict).
         """
         cfg = self._settings.get_llm_config(profile=profile)
-        cfg["model"] = resolve_model(profile or "general", model_override or cfg.get("model"))
+        cfg["model"] = resolve_model(
+            profile or "general", model_override or cfg.get("model")
+        )
         provider = cfg.get("provider", "ollama")
         start = time.monotonic()
 
@@ -162,7 +177,12 @@ class LLMService:
         meta["latency_ms"] = elapsed_ms
         meta["mode"] = mode
 
-        status = "error" if meta.get("status") == "llm_unavailable" or meta.get("provider") == "error" else "success"
+        status = (
+            "error"
+            if meta.get("status") == "llm_unavailable"
+            or meta.get("provider") == "error"
+            else "success"
+        )
         ollama_requests_total.labels(model=cfg["model"], status=status).inc()
         ollama_latency_seconds.labels(model=cfg["model"]).observe(elapsed_ms / 1000)
 
@@ -191,7 +211,9 @@ class LLMService:
                 retry_after_s=int(cb.recovery_timeout),
             )
 
-        system_prompt = get_date_context() + "\n" + self._settings.get_system_prompt(mode)
+        system_prompt = (
+            get_date_context() + "\n" + self._settings.get_system_prompt(mode)
+        )
 
         # 5H-3: Add structured output hints based on message content
         system_prompt = self._add_structured_hints(system_prompt, message)
@@ -214,7 +236,9 @@ class LLMService:
         if tokens_estimated > int(context_limit * 0.8):
             logger.warning(
                 "Token estimate %d exceeds 80%% of context limit %d for model %s, trimming",
-                tokens_estimated, context_limit, model,
+                tokens_estimated,
+                context_limit,
+                model,
             )
             messages, history_trimmed = trim_messages_to_fit(
                 messages, int(context_limit * 0.8)
@@ -269,10 +293,15 @@ class LLMService:
                     logger.warning("Empty response from Ollama (retry %d/2)", retries)
                     retry_payload = dict(payload)
                     retry_msgs = list(messages) + [
-                        {"role": "system", "content": "Předchozí pokus vrátil prázdnou odpověď. Odpověz prosím na otázku uživatele."}
+                        {
+                            "role": "system",
+                            "content": "Předchozí pokus vrátil prázdnou odpověď. Odpověz prosím na otázku uživatele.",
+                        }
                     ]
                     retry_payload["messages"] = retry_msgs
-                    reply = await _call_ollama_with_retry(ollama_url, retry_payload, timeout)
+                    reply = await _call_ollama_with_retry(
+                        ollama_url, retry_payload, timeout
+                    )
 
                 if not reply.strip():
                     reply = "[Model nevrátil odpověď. Zkus jiný model nebo restartuj Ollamu.]"
@@ -286,11 +315,16 @@ class LLMService:
 
                 if auto_translate and self._looks_english(reply):
                     meta_base["language_detected"] = "en"
-                    logger.info("Response detected as English, auto-translating to Czech")
+                    logger.info(
+                        "Response detected as English, auto-translating to Czech"
+                    )
                     translate_payload: Dict[str, Any] = {
                         "model": model,
                         "messages": [
-                            {"role": "system", "content": "Přelož následující text do češtiny. Zachovej formátování a odborné termíny."},
+                            {
+                                "role": "system",
+                                "content": "Přelož následující text do češtiny. Zachovej formátování a odborné termíny.",
+                            },
                             {"role": "user", "content": f"Přelož do češtiny: {reply}"},
                         ],
                         "options": options,
@@ -299,7 +333,9 @@ class LLMService:
                     if keep_alive is not None:
                         translate_payload["keep_alive"] = keep_alive
                     try:
-                        translated = await _call_ollama_with_retry(ollama_url, translate_payload, timeout)
+                        translated = await _call_ollama_with_retry(
+                            ollama_url, translate_payload, timeout
+                        )
                         if translated.strip():
                             reply = translated
                             meta_base["auto_translated"] = True
@@ -314,7 +350,9 @@ class LLMService:
             await cb.record_failure()
             logger.warning(
                 "Ollama call timed out for model %s after %.0fs (mode=%s)",
-                model, timeout, mode,
+                model,
+                timeout,
+                mode,
             )
             return _llm_unavailable_response(
                 model,
@@ -323,7 +361,9 @@ class LLMService:
             )
         except httpx.ConnectError:
             await cb.record_failure()
-            logger.warning("Ollama not available at %s, falling back to stub", ollama_url)
+            logger.warning(
+                "Ollama not available at %s, falling back to stub", ollama_url
+            )
             return _llm_unavailable_response(
                 model,
                 f"Ollama není dostupná na {ollama_url}. Spusť 'ollama serve'.",
@@ -332,7 +372,9 @@ class LLMService:
         except httpx.HTTPStatusError as exc:
             # 4xx errors are not retried by tenacity; don't trip circuit breaker
             if exc.response.status_code < 500:
-                logger.error("Ollama client error %d: %s", exc.response.status_code, exc)
+                logger.error(
+                    "Ollama client error %d: %s", exc.response.status_code, exc
+                )
                 return f"[Chyba LLM: {exc}]", {
                     "provider": "error",
                     "model": model,
@@ -367,12 +409,31 @@ class LLMService:
         msg_lower = message.lower()
         hints = []
 
-        comparison_keywords = ["porovnej", "rozdíl mezi", "rozdil mezi", "pros and cons",
-                               "výhody nevýhody", "vyhody nevyhody", "compare", "vs"]
+        comparison_keywords = [
+            "porovnej",
+            "rozdíl mezi",
+            "rozdil mezi",
+            "pros and cons",
+            "výhody nevýhody",
+            "vyhody nevyhody",
+            "compare",
+            "vs",
+        ]
         if any(kw in msg_lower for kw in comparison_keywords):
-            hints.append("Uživatel požádal o porovnání. Použij markdown tabulku nebo strukturovaný seznam.")
+            hints.append(
+                "Uživatel požádal o porovnání. Použij markdown tabulku nebo strukturovaný seznam."
+            )
 
-        step_keywords = ["jak", "postup", "návod", "navod", "steps", "how to", "kroky", "tutorial"]
+        step_keywords = [
+            "jak",
+            "postup",
+            "návod",
+            "navod",
+            "steps",
+            "how to",
+            "kroky",
+            "tutorial",
+        ]
         if any(kw in msg_lower for kw in step_keywords):
             hints.append("Odpověz jako číslovaný seznam kroků.")
 
@@ -419,17 +480,23 @@ class LLMService:
         cfg = self._settings.get_llm_config(profile=profile)
         ollama_url = cfg.get("ollama_url", "http://localhost:11434").rstrip("/")
         model = resolve_model(profile or "general", model_override or cfg.get("model"))
-        system_prompt = get_date_context() + "\n" + self._settings.get_system_prompt(mode)
+        system_prompt = (
+            get_date_context() + "\n" + self._settings.get_system_prompt(mode)
+        )
         cb = get_ollama_circuit_breaker()
 
         # Circuit breaker: fast-fail if Ollama has been failing repeatedly
         if not await cb.can_execute():
-            logger.warning("Circuit breaker OPEN – skipping stream request (model=%s)", model)
-            yield json.dumps({
-                "status": "llm_unavailable",
-                "message": "Ollama je dočasně nedostupná (circuit breaker otevřen).",
-                "retry_after_s": int(cb.recovery_timeout),
-            })
+            logger.warning(
+                "Circuit breaker OPEN – skipping stream request (model=%s)", model
+            )
+            yield json.dumps(
+                {
+                    "status": "llm_unavailable",
+                    "message": "Ollama je dočasně nedostupná (circuit breaker otevřen).",
+                    "retry_after_s": int(cb.recovery_timeout),
+                }
+            )
             return
 
         messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]

@@ -1,4 +1,5 @@
 """Tests for resident agent heartbeat and /api/agent/status endpoint."""
+
 import pytest
 
 

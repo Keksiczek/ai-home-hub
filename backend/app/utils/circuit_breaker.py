@@ -73,7 +73,8 @@ class CircuitBreaker:
                 if self._state != CircuitState.OPEN:
                     logger.warning(
                         "Circuit breaker '%s' opened after %d consecutive failures",
-                        self.name, self._failure_count,
+                        self.name,
+                        self._failure_count,
                     )
                 self._state = CircuitState.OPEN
 

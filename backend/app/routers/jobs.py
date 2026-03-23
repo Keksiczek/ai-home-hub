@@ -1,4 +1,5 @@
 """Jobs router – CRUD for persistent job queue."""
+
 import asyncio
 import logging
 from typing import Any, Dict, List, Optional
@@ -41,26 +42,33 @@ def _sync_to_db_and_broadcast(job) -> None:
     """Persist job to SQLite DB and broadcast update via WebSocket (fire-and-forget)."""
     try:
         from app.db.jobs_db import get_jobs_db
+
         db = get_jobs_db()
-        db.insert_job({
-            "id": job.id,
-            "type": job.type,
-            "title": job.title,
-            "status": job.status,
-            "input_summary": job.input_summary,
-            "created_at": job.created_at,
-        })
+        db.insert_job(
+            {
+                "id": job.id,
+                "type": job.type,
+                "title": job.title,
+                "status": job.status,
+                "input_summary": job.input_summary,
+                "created_at": job.created_at,
+            }
+        )
     except Exception as exc:
         logger.debug("JobsDB sync failed: %s", exc)
 
     try:
         ws = get_ws_manager()
-        asyncio.create_task(ws.broadcast({
-            "type": WS_EVENT_JOB_UPDATE,
-            "job_id": job.id,
-            "status": job.status,
-            "title": job.title,
-        }))
+        asyncio.create_task(
+            ws.broadcast(
+                {
+                    "type": WS_EVENT_JOB_UPDATE,
+                    "job_id": job.id,
+                    "status": job.status,
+                    "title": job.title,
+                }
+            )
+        )
     except Exception:
         pass
 
@@ -105,7 +113,12 @@ async def run_job_now(req: RunNowRequest) -> Dict[str, Any]:
         payload=req.payload,
         priority="high",
     )
-    return {"id": job.id, "status": "queued", "priority": "high", "message": "Job queued for immediate execution"}
+    return {
+        "id": job.id,
+        "status": "queued",
+        "priority": "high",
+        "message": "Job queued for immediate execution",
+    }
 
 
 @router.post("/jobs/schedule", tags=["jobs"])
@@ -165,7 +178,9 @@ async def get_nightly_report() -> Dict[str, Any]:
 
     # 1. Check completed nightly_summary jobs first
     job_svc = get_job_service()
-    completed_jobs = job_svc.list_jobs(type="nightly_summary", status="succeeded", limit=1)
+    completed_jobs = job_svc.list_jobs(
+        type="nightly_summary", status="succeeded", limit=1
+    )
     if completed_jobs:
         j = completed_jobs[0]
         result = j.meta.get("result", {}) if j.meta else {}
@@ -198,7 +213,10 @@ async def get_nightly_report() -> Dict[str, Any]:
     except Exception:
         pass
 
-    return {"available": False, "message": "Žádný report zatím nevytvořen. Spusť nightly_summary job."}
+    return {
+        "available": False,
+        "message": "Žádný report zatím nevytvořen. Spusť nightly_summary job.",
+    }
 
 
 # ── Job History with output summaries ──────────────────────────
@@ -252,29 +270,32 @@ async def get_job_history(limit: int = 20) -> Dict[str, Any]:
         if j.started_at and j.finished_at:
             try:
                 from datetime import datetime as dt
+
                 start = dt.fromisoformat(j.started_at)
                 end = dt.fromisoformat(j.finished_at)
                 duration_s = round((end - start).total_seconds(), 1)
             except (ValueError, TypeError):
                 pass
 
-        history.append({
-            "id": j.id,
-            "type": j.type,
-            "title": j.title,
-            "status": j.status,
-            "progress": j.progress,
-            "priority": j.priority,
-            "created_at": j.created_at,
-            "started_at": j.started_at,
-            "finished_at": j.finished_at,
-            "duration_s": duration_s,
-            "action": action,
-            "output_summary": output_summary,
-            "model_used": model_used,
-            "has_error": bool(j.last_error),
-            "error_preview": (j.last_error or "")[:100],
-        })
+        history.append(
+            {
+                "id": j.id,
+                "type": j.type,
+                "title": j.title,
+                "status": j.status,
+                "progress": j.progress,
+                "priority": j.priority,
+                "created_at": j.created_at,
+                "started_at": j.started_at,
+                "finished_at": j.finished_at,
+                "duration_s": duration_s,
+                "action": action,
+                "output_summary": output_summary,
+                "model_used": model_used,
+                "has_error": bool(j.last_error),
+                "error_preview": (j.last_error or "")[:100],
+            }
+        )
 
     return {"jobs": history, "count": len(history), "limit": limit}
 
@@ -283,6 +304,7 @@ async def get_job_history(limit: int = 20) -> Dict[str, Any]:
 async def mobile_jobs_summary(limit: int = 20) -> Dict[str, Any]:
     """Compact job summary optimized for mobile UI."""
     from app.db.jobs_db import get_jobs_db
+
     db = get_jobs_db()
     jobs = db.list_jobs(limit=limit)
     counts = db.count_by_status()
@@ -291,15 +313,19 @@ async def mobile_jobs_summary(limit: int = 20) -> Dict[str, Any]:
 
     compact = []
     for j in jobs:
-        compact.append({
-            "id": j["id"][:8],
-            "full_id": j["id"],
-            "time": (j.get("created_at") or "")[-8:-3],  # HH:MM
-            "status": j["status"],
-            "title": j["title"][:60],
-            "summary": (j.get("output_summary") or j.get("input_summary") or "")[:80],
-            "duration_ms": j.get("execution_time", 0),
-        })
+        compact.append(
+            {
+                "id": j["id"][:8],
+                "full_id": j["id"],
+                "time": (j.get("created_at") or "")[-8:-3],  # HH:MM
+                "status": j["status"],
+                "title": j["title"][:60],
+                "summary": (j.get("output_summary") or j.get("input_summary") or "")[
+                    :80
+                ],
+                "duration_ms": j.get("execution_time", 0),
+            }
+        )
 
     return {
         "total": total,
@@ -332,6 +358,7 @@ async def cancel_job(job_id: str) -> Dict[str, Any]:
         )
     job.status = "cancelled"
     from datetime import datetime, timezone
+
     job.finished_at = datetime.now(timezone.utc).isoformat()
     svc.update_job(job)
     return {"id": job.id, "status": job.status}
@@ -431,7 +458,9 @@ async def get_job_detail(job_id: str) -> Dict[str, Any]:
     # Full output text
     full_output = ""
     if isinstance(result, dict):
-        full_output = result.get("full_output", result.get("output", result.get("summary", "")))
+        full_output = result.get(
+            "full_output", result.get("output", result.get("summary", ""))
+        )
         if not full_output:
             full_output = str(result)
     elif isinstance(result, str):
@@ -467,7 +496,9 @@ async def overnight_status() -> Dict[str, Any]:
     settings_svc = get_settings_service()
     job_settings = settings_svc.get_job_settings()
 
-    night_window = job_settings.get("night_batch_window", {"start": "22:00", "end": "06:00"})
+    night_window = job_settings.get(
+        "night_batch_window", {"start": "22:00", "end": "06:00"}
+    )
     in_night = is_now_in_night_window(job_settings)
 
     # Get last run info from memory (system events tagged by type)
@@ -478,10 +509,7 @@ async def overnight_status() -> Dict[str, Any]:
     last_run: Dict[str, Any] = {}
 
     for job_type in night_job_types:
-        matching = [
-            e for e in recent_events
-            if e.get("event_type") == job_type
-        ]
+        matching = [e for e in recent_events if e.get("event_type") == job_type]
         if matching:
             latest = matching[0]  # already sorted DESC
             entry: Dict[str, Any] = {
@@ -510,7 +538,9 @@ async def overnight_status() -> Dict[str, Any]:
             }
             if job_type == "nightly_summary":
                 result = j.meta.get("result", {})
-                entry["preview"] = result.get("preview", "") if isinstance(result, dict) else ""
+                entry["preview"] = (
+                    result.get("preview", "") if isinstance(result, dict) else ""
+                )
             else:
                 entry["result"] = j.meta.get("result", {})
             last_run[job_type] = entry
@@ -568,6 +598,7 @@ async def run_overnight_job_now(job_name: str) -> Dict[str, Any]:
 async def init_jobs_db() -> Dict[str, Any]:
     """Initialize the SQLite jobs database schema."""
     from app.db.jobs_db import get_jobs_db
+
     db = get_jobs_db()
     stats = db.count_by_status()
     return {"status": "ok", "db": "jobs.db", "counts": stats}

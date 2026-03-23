@@ -1,4 +1,5 @@
 """Tests for WeatherSkill (Nymburk)."""
+
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
 from app.services.skills_runtime_service import WeatherSkill
@@ -30,7 +31,10 @@ async def test_weather_run_returns_dict():
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("app.services.skills_runtime_service.httpx.AsyncClient", return_value=mock_client):
+    with patch(
+        "app.services.skills_runtime_service.httpx.AsyncClient",
+        return_value=mock_client,
+    ):
         result = await skill.run("Nymburk")
 
     assert isinstance(result, dict)
@@ -48,7 +52,10 @@ async def test_weather_handles_error():
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("app.services.skills_runtime_service.httpx.AsyncClient", return_value=mock_client):
+    with patch(
+        "app.services.skills_runtime_service.httpx.AsyncClient",
+        return_value=mock_client,
+    ):
         result = await skill.run()
 
     assert "error" in result

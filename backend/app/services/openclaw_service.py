@@ -1,4 +1,5 @@
 """OpenClaw service – Mac computer control automation."""
+
 import asyncio
 import base64
 import logging
@@ -35,7 +36,8 @@ class OpenClawService:
     async def _run_binary(self, *args: str) -> str:
         """Run the OpenClaw binary with arguments."""
         proc = await asyncio.create_subprocess_exec(
-            self._binary(), *args,
+            self._binary(),
+            *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -85,7 +87,8 @@ class OpenClawService:
         """Simulate a mouse click at (x, y). Uses cliclick if available."""
         try:
             proc = await asyncio.create_subprocess_exec(
-                "cliclick", f"c:{x},{y}",
+                "cliclick",
+                f"c:{x},{y}",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -93,11 +96,11 @@ class OpenClawService:
             return f"Clicked at ({x}, {y})"
         except FileNotFoundError:
             # cliclick not installed – use AppleScript
-            script = (
-                f'tell application "System Events" to click at {{{x}, {y}}}'
-            )
+            script = f'tell application "System Events" to click at {{{x}, {y}}}'
             proc = await asyncio.create_subprocess_exec(
-                "osascript", "-e", script,
+                "osascript",
+                "-e",
+                script,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -108,7 +111,9 @@ class OpenClawService:
         """Simulate keyboard typing via AppleScript."""
         script = f'tell application "System Events" to keystroke "{text}"'
         proc = await asyncio.create_subprocess_exec(
-            "osascript", "-e", script,
+            "osascript",
+            "-e",
+            script,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -120,7 +125,9 @@ class OpenClawService:
     async def open_application(self, app_name: str) -> str:
         """Launch a Mac application."""
         proc = await asyncio.create_subprocess_exec(
-            "open", "-a", app_name,
+            "open",
+            "-a",
+            app_name,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -154,7 +161,9 @@ class OpenClawService:
 
     # ── Async action dispatcher ────────────────────────────────
 
-    async def run_action_async(self, action: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    async def run_action_async(
+        self, action: str, params: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Async dispatcher for all OpenClaw actions."""
         try:
             if action == "screenshot":
@@ -171,7 +180,11 @@ class OpenClawService:
             elif action == "open_application":
                 result = await self.open_application(params["app_name"])
                 return {"status": "ok", "detail": result}
-            elif action in ("start_whatsapp_agent", "restart_telegram_agent", "run_workflow"):
+            elif action in (
+                "start_whatsapp_agent",
+                "restart_telegram_agent",
+                "run_workflow",
+            ):
                 return {
                     "status": "not_implemented",
                     "detail": "Action defined but not yet implemented",

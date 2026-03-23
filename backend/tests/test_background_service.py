@@ -1,14 +1,15 @@
 """Tests for BackgroundService base class lifecycle management."""
+
 import asyncio
 
 import pytest
 
 from app.services.background_service import BackgroundService
 
-
 # ---------------------------------------------------------------------------
 # Minimal concrete implementation used across all tests
 # ---------------------------------------------------------------------------
+
 
 class _FakeService(BackgroundService):
     """Counts how many times _tick has been called."""
@@ -27,6 +28,7 @@ class _FakeService(BackgroundService):
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 async def test_start_creates_running_task() -> None:
     svc = _FakeService()

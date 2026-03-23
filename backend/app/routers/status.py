@@ -1,4 +1,5 @@
 """Status router – aggregated system health dashboard endpoint."""
+
 import asyncio
 import asyncio.subprocess
 import logging
@@ -123,7 +124,7 @@ async def _check_filesystem(settings: Dict[str, Any]) -> Dict[str, Any]:
     # Disk space for the project root
     try:
         usage = shutil.disk_usage(Path(__file__).parent.parent.parent)
-        available_gb = round(usage.free / (1024 ** 3), 1)
+        available_gb = round(usage.free / (1024**3), 1)
     except Exception:
         available_gb = None
 
@@ -154,7 +155,11 @@ async def _check_integrations(settings: Dict[str, Any]) -> Dict[str, Any]:
     vscode_found = shutil.which(binary_path) is not None
     projects = vscode_cfg.get("projects", {})
     result["vscode"] = {
-        "status": "healthy" if vscode_found else ("unconfigured" if not vscode_cfg.get("enabled") else "unhealthy"),
+        "status": (
+            "healthy"
+            if vscode_found
+            else ("unconfigured" if not vscode_cfg.get("enabled") else "unhealthy")
+        ),
         "details": {
             "binary_path": binary_path,
             "found": vscode_found,
@@ -164,9 +169,11 @@ async def _check_integrations(settings: Dict[str, Any]) -> Dict[str, Any]:
 
     # Git
     try:
+
         async def _run_git_version() -> str | None:
             proc = await asyncio.create_subprocess_exec(
-                "git", "--version",
+                "git",
+                "--version",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -235,7 +242,8 @@ async def _check_agents() -> Dict[str, Any]:
         orch = get_agent_orchestrator()
         agents = orch._agents
         active = sum(
-            1 for a in agents.values()
+            1
+            for a in agents.values()
             if a.status in (AGENT_STATUS_PENDING, AGENT_STATUS_RUNNING)
         )
         settings = get_settings_service().load()
@@ -243,7 +251,8 @@ async def _check_agents() -> Dict[str, Any]:
 
         tm = get_task_manager()
         queued = sum(
-            1 for t in tm._tasks.values()
+            1
+            for t in tm._tasks.values()
             if t.status in (STATUS_PENDING, STATUS_RUNNING)
         )
 
@@ -327,7 +336,12 @@ async def get_system_status() -> Dict[str, Any]:
     ws_task = asyncio.ensure_future(_check_websocket())
 
     results = await asyncio.gather(
-        ollama_task, kb_task, fs_task, integ_task, agents_task, ws_task,
+        ollama_task,
+        kb_task,
+        fs_task,
+        integ_task,
+        agents_task,
+        ws_task,
         return_exceptions=True,
     )
 
@@ -368,6 +382,7 @@ async def get_system_status() -> Dict[str, Any]:
 async def get_system_resources():
     """Return current RAM/CPU/swap usage and resource throttle/block state."""
     from app.services.resource_monitor import get_resource_monitor
+
     return get_resource_monitor().to_dict()
 
 
@@ -381,7 +396,9 @@ async def purge_models(keep_model: str = "") -> Dict[str, Any]:
     from app.services.llm_service import unload_model
 
     settings = get_settings_service().load()
-    ollama_url = settings.get("llm", {}).get("ollama_url", "http://localhost:11434").rstrip("/")
+    ollama_url = (
+        settings.get("llm", {}).get("ollama_url", "http://localhost:11434").rstrip("/")
+    )
 
     unloaded = []
     freed_mb = 0.0
@@ -413,11 +430,13 @@ async def _broadcast_status_alert(
     """Broadcast a status alert to all WebSocket clients."""
     try:
         ws = get_ws_manager()
-        await ws.broadcast({
-            "type": "status_alert",
-            "component": component,
-            "message": message,
-            "severity": severity,
-        })
+        await ws.broadcast(
+            {
+                "type": "status_alert",
+                "component": component,
+                "message": message,
+                "severity": severity,
+            }
+        )
     except Exception as exc:
         logger.debug("Status alert broadcast failed: %s", exc)

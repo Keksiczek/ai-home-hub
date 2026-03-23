@@ -1,4 +1,5 @@
 """Tests for GET /api/setup/status and POST /api/setup/complete."""
+
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -28,16 +29,22 @@ def client():
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_status_payload(completed=False, ollama_ok=True, models_ok=True,
-                          chroma_ok=True, fs_ok=True):
+
+def _make_status_payload(
+    completed=False, ollama_ok=True, models_ok=True, chroma_ok=True, fs_ok=True
+):
     return {
         "completed": completed,
         "first_run": not completed,
         "checks": {
-            "ollama_running":    {"ok": ollama_ok,  "message": "Ollama odpovídá"},
-            "required_models":   {"ok": models_ok,  "message": "Všechny modely jsou dostupné", "missing": []},
-            "chromadb_writable": {"ok": chroma_ok,  "message": "ChromaDB je dostupná"},
-            "filesystem_dirs":   {"ok": fs_ok,      "message": "Nakonfigurováno 1 adresářů"},
+            "ollama_running": {"ok": ollama_ok, "message": "Ollama odpovídá"},
+            "required_models": {
+                "ok": models_ok,
+                "message": "Všechny modely jsou dostupné",
+                "missing": [],
+            },
+            "chromadb_writable": {"ok": chroma_ok, "message": "ChromaDB je dostupná"},
+            "filesystem_dirs": {"ok": fs_ok, "message": "Nakonfigurováno 1 adresářů"},
         },
     }
 
@@ -50,9 +57,13 @@ def _svc_mock(payload):
 # GET /api/setup/status
 # ---------------------------------------------------------------------------
 
+
 def test_setup_status_shape(client):
     """GET /api/setup/status returns required top-level keys."""
-    with patch("app.routers.setup.get_setup_service", return_value=_svc_mock(_make_status_payload())):
+    with patch(
+        "app.routers.setup.get_setup_service",
+        return_value=_svc_mock(_make_status_payload()),
+    ):
         resp = client.get("/api/setup/status")
 
     assert resp.status_code == 200
@@ -64,7 +75,10 @@ def test_setup_status_shape(client):
 
 def test_setup_status_first_run_true_when_not_completed(client):
     """first_run is True when setup has not been completed."""
-    with patch("app.routers.setup.get_setup_service", return_value=_svc_mock(_make_status_payload(completed=False))):
+    with patch(
+        "app.routers.setup.get_setup_service",
+        return_value=_svc_mock(_make_status_payload(completed=False)),
+    ):
         resp = client.get("/api/setup/status")
 
     data = resp.json()
@@ -74,7 +88,10 @@ def test_setup_status_first_run_true_when_not_completed(client):
 
 def test_setup_status_first_run_false_when_completed(client):
     """first_run is False once setup has been completed."""
-    with patch("app.routers.setup.get_setup_service", return_value=_svc_mock(_make_status_payload(completed=True))):
+    with patch(
+        "app.routers.setup.get_setup_service",
+        return_value=_svc_mock(_make_status_payload(completed=True)),
+    ):
         resp = client.get("/api/setup/status")
 
     data = resp.json()
@@ -84,11 +101,19 @@ def test_setup_status_first_run_false_when_completed(client):
 
 def test_setup_status_checks_contain_all_keys(client):
     """checks object must contain the four expected keys."""
-    with patch("app.routers.setup.get_setup_service", return_value=_svc_mock(_make_status_payload())):
+    with patch(
+        "app.routers.setup.get_setup_service",
+        return_value=_svc_mock(_make_status_payload()),
+    ):
         resp = client.get("/api/setup/status")
 
     checks = resp.json()["checks"]
-    for key in ("ollama_running", "required_models", "chromadb_writable", "filesystem_dirs"):
+    for key in (
+        "ollama_running",
+        "required_models",
+        "chromadb_writable",
+        "filesystem_dirs",
+    ):
         assert key in checks, f"Missing check key: {key}"
         assert "ok" in checks[key]
         assert "message" in checks[key]
@@ -108,6 +133,7 @@ def test_setup_status_degraded_environment(client):
 # ---------------------------------------------------------------------------
 # POST /api/setup/complete
 # ---------------------------------------------------------------------------
+
 
 def test_setup_complete_returns_200(client):
     """POST /api/setup/complete returns 200 with ok status."""

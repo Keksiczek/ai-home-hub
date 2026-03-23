@@ -3,6 +3,7 @@
 These are contract tests for the multimodal chat endpoint which is used
 by the drag-drop feature to send images.
 """
+
 import base64
 import pytest
 
@@ -28,12 +29,15 @@ def _make_tiny_png():
 def test_multimodal_endpoint_exists(client):
     """POST /api/chat/multimodal endpoint exists and accepts requests."""
     tiny_png = base64.b64encode(_make_tiny_png()).decode()
-    res = client.post("/api/chat/multimodal", json={
-        "message": "What is this?",
-        "mode": "general",
-        "profile": "vision",
-        "images": [{"data": tiny_png, "media_type": "image/png"}],
-    })
+    res = client.post(
+        "/api/chat/multimodal",
+        json={
+            "message": "What is this?",
+            "mode": "general",
+            "profile": "vision",
+            "images": [{"data": tiny_png, "media_type": "image/png"}],
+        },
+    )
     # May fail due to no LLM, but should not be 404
     assert res.status_code != 404
 

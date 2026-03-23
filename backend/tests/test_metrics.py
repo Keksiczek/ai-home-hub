@@ -1,4 +1,5 @@
 """Tests for Prometheus metrics instrumentation."""
+
 import io
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -93,7 +94,9 @@ class TestUploadMetrics:
 
         resp = client.post(
             "/api/media/upload",
-            files={"file": ("bad.exe", io.BytesIO(b"data"), "application/octet-stream")},
+            files={
+                "file": ("bad.exe", io.BytesIO(b"data"), "application/octet-stream")
+            },
         )
         assert resp.status_code == 400
 

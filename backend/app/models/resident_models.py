@@ -3,12 +3,12 @@
 Covers autonomy modes, suggested actions, missions, reflections,
 and tool-calling reasoning cycles.
 """
+
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
 import uuid
 
 from pydantic import BaseModel, Field
-
 
 # ── Autonomy Mode ────────────────────────────────────────────
 
@@ -16,6 +16,7 @@ ResidentMode = Literal["observer", "advisor", "autonomous"]
 
 
 # ── Suggested Actions ────────────────────────────────────────
+
 
 class SuggestedAction(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
@@ -43,6 +44,7 @@ class ResidentSuggestion(BaseModel):
 
 # ── Missions ─────────────────────────────────────────────────
 
+
 class MissionStep(BaseModel):
     title: str
     description: str = ""
@@ -67,8 +69,10 @@ class MissionCreateRequest(BaseModel):
 
 # ── Mission Chat ────────────────────────────────────────────
 
+
 class MissionChatMessage(BaseModel):
     """A single chat message in a mission's chat history."""
+
     role: Literal["user", "assistant"]
     content: str
     timestamp: str = Field(
@@ -77,6 +81,7 @@ class MissionChatMessage(BaseModel):
 
 
 # ── Reflections ──────────────────────────────────────────────
+
 
 class ResidentReflection(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
@@ -92,8 +97,10 @@ class ResidentReflection(BaseModel):
 
 # ── Tool-calling reasoning cycles ───────────────────────────
 
+
 class ToolCallRecord(BaseModel):
     """One tool invocation inside a reasoning cycle."""
+
     tool_name: str
     arguments: Dict[str, Any] = {}
     result: Dict[str, Any] = {}
@@ -103,6 +110,7 @@ class ToolCallRecord(BaseModel):
 
 class ResidentReasoningCycle(BaseModel):
     """Complete record of one tool-augmented reasoning pass."""
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
     created_at: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()

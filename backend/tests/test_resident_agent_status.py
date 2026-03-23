@@ -1,4 +1,5 @@
 """Tests for resident agent live status fields."""
+
 import pytest
 from app.services.resident_agent import ResidentAgentState, get_resident_agent
 

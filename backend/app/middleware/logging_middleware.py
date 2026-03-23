@@ -52,7 +52,9 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         elapsed_ms = int((time.monotonic() - start) * 1000)
         response.headers["X-Request-ID"] = rid
 
-        _log_request(rid, request.method, request.url.path, response.status_code, elapsed_ms)
+        _log_request(
+            rid, request.method, request.url.path, response.status_code, elapsed_ms
+        )
 
         return response
 

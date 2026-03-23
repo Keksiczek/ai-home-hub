@@ -9,6 +9,7 @@ decides whether to set a dirty flag or enqueue a job.
 Actual reindexing is NOT done here – that is handled by NightScheduler / the
 existing ``kb_reindex`` night job.
 """
+
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
@@ -40,7 +41,7 @@ class KBWatchdog:
     ) -> None:
         self._get_settings = get_settings
         self._on_change = on_change
-        self._observer: Any = None          # watchdog Observer (lazy import)
+        self._observer: Any = None  # watchdog Observer (lazy import)
         self._debounce_task: asyncio.Task | None = None
 
     # ------------------------------------------------------------------
@@ -81,8 +82,8 @@ class KBWatchdog:
             return
 
         settings = self._get_settings().load()
-        watched_paths: list[str] = (
-            settings.get("knowledge_base", {}).get("external_paths", [])
+        watched_paths: list[str] = settings.get("knowledge_base", {}).get(
+            "external_paths", []
         )
 
         if not watched_paths:

@@ -1,13 +1,17 @@
 """Tests for Run Now vs Schedule job endpoints."""
+
 import pytest
 
 
 def test_run_now_creates_high_priority_job(client):
     """POST /api/jobs/run-now creates a high-priority job."""
-    resp = client.post("/api/jobs/run-now", json={
-        "type": "long_llm_task",
-        "title": "Test run now",
-    })
+    resp = client.post(
+        "/api/jobs/run-now",
+        json={
+            "type": "long_llm_task",
+            "title": "Test run now",
+        },
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["priority"] == "high"
@@ -17,20 +21,26 @@ def test_run_now_creates_high_priority_job(client):
 
 def test_schedule_requires_cron_or_run_at(client):
     """POST /api/jobs/schedule without cron or run_at returns 400."""
-    resp = client.post("/api/jobs/schedule", json={
-        "type": "kb_reindex",
-        "title": "Test schedule",
-    })
+    resp = client.post(
+        "/api/jobs/schedule",
+        json={
+            "type": "kb_reindex",
+            "title": "Test schedule",
+        },
+    )
     assert resp.status_code == 400
 
 
 def test_schedule_with_run_at(client):
     """POST /api/jobs/schedule with run_at creates a scheduled job."""
-    resp = client.post("/api/jobs/schedule", json={
-        "type": "kb_reindex",
-        "title": "Scheduled reindex",
-        "run_at": "2026-03-17T22:00:00Z",
-    })
+    resp = client.post(
+        "/api/jobs/schedule",
+        json={
+            "type": "kb_reindex",
+            "title": "Scheduled reindex",
+            "run_at": "2026-03-17T22:00:00Z",
+        },
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "queued"
@@ -39,11 +49,14 @@ def test_schedule_with_run_at(client):
 
 def test_schedule_with_cron(client):
     """POST /api/jobs/schedule with cron creates a cron-scheduled job."""
-    resp = client.post("/api/jobs/schedule", json={
-        "type": "nightly_summary",
-        "title": "Nightly cron",
-        "cron": "0 22 * * *",
-    })
+    resp = client.post(
+        "/api/jobs/schedule",
+        json={
+            "type": "nightly_summary",
+            "title": "Nightly cron",
+            "cron": "0 22 * * *",
+        },
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["schedule"]["cron"] == "0 22 * * *"
@@ -66,7 +79,9 @@ def test_job_queue_returns_active_jobs(client):
 def test_delete_job(client):
     """DELETE /api/jobs/{id} removes a job."""
     # Create a job
-    create_resp = client.post("/api/jobs/run-now", json={"type": "test", "title": "To delete"})
+    create_resp = client.post(
+        "/api/jobs/run-now", json={"type": "test", "title": "To delete"}
+    )
     job_id = create_resp.json()["id"]
 
     # Delete it

@@ -7,6 +7,7 @@ Pushes updates via WebSocket every 3 seconds, combining data from:
 - kb_stats_cache (chunk count)
 - Ollama health
 """
+
 import asyncio
 import logging
 from datetime import datetime, timezone
@@ -32,7 +33,9 @@ class ActivityService:
         """Start the activity push loop."""
         if self._task is None or self._task.done():
             self._task = asyncio.create_task(self._loop())
-            logger.info("ActivityService started (interval: %.1fs)", self._interval_seconds)
+            logger.info(
+                "ActivityService started (interval: %.1fs)", self._interval_seconds
+            )
         return self._task
 
     def stop(self) -> None:
@@ -44,10 +47,12 @@ class ActivityService:
             try:
                 snapshot = self.get_snapshot()
                 if self._broadcast_fn:
-                    await self._broadcast_fn({
-                        "type": WS_EVENT_ACTIVITY,
-                        **snapshot,
-                    })
+                    await self._broadcast_fn(
+                        {
+                            "type": WS_EVENT_ACTIVITY,
+                            **snapshot,
+                        }
+                    )
             except Exception as exc:
                 logger.debug("ActivityService push error: %s", exc)
             await asyncio.sleep(self._interval_seconds)
@@ -61,6 +66,7 @@ class ActivityService:
         # Resident agent status
         try:
             from app.services.resident_agent import get_resident_agent
+
             agent = get_resident_agent()
             state = agent.get_state()
             result["resident"] = {
@@ -76,6 +82,7 @@ class ActivityService:
         # Active jobs count
         try:
             from app.services.job_service import get_job_service
+
             job_svc = get_job_service()
             running = job_svc.count_jobs(status="running")
             queued = job_svc.count_jobs(status="queued")
@@ -90,6 +97,7 @@ class ActivityService:
         # KB stats
         try:
             from app.services.kb_stats_cache import get_cached_stats
+
             kb = get_cached_stats()
             result["kb"] = {
                 "total_chunks": kb.get("total_chunks", 0),
@@ -100,6 +108,7 @@ class ActivityService:
         # Resource monitor
         try:
             from app.services.resource_monitor import get_resource_monitor
+
             monitor = get_resource_monitor()
             snap = monitor.get_snapshot()
             if snap:
@@ -120,6 +129,7 @@ class ActivityService:
         # Ollama status (lightweight check – uses cached resource monitor data)
         try:
             from app.services.resource_monitor import get_resource_monitor
+
             monitor = get_resource_monitor()
             snap = monitor.get_snapshot()
             result["ollama"] = {

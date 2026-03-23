@@ -1,4 +1,5 @@
 """Report engine – PDF/HTML/slides generation from DocumentAnalysisResult."""
+
 import logging
 from typing import Any, Awaitable, Callable, Dict, Optional
 
@@ -9,13 +10,19 @@ logger = logging.getLogger(__name__)
 ProgressCallback = Callable[[float, Optional[Dict[str, Any]]], Awaitable[None]]
 
 
-async def run_report_generation(job: Job, progress_callback: ProgressCallback) -> Dict[str, Any]:
+async def run_report_generation(
+    job: Job, progress_callback: ProgressCallback
+) -> Dict[str, Any]:
     """ReportGeneratorEngine – generate PDF/HTML/slides from DocumentAnalysisResult."""
     import json as _json
     from pathlib import Path
 
     from app.models.document_analysis_models import DocumentAnalysisResult
-    from app.services.report_generator_service import generate_pdf, generate_html_report, generate_slides_html
+    from app.services.report_generator_service import (
+        generate_pdf,
+        generate_html_report,
+        generate_slides_html,
+    )
     from app.services.llm_service import get_llm_service
 
     DATA_DIR = Path(__file__).parent.parent.parent.parent / "data"
@@ -29,14 +36,23 @@ async def run_report_generation(job: Job, progress_callback: ProgressCallback) -
     await progress_callback(0, {"phase": "load", "status": "started"})
 
     # Try document-analysis artifacts first
-    result_json_path = DATA_DIR / "artifacts" / "document-analysis" / source_job_id / "result.json"
+    result_json_path = (
+        DATA_DIR / "artifacts" / "document-analysis" / source_job_id / "result.json"
+    )
     if not result_json_path.exists():
         # Try media_ingest chained job — check the source job's meta for post_analysis_job_id
         from app.services.job_service import get_job_service
+
         source_job = get_job_service().get_job(source_job_id)
         if source_job and source_job.meta.get("post_analysis_job_id"):
             chained_id = source_job.meta["post_analysis_job_id"]
-            result_json_path = DATA_DIR / "artifacts" / "document-analysis" / chained_id / "result.json"
+            result_json_path = (
+                DATA_DIR
+                / "artifacts"
+                / "document-analysis"
+                / chained_id
+                / "result.json"
+            )
 
     if not result_json_path.exists():
         raise FileNotFoundError(f"Result JSON not found for job {source_job_id}")
@@ -74,7 +90,11 @@ async def run_report_generation(job: Job, progress_callback: ProgressCallback) -
             rec_prompt = f"{prompt_prefix}\n\nRecommendations:\n{rec_text}\n\nReturn as a numbered list."
             enriched_recs, _ = await llm.generate(message=rec_prompt, mode="general")
             # Parse back to list
-            enriched_list = [line.strip().lstrip("0123456789.-) ") for line in enriched_recs.strip().split("\n") if line.strip()]
+            enriched_list = [
+                line.strip().lstrip("0123456789.-) ")
+                for line in enriched_recs.strip().split("\n")
+                if line.strip()
+            ]
             if enriched_list:
                 analysis_result.recommendations = enriched_list
 
@@ -103,11 +123,15 @@ async def run_report_generation(job: Job, progress_callback: ProgressCallback) -
                 outputs["pdf"] = str(Path(path).relative_to(DATA_DIR))
 
             elif fmt == "html":
-                path = generate_html_report(analysis_result, str(output_dir / "report.html"), title)
+                path = generate_html_report(
+                    analysis_result, str(output_dir / "report.html"), title
+                )
                 outputs["html"] = str(Path(path).relative_to(DATA_DIR))
 
             elif fmt == "slides":
-                path = generate_slides_html(analysis_result, str(output_dir / "slides.html"), title)
+                path = generate_slides_html(
+                    analysis_result, str(output_dir / "slides.html"), title
+                )
                 outputs["slides"] = str(Path(path).relative_to(DATA_DIR))
 
         except Exception as exc:

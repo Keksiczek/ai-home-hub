@@ -1,4 +1,5 @@
 """WebSocket connection manager – broadcast messages to all connected clients."""
+
 import asyncio
 import json
 import logging

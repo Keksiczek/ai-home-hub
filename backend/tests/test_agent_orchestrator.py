@@ -1,4 +1,5 @@
 """Tests for AgentOrchestrator sub-agent depth, KB search filtering, and artifact preview."""
+
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -7,22 +8,22 @@ import pytest
 from app.services.agent_orchestrator import AgentOrchestrator, ARTIFACTS_DIR
 from app.utils.constants import MAX_SUB_AGENT_DEPTH, MIN_KB_SEARCH_SCORE
 
-
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 
 @pytest.fixture
 def orchestrator(tmp_path, monkeypatch):
     """Fresh AgentOrchestrator with mocked settings and a temp artifacts dir."""
-    monkeypatch.setattr(
-        "app.services.agent_orchestrator.ARTIFACTS_DIR", tmp_path
-    )
+    monkeypatch.setattr("app.services.agent_orchestrator.ARTIFACTS_DIR", tmp_path)
     # Minimal settings: allow up to 10 concurrent agents, 1-minute timeout.
     settings_mock = MagicMock()
     settings_mock.load.return_value = {
         "agents": {"max_concurrent": 10, "timeout_minutes": 1}
     }
-    with patch("app.services.agent_orchestrator.get_settings_service", return_value=settings_mock):
+    with patch(
+        "app.services.agent_orchestrator.get_settings_service",
+        return_value=settings_mock,
+    ):
         orch = AgentOrchestrator()
         # Point artifacts directory at tmp_path
         orch_artifacts_dir = tmp_path
@@ -66,9 +67,9 @@ async def test_search_knowledge_base_filters_low_scores(orchestrator, monkeypatc
     """Results with score < MIN_KB_SEARCH_SCORE must be excluded from the output."""
     # Build a mock vector store whose search returns three hits:
     # distances are converted to scores as (1 - distance).
-    high_score_distance = 1 - (MIN_KB_SEARCH_SCORE + 0.1)   # score above threshold
-    low_score_distance = 1 - (MIN_KB_SEARCH_SCORE - 0.05)   # score below threshold
-    exact_distance = 1 - MIN_KB_SEARCH_SCORE                 # score exactly at threshold (included)
+    high_score_distance = 1 - (MIN_KB_SEARCH_SCORE + 0.1)  # score above threshold
+    low_score_distance = 1 - (MIN_KB_SEARCH_SCORE - 0.05)  # score below threshold
+    exact_distance = 1 - MIN_KB_SEARCH_SCORE  # score exactly at threshold (included)
 
     mock_vs = MagicMock()
     mock_vs.get_stats.return_value = {"total_chunks": 10}
@@ -101,7 +102,9 @@ async def test_search_knowledge_base_filters_low_scores(orchestrator, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_get_agent_artifacts_with_preview_returns_preview_data(orchestrator, tmp_path):
+async def test_get_agent_artifacts_with_preview_returns_preview_data(
+    orchestrator, tmp_path
+):
     """get_agent_artifacts_with_preview enriches each artifact with a preview field."""
     # Create an agent and manually register a "report" artifact on disk.
     agent_id = await orchestrator.spawn_agent("research", {"goal": "write report"})

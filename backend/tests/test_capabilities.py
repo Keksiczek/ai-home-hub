@@ -28,13 +28,16 @@ for _mod_name in ("chromadb", "chromadb.config"):
 
 # ── Unit tests: CapabilityRegistry ──────────────────────────────────────────
 
+
 class TestCapabilityRegistry:
     def setup_method(self):
         from app.services.capabilities import reset_capability_registry
+
         reset_capability_registry()
 
     def test_registry_lists_default_capabilities(self):
         from app.services.capabilities import get_capability_registry
+
         reg = get_capability_registry()
         names = reg.list_names()
         assert "shell" in names
@@ -45,6 +48,7 @@ class TestCapabilityRegistry:
 
     def test_high_risk_detection(self):
         from app.services.capabilities import get_capability_registry
+
         reg = get_capability_registry()
         assert reg.is_high_risk("file_write") is True
         assert reg.is_high_risk("app_launch") is True
@@ -53,12 +57,14 @@ class TestCapabilityRegistry:
 
     def test_approval_required_for_high_risk(self):
         from app.services.capabilities import get_capability_registry
+
         reg = get_capability_registry()
         assert reg.requires_approval("file_write") is True
         assert reg.requires_approval("file_read") is False
 
     def test_approval_flow(self):
         from app.services.capabilities import get_capability_registry
+
         reg = get_capability_registry()
         # Request approval
         aid = reg.request_approval("file_write", {"path": "/tmp/test"})
@@ -71,6 +77,7 @@ class TestCapabilityRegistry:
 
     def test_deny_approval(self):
         from app.services.capabilities import get_capability_registry
+
         reg = get_capability_registry()
         aid = reg.request_approval("app_launch", {"app": "code"})
         assert reg.deny(aid) is True
@@ -79,6 +86,7 @@ class TestCapabilityRegistry:
 
     def test_killswitch_blocks_everything(self):
         from app.services.capabilities import get_capability_registry
+
         reg = get_capability_registry()
         reg.emergency_stop("test")
         assert reg.is_blocked is True
@@ -86,6 +94,7 @@ class TestCapabilityRegistry:
 
     def test_killswitch_resume(self):
         from app.services.capabilities import get_capability_registry
+
         reg = get_capability_registry()
         reg.emergency_stop("test")
         reg.resume()
@@ -93,6 +102,7 @@ class TestCapabilityRegistry:
 
     def test_to_dict_serialization(self):
         from app.services.capabilities import get_capability_registry
+
         reg = get_capability_registry()
         d = reg.to_dict()
         assert "enabled" in d
@@ -103,10 +113,12 @@ class TestCapabilityRegistry:
 
 # ── Unit tests: SandboxExecutor ──────────────────────────────────────────────
 
+
 class TestSandboxExecutor:
     def setup_method(self):
         from app.services.capabilities import reset_capability_registry
         from app.services.sandbox_executor import reset_sandbox_executor
+
         reset_capability_registry()
         reset_sandbox_executor()
 
@@ -114,9 +126,11 @@ class TestSandboxExecutor:
     def test_shell_whitelisted_command_succeeds(self):
         # Re-import to pick up env var
         from app.services import capabilities as cap_mod
+
         cap_mod.AUTONOMY_ACCESS_ENABLED = True
         from app.services.sandbox_executor import get_sandbox_executor
         from app.services.capabilities import get_capability_registry
+
         reg = get_capability_registry()
 
         executor = get_sandbox_executor()
@@ -127,6 +141,7 @@ class TestSandboxExecutor:
     @patch.dict(os.environ, {"AUTONOMY_ACCESS_ENABLED": "true"})
     def test_shell_blocked_command_fails(self):
         from app.services import capabilities as cap_mod
+
         cap_mod.AUTONOMY_ACCESS_ENABLED = True
         from app.services.sandbox_executor import get_sandbox_executor
 
@@ -139,6 +154,7 @@ class TestSandboxExecutor:
     def test_shell_dangerous_commands_blocked(self):
         """Verify destructive commands like rm, shutdown, reboot are blocked."""
         from app.services import capabilities as cap_mod
+
         cap_mod.AUTONOMY_ACCESS_ENABLED = True
         from app.services.sandbox_executor import get_sandbox_executor
 
@@ -150,8 +166,10 @@ class TestSandboxExecutor:
 
     def test_capability_system_disabled_by_default(self):
         from app.services import capabilities as cap_mod
+
         cap_mod.AUTONOMY_ACCESS_ENABLED = False
         from app.services.sandbox_executor import get_sandbox_executor
+
         executor = get_sandbox_executor()
         result = executor.execute("shell", {"command": "ls"})
         assert result.status == "blocked"
@@ -159,6 +177,7 @@ class TestSandboxExecutor:
     @patch.dict(os.environ, {"AUTONOMY_ACCESS_ENABLED": "true"})
     def test_file_read_outside_allowed_paths_fails(self):
         from app.services import capabilities as cap_mod
+
         cap_mod.AUTONOMY_ACCESS_ENABLED = True
         from app.services.sandbox_executor import get_sandbox_executor
 
@@ -170,17 +189,21 @@ class TestSandboxExecutor:
     @patch.dict(os.environ, {"AUTONOMY_ACCESS_ENABLED": "true"})
     def test_file_read_nonexistent_file(self):
         from app.services import capabilities as cap_mod
+
         cap_mod.AUTONOMY_ACCESS_ENABLED = True
         from app.services.sandbox_executor import get_sandbox_executor
 
         executor = get_sandbox_executor()
-        result = executor.execute("file_read", {"path": "./data/nonexistent_file_12345.txt"})
+        result = executor.execute(
+            "file_read", {"path": "./data/nonexistent_file_12345.txt"}
+        )
         # Either permission_denied (not in allowed) or error (not found)
         assert result.status in ("permission_denied", "error")
 
     @patch.dict(os.environ, {"AUTONOMY_ACCESS_ENABLED": "true"})
     def test_browser_domain_whitelist(self):
         from app.services import capabilities as cap_mod
+
         cap_mod.AUTONOMY_ACCESS_ENABLED = True
         from app.services.sandbox_executor import get_sandbox_executor
 
@@ -193,6 +216,7 @@ class TestSandboxExecutor:
     @patch.dict(os.environ, {"AUTONOMY_ACCESS_ENABLED": "true"})
     def test_app_launch_not_whitelisted(self):
         from app.services import capabilities as cap_mod
+
         cap_mod.AUTONOMY_ACCESS_ENABLED = True
         from app.services.sandbox_executor import get_sandbox_executor
         from app.services.capabilities import get_capability_registry
@@ -208,17 +232,21 @@ class TestSandboxExecutor:
     @patch.dict(os.environ, {"AUTONOMY_ACCESS_ENABLED": "true"})
     def test_high_risk_requires_approval(self):
         from app.services import capabilities as cap_mod
+
         cap_mod.AUTONOMY_ACCESS_ENABLED = True
         from app.services.sandbox_executor import get_sandbox_executor
 
         executor = get_sandbox_executor()
-        result = executor.execute("file_write", {"path": "./data/output/test.txt", "content": "hello"})
+        result = executor.execute(
+            "file_write", {"path": "./data/output/test.txt", "content": "hello"}
+        )
         assert result.status == "blocked_human_review"
         assert "approval_id" in result.metadata
 
     @patch.dict(os.environ, {"AUTONOMY_ACCESS_ENABLED": "true"})
     def test_system_monitor_returns_metrics(self):
         from app.services import capabilities as cap_mod
+
         cap_mod.AUTONOMY_ACCESS_ENABLED = True
         from app.services.sandbox_executor import get_sandbox_executor
 
@@ -232,6 +260,7 @@ class TestSandboxExecutor:
     @patch.dict(os.environ, {"AUTONOMY_ACCESS_ENABLED": "true"})
     def test_killswitch_stops_all_capabilities(self):
         from app.services import capabilities as cap_mod
+
         cap_mod.AUTONOMY_ACCESS_ENABLED = True
         from app.services.capabilities import get_capability_registry
         from app.services.sandbox_executor import get_sandbox_executor
@@ -258,6 +287,7 @@ class TestSandboxExecutor:
     @patch.dict(os.environ, {"AUTONOMY_ACCESS_ENABLED": "true"})
     def test_unknown_capability_returns_error(self):
         from app.services import capabilities as cap_mod
+
         cap_mod.AUTONOMY_ACCESS_ENABLED = True
         from app.services.sandbox_executor import get_sandbox_executor
 
@@ -269,21 +299,30 @@ class TestSandboxExecutor:
 
 # ── Unit tests: AuditLogDB ──────────────────────────────────────────────────
 
+
 class TestAuditLogDB:
     def setup_method(self):
         from app.db.audit_log import reset_audit_log_db
+
         reset_audit_log_db()
 
     def test_audit_log_persists_entries(self):
         from app.db.audit_log import get_audit_log_db
+
         db = get_audit_log_db()
-        db.log(capability="shell", action="ls", result_status="ok", result_summary="files listed")
+        db.log(
+            capability="shell",
+            action="ls",
+            result_status="ok",
+            result_summary="files listed",
+        )
         db.log(capability="file_read", action="/data/x.txt", result_status="ok")
         entries = db.get_entries(limit=10)
         assert len(entries) >= 2
 
     def test_audit_log_stats(self):
         from app.db.audit_log import get_audit_log_db
+
         db = get_audit_log_db()
         db.log(capability="shell", result_status="ok")
         db.log(capability="shell", result_status="error", error="timeout")
@@ -294,6 +333,7 @@ class TestAuditLogDB:
 
     def test_audit_log_filter_by_capability(self):
         from app.db.audit_log import get_audit_log_db
+
         db = get_audit_log_db()
         db.log(capability="shell", result_status="ok")
         db.log(capability="file_read", result_status="ok")
@@ -302,6 +342,7 @@ class TestAuditLogDB:
 
     def test_audit_log_filter_by_status(self):
         from app.db.audit_log import get_audit_log_db
+
         db = get_audit_log_db()
         db.log(capability="shell", result_status="ok")
         db.log(capability="shell", result_status="error")
@@ -311,38 +352,56 @@ class TestAuditLogDB:
 
 # ── Unit tests: Cross-platform shell parsing ─────────────────────────────────
 
+
 class TestCrossPlatformShell:
     def test_whitelist_matching_exact(self):
         from app.services.sandbox_executor import SandboxExecutor
+
         executor = SandboxExecutor()
         assert executor._is_command_whitelisted("ls", ["ls", "pwd"]) is True
         assert executor._is_command_whitelisted("rm", ["ls", "pwd"]) is False
 
     def test_whitelist_matching_with_args(self):
         from app.services.sandbox_executor import SandboxExecutor
+
         executor = SandboxExecutor()
         assert executor._is_command_whitelisted("ls -la", ["ls"]) is True
         assert executor._is_command_whitelisted("ls -la /tmp", ["ls"]) is True
 
     def test_whitelist_matching_multiword(self):
         from app.services.sandbox_executor import SandboxExecutor
+
         executor = SandboxExecutor()
-        assert executor._is_command_whitelisted("git status", ["git status", "git log"]) is True
-        assert executor._is_command_whitelisted("git push", ["git status", "git log"]) is False
+        assert (
+            executor._is_command_whitelisted("git status", ["git status", "git log"])
+            is True
+        )
+        assert (
+            executor._is_command_whitelisted("git push", ["git status", "git log"])
+            is False
+        )
 
     def test_whitelist_case_insensitive(self):
         from app.services.sandbox_executor import SandboxExecutor
+
         executor = SandboxExecutor()
         assert executor._is_command_whitelisted("LS", ["ls"]) is True
         assert executor._is_command_whitelisted("Git Status", ["git status"]) is True
 
     def test_path_allowed_check(self):
         from app.services.sandbox_executor import SandboxExecutor
+
         executor = SandboxExecutor()
         # Inside allowed
-        assert executor._is_path_allowed(Path("./data/test.txt").resolve(), ["./data"]) is True
+        assert (
+            executor._is_path_allowed(Path("./data/test.txt").resolve(), ["./data"])
+            is True
+        )
         # Outside allowed
-        assert executor._is_path_allowed(Path("/etc/passwd").resolve(), ["./data"]) is False
+        assert (
+            executor._is_path_allowed(Path("/etc/passwd").resolve(), ["./data"])
+            is False
+        )
 
 
 # ── Integration tests: API endpoints ─────────────────────────────────────────
@@ -385,13 +444,17 @@ class TestCapabilitiesAPI:
         """System capabilities are OFF by default."""
         from app.services import capabilities as cap_mod
         from app.services.capabilities import reset_capability_registry
+
         cap_mod.AUTONOMY_ACCESS_ENABLED = False
         reset_capability_registry()
 
-        resp = client.post("/api/capabilities/execute", json={
-            "capability": "shell",
-            "params": {"command": "ls"},
-        })
+        resp = client.post(
+            "/api/capabilities/execute",
+            json={
+                "capability": "shell",
+                "params": {"command": "ls"},
+            },
+        )
         assert resp.status_code == 403
 
     def test_get_audit_trail(self, client):
@@ -411,10 +474,13 @@ class TestCapabilitiesAPI:
 
     def test_killswitch_stop_and_resume(self, client):
         # Stop
-        resp = client.post("/api/capabilities/killswitch", json={
-            "action": "stop",
-            "reason": "test emergency",
-        })
+        resp = client.post(
+            "/api/capabilities/killswitch",
+            json={
+                "action": "stop",
+                "reason": "test emergency",
+            },
+        )
         assert resp.status_code == 200
         assert resp.json()["status"] == "stopped"
 
@@ -424,9 +490,12 @@ class TestCapabilitiesAPI:
         assert resp.json()["blocked"] is True
 
         # Resume
-        resp = client.post("/api/capabilities/killswitch", json={
-            "action": "resume",
-        })
+        resp = client.post(
+            "/api/capabilities/killswitch",
+            json={
+                "action": "resume",
+            },
+        )
         assert resp.status_code == 200
         assert resp.json()["status"] == "resumed"
 
@@ -439,9 +508,11 @@ class TestCapabilitiesAPI:
 
 # ── Settings model tests ─────────────────────────────────────────────────────
 
+
 class TestCapabilitySettings:
     def test_default_capability_config(self):
         from app.core.settings import CapabilityConfig
+
         cfg = CapabilityConfig()
         assert cfg.enabled is False
         assert cfg.approval_timeout_minutes == 30
@@ -450,11 +521,13 @@ class TestCapabilitySettings:
 
     def test_global_settings_include_capabilities(self):
         from app.core.settings import GlobalGuardrailSettings
+
         gs = GlobalGuardrailSettings()
         assert hasattr(gs, "capabilities")
         assert gs.capabilities.enabled is False
 
     def test_safe_mode_disables_capabilities(self):
         from app.core.settings import GlobalGuardrailSettings
+
         gs = GlobalGuardrailSettings(safe_mode=True)
         assert gs.safe_mode_restrictions.disable_system_capabilities is True

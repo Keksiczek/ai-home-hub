@@ -1,4 +1,5 @@
 """Tests for skills test buttons – POST /api/skills-runtime/test/{skill_name}."""
+
 import pytest
 
 

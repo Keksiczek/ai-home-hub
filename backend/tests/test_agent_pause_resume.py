@@ -1,4 +1,5 @@
 """Tests for agent pause/resume functionality."""
+
 import pytest
 from app.services.resident_agent import get_resident_agent
 

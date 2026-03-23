@@ -3,6 +3,7 @@
 Follows the agentskills.io convention: each skill is a directory containing
 a SKILL.md file with optional YAML frontmatter (name, description, etc.).
 """
+
 import logging
 import re
 from pathlib import Path
@@ -82,14 +83,18 @@ class AgentSkillsService:
                     continue
                 meta = self.load_skill_metadata(skill_md)
                 if meta and meta["name"] not in seen_names:
-                    records.append(AgentSkillRecord(
-                        name=meta["name"],
-                        description=meta["description"],
-                        path=str(skill_md),
-                    ))
+                    records.append(
+                        AgentSkillRecord(
+                            name=meta["name"],
+                            description=meta["description"],
+                            path=str(skill_md),
+                        )
+                    )
                     seen_names.add(meta["name"])
 
-        logger.info("Discovered %d agent skills from %d directories", len(records), len(dirs))
+        logger.info(
+            "Discovered %d agent skills from %d directories", len(records), len(dirs)
+        )
         self._cache = records
         return records
 
@@ -196,13 +201,15 @@ class AgentSkillsService:
         try:
             content = Path(skill_path).read_text(encoding="utf-8")
         except Exception as exc:
-            logger.warning("Cannot read skill instructions from %s: %s", skill_path, exc)
+            logger.warning(
+                "Cannot read skill instructions from %s: %s", skill_path, exc
+            )
             return ""
 
         # Strip frontmatter
         match = _FRONTMATTER_RE.match(content)
         if match:
-            return content[match.end():].strip()
+            return content[match.end() :].strip()
         return content.strip()
 
     def build_system_prompt_section(

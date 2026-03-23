@@ -1,4 +1,5 @@
 """Tests for Knowledge Base batch upload and overview endpoints."""
+
 import io
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -109,7 +110,9 @@ class TestBatchUploadEndpoint:
     def test_upload_unsupported_type(self, client: TestClient):
         resp = client.post(
             "/api/knowledge/upload/batch",
-            files=[("files", ("bad.exe", io.BytesIO(b"data"), "application/octet-stream"))],
+            files=[
+                ("files", ("bad.exe", io.BytesIO(b"data"), "application/octet-stream"))
+            ],
             data={"mode": "index"},
         )
         assert resp.status_code == 200

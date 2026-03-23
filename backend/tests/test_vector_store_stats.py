@@ -1,12 +1,13 @@
 """Tests for VectorStoreService.get_stats() – sampling and detailed/lightweight modes."""
+
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from app.services.vector_store_service import VectorStoreService
 
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _make_service(count: int, metadatas: list) -> VectorStoreService:
     """Return a VectorStoreService with a fully-mocked ChromaDB collection."""
@@ -46,7 +47,7 @@ def test_get_stats_detailed_returns_breakdown():
     result = svc.get_stats(detailed=True)
 
     assert result["total_chunks"] == 3
-    assert result["total_documents"] == 2          # 2 unique files
+    assert result["total_documents"] == 2  # 2 unique files
     assert result["file_types"][".pdf"] == 2
     assert result["file_types"][".md"] == 1
     assert result["sampled"] is False

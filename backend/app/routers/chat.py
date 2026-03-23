@@ -1,4 +1,5 @@
 """Chat router – LLM chat with session persistence, knowledge base context, and shared memory."""
+
 import json
 import logging
 import shutil
@@ -18,7 +19,9 @@ from app.utils.context_helpers import enrich_message
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-_CHAT_UPLOADS_DIR = Path(__file__).parent.parent.parent / "data" / "uploads" / "chat_tmp"
+_CHAT_UPLOADS_DIR = (
+    Path(__file__).parent.parent.parent / "data" / "uploads" / "chat_tmp"
+)
 
 
 @router.websocket("/chat/stream")
@@ -133,7 +136,8 @@ async def chat(request: ChatRequest) -> ChatResponse:
     all_messages = session_svc.load_history(session_id)
     history = session_svc.get_history_for_llm(session_id, limit=20)
     history_summarized = any(
-        m.get("role") == "system" and "Summary of earlier conversation:" in m.get("content", "")
+        m.get("role") == "system"
+        and "Summary of earlier conversation:" in m.get("content", "")
         for m in history
     )
 
@@ -168,8 +172,12 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
     # Prometheus instrumentation
     model_used = meta.get("model", "unknown")
-    chat_requests_total.labels(profile=request.profile or "default", model=model_used).inc()
-    chat_latency_seconds.labels(model=model_used).observe(meta.get("latency_ms", 0) / 1000)
+    chat_requests_total.labels(
+        profile=request.profile or "default", model=model_used
+    ).inc()
+    chat_latency_seconds.labels(model=model_used).observe(
+        meta.get("latency_ms", 0) / 1000
+    )
 
     # Persist both turns (store original message, not the one with KB context)
     session_svc.save_message(session_id, "user", request.message)
@@ -193,7 +201,10 @@ async def chat_with_files(
     and its preview + filename are prepended to the message for LLM context.
     Temp files are cleaned up after the response is generated.
     """
-    from app.services.file_handler_service import get_file_handler_service, SUPPORTED_EXTENSIONS
+    from app.services.file_handler_service import (
+        get_file_handler_service,
+        SUPPORTED_EXTENSIONS,
+    )
 
     llm_svc = get_llm_service()
     session_svc = get_session_service()
@@ -230,10 +241,13 @@ async def chat_with_files(
         # Build enriched message with file context
         file_context_str = ""
         if file_contexts:
-            file_context_str = "\n\n".join(
-                f"<attachment name=\"{n}\">{ctx}</attachment>"
-                for n, ctx in zip(attachment_names, file_contexts)
-            ) + "\n\n"
+            file_context_str = (
+                "\n\n".join(
+                    f'<attachment name="{n}">{ctx}</attachment>'
+                    for n, ctx in zip(attachment_names, file_contexts)
+                )
+                + "\n\n"
+            )
 
         full_message = file_context_str + message
 
@@ -256,7 +270,9 @@ async def chat_with_files(
         # Persist
         user_display = message
         if attachment_names:
-            user_display = " ".join(f"[📎 {n}]" for n in attachment_names) + " " + message
+            user_display = (
+                " ".join(f"[📎 {n}]" for n in attachment_names) + " " + message
+            )
         session_svc.save_message(session_id, "user", user_display)
         session_svc.save_message(session_id, "assistant", reply, meta)
 
@@ -284,6 +300,7 @@ async def list_sessions() -> Dict[str, Any]:
 async def get_session(session_id: str) -> Dict[str, Any]:
     """Get full conversation history for a session."""
     from fastapi import HTTPException
+
     session_svc = get_session_service()
     if not session_svc.session_exists(session_id):
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
@@ -295,6 +312,7 @@ async def get_session(session_id: str) -> Dict[str, Any]:
 async def delete_session(session_id: str) -> Dict[str, Any]:
     """Delete a conversation session."""
     from fastapi import HTTPException
+
     session_svc = get_session_service()
     success = session_svc.delete_session(session_id)
     if not success:

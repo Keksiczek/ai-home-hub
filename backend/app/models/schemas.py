@@ -3,7 +3,6 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-
 # ── Base response wrapper ──────────────────────────────────
 
 
@@ -15,12 +14,14 @@ class BaseResponse(BaseModel):
 
 # ── File upload ─────────────────────────────────────────────
 
+
 class UploadResponse(BaseModel):
     id: str
     filename: str
 
 
 # ── Chat ────────────────────────────────────────────────────
+
 
 class ChatRequest(BaseModel):
     message: str
@@ -39,6 +40,7 @@ class ChatResponse(BaseModel):
 
 # ── OpenClaw ────────────────────────────────────────────────
 
+
 class OpenClawActionRequest(BaseModel):
     action: str
     params: Dict[str, Any] = {}
@@ -51,6 +53,7 @@ class OpenClawActionResponse(BaseModel):
 
 
 # ── Agents ──────────────────────────────────────────────────
+
 
 class SpawnAgentRequest(BaseModel):
     agent_type: str  # code | research | testing | devops | general
@@ -80,6 +83,7 @@ class ArtifactResponse(BaseModel):
 
 # ── Tasks ───────────────────────────────────────────────────
 
+
 class CreateTaskRequest(BaseModel):
     name: str
     task_type: str
@@ -100,6 +104,7 @@ class TaskStatusResponse(BaseModel):
 
 # ── Settings ────────────────────────────────────────────────
 
+
 class SettingsResponse(BaseModel):
     settings: Dict[str, Any]
 
@@ -109,6 +114,7 @@ class UpdateSettingsRequest(BaseModel):
 
 
 # ── Integrations ─────────────────────────────────────────────
+
 
 class MCPCallRequest(BaseModel):
     tool_name: str
@@ -147,6 +153,7 @@ class AntigravityAgentRequest(BaseModel):
 
 # ── Filesystem ──────────────────────────────────────────────
 
+
 class WriteFileRequest(BaseModel):
     content: str
     encoding: str = "utf-8"
@@ -159,6 +166,7 @@ class SearchRequest(BaseModel):
 
 
 # ── Quick Actions ────────────────────────────────────────────
+
 
 class QuickActionStep(BaseModel):
     service: str  # vscode | git | safari | llm | macos | openclaw
@@ -179,6 +187,7 @@ class ExecuteActionRequest(BaseModel):
 
 # ── Sessions ─────────────────────────────────────────────────
 
+
 class SessionListItem(BaseModel):
     session_id: str
     created_at: str
@@ -188,6 +197,7 @@ class SessionListItem(BaseModel):
 
 # ── Notifications ────────────────────────────────────────────
 
+
 class NotificationRequest(BaseModel):
     title: str
     message: str
@@ -196,8 +206,9 @@ class NotificationRequest(BaseModel):
 
 # ── Multimodal chat ──────────────────────────────────────────
 
+
 class MultimodalImageData(BaseModel):
-    data: str        # base64-encoded image bytes
+    data: str  # base64-encoded image bytes
     media_type: str  # e.g. "image/jpeg"
 
 
@@ -205,14 +216,18 @@ class MultimodalChatRequest(BaseModel):
     message: str
     images: List[MultimodalImageData] = []
     mode: str = "general"
-    profile: Optional[str] = None  # LLM profile override; defaults to "vision" when images present
+    profile: Optional[str] = (
+        None  # LLM profile override; defaults to "vision" when images present
+    )
     session_id: Optional[str] = None
 
 
 # ── File metadata ──────────────────────────────────────────────
 
+
 class FileMetadata(BaseModel):
     """Unified metadata schema for all file formats in the Knowledge Base."""
+
     filename: str
     filetype: str  # MIME-like: "text/plain", "application/pdf", "audio/mpeg"
     size_bytes: int = 0
@@ -227,6 +242,7 @@ class FileMetadata(BaseModel):
 
 # ── Knowledge base management ────────────────────────────────
 
+
 class ReindexFileRequest(BaseModel):
     file_path: str
 
@@ -237,6 +253,7 @@ class KBSearchRequest(BaseModel):
 
 
 # ── Memory ──────────────────────────────────────────────────
+
 
 class AddMemoryRequest(BaseModel):
     text: str = Field(..., min_length=1)
@@ -278,6 +295,7 @@ class SummarizeSessionRequest(BaseModel):
 
 # ── Agent sub-tasks ──────────────────────────────────────────
 
+
 class AgentSearchKBRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=500)
     top_k: int = Field(default=3, ge=1, le=20)
@@ -313,6 +331,7 @@ class SpawnSubAgentResponse(BaseModel):
 
 # ── Setup / first-run ────────────────────────────────────────
 
+
 class SetupCheckItem(BaseModel):
     ok: bool
     message: str
@@ -334,8 +353,11 @@ class SetupStatusResponse(BaseModel):
 
 # ── AI Prompt Generator ──────────────────────────────────────
 
+
 class PromptGeneratorRequest(BaseModel):
-    task_type: Literal["chat", "kb_search", "resident_mission", "file_analysis"] = "chat"
+    task_type: Literal["chat", "kb_search", "resident_mission", "file_analysis"] = (
+        "chat"
+    )
     context: str = Field(default="", max_length=500)
     tone: Literal["professional", "casual", "technical"] = "professional"
 
@@ -346,6 +368,7 @@ class PromptGeneratorResponse(BaseModel):
 
 
 # ── Model Manager ─────────────────────────────────────────────
+
 
 class ModelPullRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
@@ -366,9 +389,9 @@ class LLMSettingsUpdate(BaseModel):
 
 
 class OllamaPerformanceUpdate(BaseModel):
-    context_length: Optional[int] = None        # OLLAMA_CONTEXT_LENGTH
-    kv_cache_type: Optional[str] = None         # OLLAMA_KV_CACHE_TYPE: f16 | q8_0 | q4_0
-    flash_attention: Optional[bool] = None      # OLLAMA_FLASH_ATTENTION
-    num_parallel: Optional[int] = None          # OLLAMA_NUM_PARALLEL 1–4
-    keep_alive: Optional[str] = None            # OLLAMA_KEEP_ALIVE: 0 | 5m | 30m | -1
-    restart_ollama: bool = False                # restart Ollama after save
+    context_length: Optional[int] = None  # OLLAMA_CONTEXT_LENGTH
+    kv_cache_type: Optional[str] = None  # OLLAMA_KV_CACHE_TYPE: f16 | q8_0 | q4_0
+    flash_attention: Optional[bool] = None  # OLLAMA_FLASH_ATTENTION
+    num_parallel: Optional[int] = None  # OLLAMA_NUM_PARALLEL 1–4
+    keep_alive: Optional[str] = None  # OLLAMA_KEEP_ALIVE: 0 | 5m | 30m | -1
+    restart_ollama: bool = False  # restart Ollama after save

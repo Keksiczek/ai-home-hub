@@ -1,4 +1,5 @@
 """Tests for KB stats caching (4D)."""
+
 import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -32,15 +33,14 @@ def mock_cache_env(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "app.services.vector_store_service.get_vector_store_service", lambda: vs
     )
-    monkeypatch.setattr(
-        "app.services.vector_store_service.CHROMA_DIR", chroma_dir
-    )
+    monkeypatch.setattr("app.services.vector_store_service.CHROMA_DIR", chroma_dir)
 
     return cache_file, vs
 
 
 def test_refresh_cache_writes_file(mock_cache_env):
     from app.services.kb_stats_cache import refresh_cache
+
     cache_file, _ = mock_cache_env
 
     data = refresh_cache()
@@ -83,6 +83,7 @@ def test_stale_detection(mock_cache_env):
 
 def test_missing_cache_computes_fresh(mock_cache_env):
     from app.services.kb_stats_cache import get_cached_stats
+
     cache_file, _ = mock_cache_env
 
     assert not cache_file.exists()

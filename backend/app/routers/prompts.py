@@ -1,4 +1,5 @@
 """Prompts router – AI-assisted prompt generation."""
+
 import logging
 
 from fastapi import APIRouter, HTTPException
@@ -35,13 +36,17 @@ Tvým úkolem je vygenerovat JEDEN, krátký a efektivní prompt v češtině (m
 Vrať POUZE finální text promptu – žádný úvod, žádné vysvětlení, žádné uvozovky."""
 
 
-@router.post("/prompts/generate", response_model=PromptGeneratorResponse, tags=["prompts"])
+@router.post(
+    "/prompts/generate", response_model=PromptGeneratorResponse, tags=["prompts"]
+)
 async def generate_prompt(req: PromptGeneratorRequest) -> dict:
     """Generate an optimised prompt for the given task using the LLM."""
     task_desc = _TASK_DESCRIPTIONS.get(req.task_type, req.task_type)
     tone_desc = _TONE_DESCRIPTIONS.get(req.tone, req.tone)
 
-    context_part = f"\nKontext od uživatele: {req.context}" if req.context.strip() else ""
+    context_part = (
+        f"\nKontext od uživatele: {req.context}" if req.context.strip() else ""
+    )
     user_message = (
         f"Vygeneruj prompt pro {task_desc}, {tone_desc}.{context_part}\n"
         "Prompt musí být konkrétní, srozumitelný a ihned použitelný."
@@ -57,7 +62,9 @@ async def generate_prompt(req: PromptGeneratorRequest) -> dict:
         )
 
         if meta.get("status") == "llm_unavailable":
-            raise HTTPException(status_code=503, detail="LLM nedostupné – zkontroluj Ollama.")
+            raise HTTPException(
+                status_code=503, detail="LLM nedostupné – zkontroluj Ollama."
+            )
 
         generated = reply.strip().strip('"').strip("'")
         if not generated:

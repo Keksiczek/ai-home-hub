@@ -1,9 +1,10 @@
 """Tests: Prometheus metrics text format parsing (mirrors JS parseMetric logic in Python)."""
+
 import re
 import pytest
 
-
 # ── Pure-Python port of the JS parseMetric function ──────────────────────────
+
 
 def parse_metric(text: str, name: str) -> float | None:
     """Parse a single metric value from Prometheus text format.
@@ -63,6 +64,7 @@ EMPTY_METRICS = "# HELP nothing Nothing here\n"
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
+
 class TestParseMetricBasic:
     """Core parsing of Prometheus text format."""
 
@@ -104,7 +106,7 @@ class TestParseMetricWithLabels:
 
     def test_unlabelled_metric_not_confused_with_labelled(self):
         # A metric without labels should still parse correctly if present
-        text = "my_gauge 99\nmy_gauge{env=\"prod\"} 50\n"
+        text = 'my_gauge 99\nmy_gauge{env="prod"} 50\n'
         assert parse_metric(text, "my_gauge") == 99.0
 
 

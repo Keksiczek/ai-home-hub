@@ -1,4 +1,5 @@
 """Document Analysis router – create analysis jobs and list available files."""
+
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
@@ -40,7 +41,8 @@ async def create_analysis_job(input_data: DocumentAnalysisInput) -> Dict[str, An
 
     logger.info(
         "Document analysis job created: %s (%d files)",
-        job.id, len(input_data.file_paths),
+        job.id,
+        len(input_data.file_paths),
     )
 
     return {
@@ -61,35 +63,40 @@ async def get_available_files() -> Dict[str, Any]:
         for f in _walk_files(UPLOADS_DIR):
             if f.suffix.lower() in ALL_SUPPORTED:
                 stat = f.stat()
-                uploads.append({
-                    "file_path": str(f.relative_to(DATA_DIR)),
-                    "filename": f.name,
-                    "size_mb": round(stat.st_size / (1024 * 1024), 2),
-                    "type": f.suffix.lower().lstrip("."),
-                })
+                uploads.append(
+                    {
+                        "file_path": str(f.relative_to(DATA_DIR)),
+                        "filename": f.name,
+                        "size_mb": round(stat.st_size / (1024 * 1024), 2),
+                        "type": f.suffix.lower().lstrip("."),
+                    }
+                )
 
     # 2. Get KB indexed documents
     kb_documents = []
     try:
         from app.services.vector_store_service import get_vector_store_service
+
         vs = get_vector_store_service()
         collection = vs.collection
         if collection:
             # Get unique source files from the collection metadata
             result = collection.get(include=["metadatas"])
             seen_paths = set()
-            for meta in (result.get("metadatas") or []):
+            for meta in result.get("metadatas") or []:
                 if not meta:
                     continue
                 source = meta.get("source") or meta.get("file_path", "")
                 if source and source not in seen_paths:
                     seen_paths.add(source)
-                    kb_documents.append({
-                        "file_path": source,
-                        "filename": Path(source).name,
-                        "type": Path(source).suffix.lower().lstrip("."),
-                        "indexed_at": meta.get("indexed_at", ""),
-                    })
+                    kb_documents.append(
+                        {
+                            "file_path": source,
+                            "filename": Path(source).name,
+                            "type": Path(source).suffix.lower().lstrip("."),
+                            "indexed_at": meta.get("indexed_at", ""),
+                        }
+                    )
     except Exception as exc:
         logger.warning("Failed to query KB for available files: %s", exc)
 
