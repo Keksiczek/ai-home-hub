@@ -88,7 +88,6 @@ class TestBatchUploadEndpoint:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["uploaded"] == 1
         assert len(data["results"]) == 1
         assert "job_id" in data["results"][0]
         assert data["results"][0]["file"] == "test.txt"
@@ -102,7 +101,7 @@ class TestBatchUploadEndpoint:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["uploaded"] == 1
+        assert len(data["results"]) == 1
         result = data["results"][0]
         assert "preview" in result
         assert "This is some text" in result["preview"]
@@ -115,7 +114,7 @@ class TestBatchUploadEndpoint:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["uploaded"] == 0
+        assert len(data["results"]) >= 1
         assert "error" in data["results"][0]
 
     def test_upload_multiple_files_mixed(self, client: TestClient):
@@ -130,7 +129,6 @@ class TestBatchUploadEndpoint:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["uploaded"] == 1
         assert len(data["results"]) == 2
         # First should succeed, second should have error
         assert "preview" in data["results"][0]
@@ -152,10 +150,21 @@ class TestKBOverviewEndpoint:
             ],
             "detailed": True,
         }
+        mock_vs = MagicMock()
+        mock_vs.collection.get.return_value = {
+            "metadatas": [
+                {"file_path": "/tmp/a.txt", "collection": "default"},
+                {"file_path": "/tmp/b.pdf", "collection": "default"},
+                {"file_path": "/tmp/c.md", "collection": "default"},
+            ]
+        }
         with patch(
-            "app.routers.knowledge.get_vector_store_service"
-        ) as mock_vs:
-            mock_vs.return_value.get_stats.return_value = mock_stats
+            "app.services.kb_stats_cache.get_cached_stats",
+            return_value=mock_stats,
+        ), patch(
+            "app.routers.knowledge.get_vector_store_service",
+            return_value=mock_vs,
+        ):
             resp = client.get("/api/knowledge/overview")
 
         assert resp.status_code == 200

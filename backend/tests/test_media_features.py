@@ -43,6 +43,7 @@ class TestFileParserServiceNew:
     """Unit tests for newly added format parsers."""
 
     def test_parse_html_basic(self, tmp_path: Path) -> None:
+        pytest.importorskip("bs4", reason="beautifulsoup4 not installed")
         from app.services.file_parser_service import FileParserService
 
         html = tmp_path / "test.html"
@@ -271,8 +272,10 @@ class TestKBFilesEndpoint:
         assert audio["media_type"] == "audio"
 
     def test_delete_kb_file_requires_auth(self, client: TestClient) -> None:
-        """Delete without API key should be rejected (403)."""
-        resp = client.delete("/api/knowledge/files/some%2Ffile.pdf")
+        """Delete without API key should be rejected (403) when api_key is configured."""
+        with patch("app.utils.auth.get_settings_service") as mock_svc:
+            mock_svc.return_value.load.return_value = {"api_key": "secret-test-key"}
+            resp = client.delete("/api/knowledge/files/some%2Ffile.pdf")
         assert resp.status_code == 403
 
 
@@ -349,9 +352,9 @@ class TestKBRetention:
         mock_vs._safe_write = AsyncMock()
 
         with (
-            patch("app.services.kb_retention_service.get_settings_service",
+            patch("app.services.settings_service.get_settings_service",
                   return_value=mock_settings),
-            patch("app.services.kb_retention_service.get_vector_store_service",
+            patch("app.services.vector_store_service.get_vector_store_service",
                   return_value=mock_vs),
         ):
             result = await run_kb_retention()
@@ -385,9 +388,9 @@ class TestKBRetention:
         mock_vs._safe_write = AsyncMock()
 
         with (
-            patch("app.services.kb_retention_service.get_settings_service",
+            patch("app.services.settings_service.get_settings_service",
                   return_value=mock_settings),
-            patch("app.services.kb_retention_service.get_vector_store_service",
+            patch("app.services.vector_store_service.get_vector_store_service",
                   return_value=mock_vs),
         ):
             result = await run_kb_retention()

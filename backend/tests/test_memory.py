@@ -59,8 +59,8 @@ def mock_memory_service(monkeypatch):
         ),
     ]
 
-    # delete_memory returns True
-    svc.delete_memory.return_value = True
+    # delete_memory is async and returns True
+    svc.delete_memory = AsyncMock(return_value=True)
 
     # update_memory returns True
     svc.update_memory = AsyncMock(return_value=True)
@@ -174,7 +174,7 @@ def test_delete_memory(client, mock_memory_service):
 
 def test_delete_memory_not_found(client, mock_memory_service):
     """DELETE /api/memory/{id} returns 404 for unknown ID."""
-    mock_memory_service.delete_memory.return_value = False
+    mock_memory_service.delete_memory = AsyncMock(return_value=False)
 
     resp = client.delete("/api/memory/mem_nonexistent")
 

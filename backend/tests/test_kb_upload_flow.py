@@ -213,10 +213,10 @@ class TestKbUnsupportedFiles:
         # bad.exe has an error
         assert "error" in by_file.get("bad.exe", {})
 
-    def test_zip_file_returns_per_file_error_in_index_mode(self, client):
+    def test_unsupported_binary_returns_per_file_error_in_index_mode(self, client):
         resp = client.post(
             "/api/knowledge/upload/batch",
-            files=[("files", ("archive.zip", io.BytesIO(b"PK\x03\x04"), "application/zip"))],
+            files=[("files", ("payload.bin", io.BytesIO(b"\x00\x01\x02"), "application/octet-stream"))],
             data={"mode": "index", "collection": "default"},
         )
         assert resp.status_code == 200

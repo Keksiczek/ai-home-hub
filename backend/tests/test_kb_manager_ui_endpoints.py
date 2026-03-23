@@ -114,12 +114,15 @@ def _mock_search_deps(mock_vs):
     mock_emb = MagicMock()
     mock_emb.generate_embedding = AsyncMock(return_value=[0.1] * 384)
     col_mock = MagicMock()
+    col_mock.count.return_value = 5
     col_mock.query.return_value = {
         "documents": [[]],
         "metadatas": [[]],
         "distances": [[]],
         "ids": [[]],
     }
+    mock_vs.collection = col_mock
+    mock_vs.client.get_collection.return_value = col_mock
     mock_vs.get_or_create_collection = AsyncMock(return_value=col_mock)
     mock_vs.COLLECTION_NAME = "knowledge_base"
     return mock_emb

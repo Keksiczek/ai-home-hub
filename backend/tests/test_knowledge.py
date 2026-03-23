@@ -22,8 +22,8 @@ def temp_kb_dir(tmp_path):
 def mock_vector_store(monkeypatch):
     """Replace get_vector_store_service with a MagicMock."""
     vs = MagicMock()
-    vs.add_documents.return_value = None
-    vs.delete_by_file_path.return_value = 0
+    vs.add_documents = AsyncMock(return_value=None)
+    vs.delete_by_file_path = AsyncMock(return_value=0)
     vs.get_stats.return_value = {"total_chunks": 0, "collection_name": "knowledge_base"}
     monkeypatch.setattr(
         "app.routers.knowledge.get_vector_store_service", lambda: vs
