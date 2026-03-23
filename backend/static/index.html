@@ -378,22 +378,63 @@
     <!-- ======================== SKILLS TAB ======================== -->
     <div class="tab-panel hidden" id="tab-skills" role="tabpanel">
 
+      <!-- ── Marketplace header ── -->
       <div class="panel-header">
-        <h1 class="panel-title">Skills</h1>
+        <div>
+          <h1 class="panel-title">Skills Marketplace</h1>
+          <p class="panel-subtitle" style="color:#94a3b8;font-size:0.875rem;margin-top:0.25rem">Spravuj schopnosti AI agenta</p>
+        </div>
         <button class="btn btn--primary btn--small" id="add-skill-btn">+ Nov&yacute; Skill</button>
       </div>
 
+      <!-- ── Search + category tabs ── -->
       <div class="skills-toolbar">
-        <input type="text" class="input search-input" id="skills-search"
-               placeholder="Hledat skills..." />
-        <div class="tag-pills" id="skills-tag-pills"></div>
+        <input type="text" class="input search-input" id="mp-search"
+               placeholder="Hledat skills..." style="max-width:320px" />
+        <div class="mp-category-tabs" id="mp-category-tabs">
+          <button class="pill pill--tag pill--active" data-cat="">V&scaron;e</button>
+          <button class="pill pill--tag" data-cat="web">&#127760; Web</button>
+          <button class="pill pill--tag" data-cat="system">&#128421;&#65039; System</button>
+          <button class="pill pill--tag" data-cat="git">&#128268; Git</button>
+          <button class="pill pill--tag" data-cat="ai">&#129302; AI</button>
+          <button class="pill pill--tag" data-cat="custom">&#9889; Custom</button>
+        </div>
       </div>
 
-      <div class="skills-grid" id="skills-grid">
+      <!-- ── Marketplace grid ── -->
+      <div class="skills-grid" id="mp-grid">
         <p class="empty-state">Na&#269;&iacute;t&aacute;m skills...</p>
       </div>
 
-      <!-- Skill modal -->
+      <!-- ── GitHub Discovery ── -->
+      <div style="margin-top:2.5rem;border-top:1px solid #2d3348;padding-top:1.5rem">
+        <h2 class="panel-title" style="font-size:1.25rem">&#128269; Objevuj nov&eacute; skills</h2>
+        <p style="color:#94a3b8;font-size:0.8125rem;margin:0.25rem 0 1rem">Prohled&aacute;vej GitHub a najdi komunitn&iacute; skills pro AI Home Hub</p>
+        <div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:1rem">
+          <input type="text" class="input search-input" id="gh-discover-search"
+                 placeholder="Hledat na GitHubu..." style="max-width:320px" />
+          <button class="btn btn--primary btn--small" id="gh-discover-btn">&#128269; Hledat na GitHubu</button>
+        </div>
+        <div class="skills-grid" id="gh-discover-grid">
+          <p class="empty-state">Zadej hled&aacute;n&iacute; nebo klikni pro na&#269;ten&iacute; doporu&#269;en&yacute;ch</p>
+        </div>
+      </div>
+
+      <!-- ── Prompt Skills (legacy) section ── -->
+      <div style="margin-top:2.5rem;border-top:1px solid #2d3348;padding-top:1.5rem">
+        <h2 class="panel-title" style="font-size:1.25rem">&#128218; Prompt Skill Profily</h2>
+        <p style="color:#94a3b8;font-size:0.8125rem;margin:0.25rem 0 1rem">Vlastn&iacute; prompt profily pro agenta (DAX Expert, Git Operations&hellip;)</p>
+        <div class="skills-toolbar">
+          <input type="text" class="input search-input" id="skills-search"
+                 placeholder="Hledat prompt skills..." />
+          <div class="tag-pills" id="skills-tag-pills"></div>
+        </div>
+        <div class="skills-grid" id="skills-grid">
+          <p class="empty-state">Na&#269;&iacute;t&aacute;m skills...</p>
+        </div>
+      </div>
+
+      <!-- Skill edit modal (prompt skills) -->
       <div class="modal-overlay hidden" id="skill-modal">
         <div class="modal">
           <div class="modal-header">
@@ -436,6 +477,21 @@
           <div class="modal-footer">
             <button class="btn btn--ghost" id="skill-modal-cancel">Zru&#353;it</button>
             <button class="btn btn--primary" id="skill-modal-save">Ulo&#382;it</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Skill config modal (marketplace) -->
+      <div class="modal-overlay hidden" id="mp-config-modal">
+        <div class="modal">
+          <div class="modal-header">
+            <h2 class="modal-title" id="mp-config-title">Konfigurovat skill</h2>
+            <button class="btn-icon modal-close" id="mp-config-close">&#10005;</button>
+          </div>
+          <div class="modal-body" id="mp-config-body"></div>
+          <div class="modal-footer">
+            <button class="btn btn--ghost" id="mp-config-cancel">Zru&#353;it</button>
+            <button class="btn btn--primary" id="mp-config-save">Ulo&#382;it</button>
           </div>
         </div>
       </div>
