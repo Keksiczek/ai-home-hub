@@ -490,6 +490,44 @@ async def get_guardrail_runtime_status() -> Dict[str, Any]:
         }
 
 
+@router.get("/settings/cors", tags=["settings"])
+async def get_cors_settings() -> Dict[str, Any]:
+    """Return current CORS allowed_origins list."""
+    svc = get_settings_service()
+    cors_cfg = svc.load().get("cors", {})
+    return {"allowed_origins": cors_cfg.get("allowed_origins", [])}
+
+
+@router.patch("/settings/cors", tags=["settings"])
+async def update_cors_settings(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Replace the CORS allowed_origins list.
+
+    Expects ``{"allowed_origins": ["https://example.com", ...]}``.
+    Each entry must be a valid http/https URL or ``"*"``.
+    """
+    import re
+    _URL_RE = re.compile(
+        r"^(\*|https?://[a-zA-Z0-9._~:@!$&'()*+,;=/?#\[\]-]+)$"
+    )
+
+    raw = body.get("allowed_origins")
+    if not isinstance(raw, list):
+        raise HTTPException(status_code=400, detail="allowed_origins must be a list")
+
+    origins: List[str] = []
+    for entry in raw:
+        if not isinstance(entry, str) or not _URL_RE.match(entry.strip()):
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid origin: {entry!r}. Must be http/https URL or '*'.",
+            )
+        origins.append(entry.strip())
+
+    svc = get_settings_service()
+    svc.update({"cors": {"allowed_origins": origins}})
+    return {"allowed_origins": origins, "updated": True}
+
+
 def _mask_secrets(settings: Dict[str, Any]) -> None:
     """Replace API key values with masked placeholder in-place."""
     try:

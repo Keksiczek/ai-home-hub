@@ -379,6 +379,12 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         "artifact_retention_days": 30,
         "vacuum_enabled": True,
     },
+    "cors": {
+        "allowed_origins": [
+            "http://localhost:8000",
+            "http://127.0.0.1:8000",
+        ],
+    },
 }
 
 

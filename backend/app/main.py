@@ -194,11 +194,28 @@ app.add_middleware(RequestIDMiddleware)
 from app.middleware.error_handler import ErrorHandlerMiddleware
 app.add_middleware(ErrorHandlerMiddleware)
 
-# CORS – allow the SPA to call the API (useful when running on different ports)
+# CORS – load allowed origins from settings (safe default: localhost only)
+def _get_cors_origins() -> list:
+    try:
+        from app.services.settings_service import get_settings_service
+        svc = get_settings_service()
+        origins = svc.load().get("cors", {}).get("allowed_origins", [])
+        # Auto-include Tailscale URL if configured
+        ts = svc.load().get("tailscale", {})
+        if ts.get("enable_funnel") and ts.get("funnel_url"):
+            funnel = ts["funnel_url"].rstrip("/")
+            if funnel not in origins:
+                origins = list(origins) + [funnel]
+        return origins or ["http://localhost:8000", "http://127.0.0.1:8000"]
+    except Exception:  # noqa: BLE001
+        return ["http://localhost:8000", "http://127.0.0.1:8000"]
+
+
+_cors_origins = _get_cors_origins()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=len(_cors_origins) > 0,
     allow_methods=["*"],
     allow_headers=["*"],
 )
