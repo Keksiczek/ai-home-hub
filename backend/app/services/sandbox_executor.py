@@ -648,6 +648,190 @@ class SandboxExecutor:
         return False
 
 
+# ── Safe Python Code Execution ───────────────────────────────────────────────
+
+# Allowed stdlib modules for sandboxed Python execution
+SAFE_MODULES = frozenset(
+    {
+        "math",
+        "json",
+        "datetime",
+        "re",
+        "collections",
+        "itertools",
+        "functools",
+        "string",
+        "textwrap",
+        "decimal",
+        "fractions",
+        "random",
+        "statistics",
+        "hashlib",
+        "base64",
+        "copy",
+        "pprint",
+        "enum",
+        "dataclasses",
+        "typing",
+        "operator",
+    }
+)
+
+# Blocked modules – importing these raises SecurityError
+BLOCKED_MODULES = frozenset(
+    {
+        "os",
+        "subprocess",
+        "socket",
+        "sys",
+        "shutil",
+        "signal",
+        "ctypes",
+        "importlib",
+        "pathlib",
+        "io",
+        "tempfile",
+        "glob",
+        "webbrowser",
+        "http",
+        "urllib",
+        "ftplib",
+        "smtplib",
+        "pickle",
+        "shelve",
+        "multiprocessing",
+        "threading",
+    }
+)
+
+_MAX_EXEC_TIMEOUT_S = 5
+
+
+class SecurityError(Exception):
+    """Raised when sandboxed code attempts a forbidden operation."""
+
+
+def _check_code_imports(code: str) -> None:
+    """Static check: reject code that imports blocked modules."""
+    import ast
+
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as exc:
+        raise SecurityError(f"SyntaxError: {exc}") from exc
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                top = alias.name.split(".")[0]
+                if top in BLOCKED_MODULES:
+                    raise SecurityError(
+                        f"Import of '{alias.name}' is blocked for security reasons"
+                    )
+                if top not in SAFE_MODULES:
+                    raise SecurityError(
+                        f"Module '{alias.name}' is not in the allowed whitelist"
+                    )
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                top = node.module.split(".")[0]
+                if top in BLOCKED_MODULES:
+                    raise SecurityError(
+                        f"Import from '{node.module}' is blocked for security reasons"
+                    )
+                if top not in SAFE_MODULES:
+                    raise SecurityError(
+                        f"Module '{node.module}' is not in the allowed whitelist"
+                    )
+
+
+def _sandbox_worker(code: str, result_queue) -> None:
+    """Run inside a child process – builds sandbox and executes code."""
+    import builtins
+    import contextlib
+    import io
+
+    safe_builtins = {
+        k: getattr(builtins, k) for k in dir(builtins) if not k.startswith("_")
+    }
+    safe_builtins["__name__"] = "__sandbox__"
+    safe_builtins["__build_class__"] = builtins.__build_class__
+    safe_builtins["None"] = None
+    safe_builtins["True"] = True
+    safe_builtins["False"] = False
+
+    def _restricted_import(name, *args, **kwargs):
+        top = name.split(".")[0]
+        if top in BLOCKED_MODULES:
+            raise SecurityError(f"Import of '{name}' is blocked for security reasons")
+        if top not in SAFE_MODULES:
+            raise SecurityError(f"Module '{name}' is not in the allowed whitelist")
+        return builtins.__import__(name, *args, **kwargs)
+
+    safe_builtins["__import__"] = _restricted_import
+    for danger in ("exec", "eval", "compile", "open", "breakpoint"):
+        safe_builtins.pop(danger, None)
+
+    sandbox_globals: Dict[str, Any] = {"__builtins__": safe_builtins}
+
+    stdout_buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(stdout_buf):
+            exec(compile(code, "<sandbox>", "exec"), sandbox_globals)  # noqa: S102
+        result_queue.put(("ok", stdout_buf.getvalue(), sandbox_globals.get("result")))
+    except SecurityError as exc:
+        result_queue.put(("SecurityError", str(exc), None))
+    except Exception as exc:
+        result_queue.put(("ExecutionError", str(exc), None))
+
+
+def safe_exec(code: str, timeout_s: float = _MAX_EXEC_TIMEOUT_S) -> Dict[str, Any]:
+    """Execute Python code in a restricted sandbox.
+
+    Returns:
+        {"status": "ok", "result": <last expression or None>, "stdout": "..."}
+    On violations:
+        {"error": "SecurityError", "detail": "..."}
+    On timeout:
+        {"error": "TimeoutError", "detail": "Execution exceeded Xs"}
+    """
+    # 1. Static import check (fast, before spawning process)
+    try:
+        _check_code_imports(code)
+    except SecurityError as exc:
+        return {"error": "SecurityError", "detail": str(exc)}
+
+    # 2. Execute in a subprocess with hard timeout
+    import multiprocessing
+
+    result_queue: multiprocessing.Queue = multiprocessing.Queue()
+    proc = multiprocessing.Process(
+        target=_sandbox_worker, args=(code, result_queue), daemon=True
+    )
+    proc.start()
+    proc.join(timeout=timeout_s)
+
+    if proc.is_alive():
+        proc.kill()
+        proc.join(timeout=1)
+        return {
+            "error": "TimeoutError",
+            "detail": f"Execution exceeded {timeout_s}s",
+        }
+
+    try:
+        status, detail, res_val = result_queue.get_nowait()
+    except Exception:
+        return {"error": "ExecutionError", "detail": "No result from sandbox process"}
+
+    if status == "ok":
+        return {"status": "ok", "result": res_val, "stdout": detail}
+    elif status == "SecurityError":
+        return {"error": "SecurityError", "detail": detail}
+    else:
+        return {"error": "ExecutionError", "detail": detail}
+
+
 # ── Singleton ────────────────────────────────────────────────────────────────
 
 _instance: Optional[SandboxExecutor] = None
