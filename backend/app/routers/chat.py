@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, File, Form, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
 
 from app.models.schemas import ChatRequest, ChatResponse
 from app.services.llm_service import get_llm_service
@@ -79,7 +80,15 @@ async def chat_stream_ws(websocket: WebSocket) -> None:
             model_override=model_override,
         ):
             full_reply.append(token)
-            await websocket.send_json({"type": "token", "content": token})
+            # chat_chunk carries both a plain delta and a markdown delta
+            # (same content for now; a future renderer can diff them)
+            await websocket.send_json(
+                {
+                    "type": "chat_chunk",
+                    "delta": {"plain_text": token, "markdown": token},
+                    "is_final": False,
+                }
+            )
     except WebSocketDisconnect:
         logger.info("Client disconnected during streaming")
         return
@@ -112,79 +121,77 @@ async def chat_stream_ws(websocket: WebSocket) -> None:
     session_svc.save_message(session_id, "assistant", reply_text, meta)
     meta["session_id"] = session_id
 
-    await websocket.send_json({"type": "done", "meta": meta})
+    # Final chunk: full assembled content in structured form
+    await websocket.send_json(
+        {
+            "type": "chat_chunk",
+            "delta": {"plain_text": reply_text, "markdown": reply_text, "html": None},
+            "is_final": True,
+            "meta": meta,
+        }
+    )
     await websocket.close()
 
 
-@router.post("/chat", response_model=ChatResponse, tags=["chat"])
-async def chat(request: ChatRequest) -> ChatResponse:
+@router.post("/chat", tags=["chat"])
+async def chat(request: ChatRequest) -> JSONResponse:
     """
-    Send a message to the LLM with optional file context, KB context, and session persistence.
+    Enqueue a chat request for async processing.
 
-    - Pass session_id to continue an existing conversation (history injected automatically).
-    - Omit session_id to start a new session (ID is returned in the response meta).
+    Returns **202 Accepted** immediately with a ``job_id``.  The LLM runs in the
+    background via the job worker; when the response is ready it is pushed to all
+    connected WebSocket clients as a ``chat_result`` event containing the full
+    structured content plus the original ``job_id`` so the frontend can match it.
+
+    Use ``GET /jobs/{job_id}`` to poll status, or listen on ``/ws`` for the push.
     """
-    llm_svc = get_llm_service()
+    from app.services.job_service import get_job_service
+
     session_svc = get_session_service()
+    job_svc = get_job_service()
 
-    # Session management
+    # Session management – create a new session when none is provided / stale
     session_id = request.session_id
     if not session_id or not session_svc.session_exists(session_id):
         session_id = session_svc.create_session()
-
-    # Load conversation history (with summarization if needed)
-    all_messages = session_svc.load_history(session_id)
-    history = session_svc.get_history_for_llm(session_id, limit=20)
-    history_summarized = any(
-        m.get("role") == "system"
-        and "Summary of earlier conversation:" in m.get("content", "")
-        for m in history
-    )
-
-    # Enrich message with KB + memory context
-    llm_message, context_meta = await enrich_message(request.message)
 
     # Resolve model override: request.model > session override > profile default
     model_override = request.model
     if not model_override:
         model_override = session_svc.get_model_override(session_id)
 
-    # Generate response
-    reply, meta = await llm_svc.generate(
-        message=llm_message,
-        mode=request.mode,
-        profile=request.profile,
-        context_file_ids=request.context_file_ids,
-        history=history,
-        model_override=model_override,
+    # Enqueue the chat job (high priority so it runs before background jobs)
+    job = job_svc.create_job(
+        type="chat_task",
+        title=f"Chat: {request.message[:60]}{'…' if len(request.message) > 60 else ''}",
+        input_summary=request.message[:200],
+        payload={
+            "message": request.message,
+            "mode": request.mode,
+            "profile": request.profile,
+            "session_id": session_id,
+            "model_override": model_override,
+            "context_file_ids": request.context_file_ids,
+        },
+        priority="high",
     )
 
-    # Merge context meta flags
-    meta.update(context_meta)
-    meta["history_summarized"] = history_summarized
-    meta["history_total_messages"] = len(all_messages)
-    meta["history_sent_messages"] = len(history)
-
-    # Mark timeout errors explicitly for frontend UX
-    if meta.get("provider") == "timeout":
-        meta["error"] = True
-        meta["error_type"] = "timeout"
-
-    # Prometheus instrumentation
-    model_used = meta.get("model", "unknown")
-    chat_requests_total.labels(
-        profile=request.profile or "default", model=model_used
-    ).inc()
-    chat_latency_seconds.labels(model=model_used).observe(
-        meta.get("latency_ms", 0) / 1000
+    logger.info(
+        "Chat job enqueued: job_id=%s session_id=%s profile=%s",
+        job.id,
+        session_id,
+        request.profile,
     )
 
-    # Persist both turns (store original message, not the one with KB context)
-    session_svc.save_message(session_id, "user", request.message)
-    session_svc.save_message(session_id, "assistant", reply, meta)
-
-    meta["session_id"] = session_id
-    return ChatResponse(reply=reply, meta=meta, session_id=session_id)
+    return JSONResponse(
+        status_code=202,
+        content={
+            "status": "accepted",
+            "job_id": job.id,
+            "session_id": session_id,
+            "message": "Chat job accepted and is being processed",
+        },
+    )
 
 
 @router.post("/chat/with-files", tags=["chat"])
