@@ -202,6 +202,7 @@ document.addEventListener('DOMContentLoaded', () => {
   bindSidebarNav();
   bindMobileMenu();
   initSidebarOverlay();
+  initMobileChatCompact();
   bindChatEvents();
   bindAgentsEvents();
   bindSkillsEvents();
@@ -302,6 +303,42 @@ function initSidebarOverlay() {
     overlay.style.display = isOpen ? 'block' : 'none';
   });
   observer.observe(sidebar, { attributes: true, attributeFilter: ['class'] });
+}
+
+/** Mobile chat compaction – profile dropdown, quick-actions "more", inline image buttons */
+function initMobileChatCompact() {
+  // ── Profile pills: toggle expanded/collapsed on mobile ──
+  const profileMore = document.getElementById('profile-more-btn');
+  const profilePills = document.getElementById('profile-pills');
+  if (profileMore && profilePills) {
+    profileMore.addEventListener('click', () => {
+      profilePills.classList.toggle('profile-pills--expanded');
+      profileMore.textContent = profilePills.classList.contains('profile-pills--expanded') ? '▲' : '▼';
+    });
+  }
+
+  // ── Quick actions: toggle expanded/collapsed on mobile ──
+  const actionsMore = document.getElementById('actions-more-btn');
+  const quickActions = document.getElementById('quickActions');
+  if (actionsMore && quickActions) {
+    actionsMore.addEventListener('click', () => {
+      quickActions.classList.toggle('quick-actions--expanded');
+      actionsMore.textContent = quickActions.classList.contains('quick-actions--expanded') ? '✕' : '…';
+    });
+  }
+
+  // ── Inline image/screenshot buttons (mobile) → delegate to existing handlers ──
+  const inlineImgBtn = document.getElementById('inline-image-btn');
+  const inlineScreenBtn = document.getElementById('inline-screenshot-btn');
+  const imageInput = document.getElementById('image-input');
+  if (inlineImgBtn && imageInput) {
+    inlineImgBtn.addEventListener('click', () => imageInput.click());
+  }
+  if (inlineScreenBtn) {
+    inlineScreenBtn.addEventListener('click', () => {
+      if (typeof takeScreenshot === 'function') takeScreenshot();
+    });
+  }
 }
 
 /* ============================================================
@@ -2622,6 +2659,12 @@ async function saveSettings() {
       body: JSON.stringify({ settings: patch }),
     });
     if (!res.ok) throw new Error(await res.text());
+    // Persist system prompts via dedicated endpoint
+    await fetch('/api/prompts/system', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ system_prompts: patch.system_prompts }),
+    });
     showToast(t('settings_saved'), 'success');
     // Show inline hint in Advanced LLM panel
     const hint = document.getElementById('s-profile-save-hint');
@@ -3203,11 +3246,15 @@ let _kbSelectedFiles = []; // Array<File>
 let _kbMode = 'index';     // 'index' | 'analyze'
 
 const KB_SUPPORTED_EXTS = new Set([
-  '.pdf', '.docx', '.xlsx', '.txt', '.md',
-  '.png', '.jpg', '.jpeg', '.gif', '.bmp',
+  '.pdf', '.docx', '.xlsx', '.pptx', '.txt', '.md',
+  '.jpg', '.jpeg', '.png', '.gif', '.bmp',
+  '.mp3', '.wav', '.m4a', '.ogg',
+  '.mp4', '.webm', '.mov',
+  '.epub', '.html', '.htm', '.zip',
   '.py', '.js', '.ts', '.jsx', '.tsx',
-  '.json', '.yaml', '.yml', '.toml', '.sh',
-  '.bash', '.zsh', '.html', '.css', '.sql',
+  '.json', '.yaml', '.yml', '.toml',
+  '.sh', '.bash', '.zsh',
+  '.css', '.sql',
   '.rs', '.go', '.java', '.c', '.cpp', '.h', '.rb', '.php',
 ]);
 
@@ -3382,6 +3429,7 @@ async function kbUploadFiles() {
       if (progressLabel) progressLabel.textContent = `${data.results.length} / ${data.results.length}`;
       _kbRenderAnalyzeResults(resultEl, data.results);
       showToast(t('kb_upload_done'), 'success');
+      loadKbOverview();
     }
     _kbClearSelection();
   } catch (err) {

@@ -168,7 +168,7 @@ class LLMService:
 
         if provider == "ollama":
             reply, meta = await self._generate_ollama(
-                message, mode, history or [], cfg, keep_alive=keep_alive
+                message, mode, history or [], cfg, keep_alive=keep_alive, profile=profile
             )
         else:
             reply, meta = self._generate_stub(message, mode, context_file_ids or [])
@@ -195,6 +195,7 @@ class LLMService:
         history: List[Dict[str, str]],
         cfg: Dict[str, Any],
         keep_alive: int | str | None = None,
+        profile: Optional[str] = None,
     ) -> Tuple[str, Dict[str, Any]]:
         ollama_url = cfg.get("ollama_url", "http://localhost:11434").rstrip("/")
         model = cfg.get("model", "llama3.2")
@@ -211,12 +212,13 @@ class LLMService:
                 retry_after_s=int(cb.recovery_timeout),
             )
 
+        prompt_key = profile or mode or "general"
         system_prompt = (
-            get_date_context() + "\n" + self._settings.get_system_prompt(mode)
+            get_date_context() + "\n" + self._settings.get_system_prompt(prompt_key)
         )
 
         # 5H-3: Add structured output hints based on message content
-        system_prompt = self._add_structured_hints(system_prompt, message)
+        system_prompt = self._add_structured_hints(system_prompt, message, mode=mode)
 
         messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
         messages.extend(history)
@@ -404,8 +406,10 @@ class LLMService:
             }
 
     @staticmethod
-    def _add_structured_hints(system_prompt: str, message: str) -> str:
+    def _add_structured_hints(system_prompt: str, message: str, mode: str = "general") -> str:
         """Add formatting hints to system prompt based on message keywords."""
+        if mode not in ("code", "research", "powerbi"):
+            return system_prompt
         msg_lower = message.lower()
         hints = []
 
@@ -480,9 +484,11 @@ class LLMService:
         cfg = self._settings.get_llm_config(profile=profile)
         ollama_url = cfg.get("ollama_url", "http://localhost:11434").rstrip("/")
         model = resolve_model(profile or "general", model_override or cfg.get("model"))
+        prompt_key = profile or mode or "general"
         system_prompt = (
-            get_date_context() + "\n" + self._settings.get_system_prompt(mode)
+            get_date_context() + "\n" + self._settings.get_system_prompt(prompt_key)
         )
+        system_prompt = self._add_structured_hints(system_prompt, message, mode=mode)
         cb = get_ollama_circuit_breaker()
 
         # Circuit breaker: fast-fail if Ollama has been failing repeatedly

@@ -177,6 +177,7 @@
           <button class="pill" data-profile="ai_dev" title="AI Dev">&#129302; AI</button>
           <button class="pill" data-profile="vision" title="Vision">&#128270; Vision</button>
           <button class="pill pill--custom-add" id="custom-profile-btn" title="Custom profile">&#10133; Custom</button>
+          <button class="pill profile-more-btn" id="profile-more-btn" title="V&iacute;ce profil&#367;">&#9660;</button>
         </div>
         <select class="chat-model-select" id="chat-model-select" title="Vyber model">
           <option value="">Výchozí model</option>
@@ -232,6 +233,7 @@
             <button class="quick-btn" data-prompt="Zobraz dnešní kalendář">
               📅 Kalendář
             </button>
+            <button class="quick-btn actions-more-btn" id="actions-more-btn" title="V&iacute;ce akc&iacute;">…</button>
           </div>
           <!-- Quick prompts -->
           <div class="quick-prompts-bar" id="quick-prompts-bar">
@@ -243,6 +245,10 @@
             <button class="btn-icon attach-btn" id="attach-btn" title="Pridat soubor">
               &#128206;
             </button>
+            <span class="chat-input-inline-icons">
+              <button class="btn-icon" id="inline-image-btn" title="P&#345;idat obr&aacute;zek">&#128247;</button>
+              <button class="btn-icon" id="inline-screenshot-btn" title="Screenshot">&#128248;</button>
+            </span>
             <input type="file" id="file-input" multiple hidden
                    accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.mp3,.wav,.m4a,.ogg,.mp4,.epub,.html,.zip,.py,.js,.ts,.json,.yaml,.csv" />
             <textarea class="chat-textarea" id="chat-input" rows="2"
@@ -2261,7 +2267,7 @@
             Podporované: PDF, DOCX, XLSX, PPTX, TXT, MD, PNG, JPG, MP3, WAV, MP4, ePub, HTML, ZIP · a kódové soubory
           </div>
           <input type="file" id="kb-file-input" multiple style="display:none"
-                 accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.png,.jpg,.jpeg,.gif,.bmp,.mp3,.wav,.m4a,.ogg,.mp4,.webm,.mov,.epub,.html,.htm,.zip,.py,.js,.ts,.jsx,.tsx,.json,.yaml,.yml,.toml,.sh,.css,.sql" />
+                 accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.jpg,.jpeg,.png,.gif,.bmp,.mp3,.wav,.m4a,.ogg,.mp4,.webm,.mov,.epub,.html,.htm,.zip,.py,.js,.ts,.jsx,.tsx,.json,.yaml,.yml,.toml,.sh,.bash,.zsh,.css,.sql,.rs,.go,.java,.c,.cpp,.h,.rb,.php" />
         </div>
 
         <!-- Selected files list -->
