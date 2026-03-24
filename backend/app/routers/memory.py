@@ -3,7 +3,7 @@
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 
 from app.models.schemas import (
     AddMemoryRequest,
@@ -13,13 +13,9 @@ from app.models.schemas import (
     SummarizeSessionRequest,
 )
 from app.services.memory_service import get_memory_service
-from app.utils.auth import verify_api_key
-
 logger = logging.getLogger(__name__)
 
-router = APIRouter(
-    dependencies=[Depends(verify_api_key)],
-)
+router = APIRouter()
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────

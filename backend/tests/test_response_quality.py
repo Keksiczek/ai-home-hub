@@ -116,7 +116,7 @@ def test_comparison_hint_added():
     from app.services.llm_service import LLMService
 
     result = LLMService._add_structured_hints(
-        "Base prompt.", "Porovnej Python a JavaScript"
+        "Base prompt.", "Porovnej Python a JavaScript", mode="research"
     )
     assert "tabulku" in result.lower() or "seznam" in result.lower()
 
@@ -126,7 +126,7 @@ def test_step_hint_added():
     from app.services.llm_service import LLMService
 
     result = LLMService._add_structured_hints(
-        "Base prompt.", "Jak nainstalovat Docker?"
+        "Base prompt.", "Jak nainstalovat Docker?", mode="code"
     )
     assert "číslovaný" in result.lower() or "kroků" in result.lower()
 

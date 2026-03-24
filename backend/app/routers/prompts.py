@@ -1,4 +1,4 @@
-"""Prompts router – AI-assisted prompt generation."""
+"""Prompts router – AI-assisted prompt generation and system prompt CRUD."""
 
 import logging
 
@@ -6,9 +6,29 @@ from fastapi import APIRouter, HTTPException
 
 from app.models.schemas import PromptGeneratorRequest, PromptGeneratorResponse
 from app.services.llm_service import LLMService
+from app.services.settings_service import get_settings_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+# ── System prompts CRUD ──────────────────────────────────────────────────────
+
+
+@router.get("/prompts/system", tags=["prompts"])
+async def get_system_prompts():
+    """Return all system prompts from settings."""
+    return {"system_prompts": get_settings_service().load().get("system_prompts", {})}
+
+
+@router.put("/prompts/system", tags=["prompts"])
+async def update_system_prompts(body: dict):
+    """Overwrite system prompts in settings."""
+    svc = get_settings_service()
+    s = svc.load()
+    s["system_prompts"] = body.get("system_prompts", {})
+    svc.save(s)
+    return {"status": "ok"}
 
 _TASK_DESCRIPTIONS = {
     "chat": "konverzaci / dotazu na AI asistenta",
