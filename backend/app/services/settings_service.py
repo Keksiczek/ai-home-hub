@@ -446,6 +446,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
             "long_llm_task",
             "report_generation",
             "resident_task",
+            "chat_task",
         ],
         "night_only_job_types": [
             "kb_reindex",
@@ -587,12 +588,17 @@ class SettingsService:
             "max_tokens": default_params_block.get("max_tokens", 2048),
         }
 
+        # Read keep_alive default from ollama_performance block (default "5m")
+        perf_block = llm_cfg.get("ollama_performance", {})
+        keep_alive_default = perf_block.get("keep_alive", "5m")
+
         result: Dict[str, Any] = {
             "provider": llm_cfg.get("provider", "ollama"),
             "ollama_url": ollama_url,
             "model": llm_cfg.get("default_model") or llm_cfg.get("model", "llama3.2"),
             "timeout_seconds": llm_cfg.get("timeout_seconds", 180),
             "embeddings_model": llm_cfg.get("embeddings_model", "nomic-embed-text"),
+            "keep_alive_default": keep_alive_default,
             **base_params,
         }
 

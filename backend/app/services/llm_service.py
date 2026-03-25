@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
@@ -39,6 +40,32 @@ _MONTHS_CS = [
     "listopadu",
     "prosince",
 ]
+
+
+@dataclass
+class LLMResponse:
+    """Structured response from the LLM with rich-text variants.
+
+    *text* and *markdown* contain the same raw LLM output (which already uses
+    Markdown syntax). *html* is reserved for a future markdown→HTML render pass
+    and is ``None`` until that is wired up.
+    """
+
+    text: str       # full response text (Markdown syntax, Unicode emoji)
+    markdown: str   # same content, explicitly tagged as Markdown
+    html: str | None = None  # rendered HTML – populated when a renderer is wired in
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {"plain_text": self.text, "markdown": self.markdown, "html": self.html}
+
+
+# System-prompt hint appended to every LLM request to encourage consistent
+# Markdown + emoji formatting.  Kept short so it doesn't eat token budget.
+_MARKDOWN_SYSTEM_HINT = (
+    "\n\nFormátování výstupů: Odpovídej v čistém textu s Markdown formátováním "
+    "(nadpisy, odrážky, kódové bloky). Emoji používej střídmě jako obyčejné "
+    "Unicode znaky (např. 👋, ✅). Nezalamuj kódové bloky do HTML tagů."
+)
 
 
 def get_date_context() -> str:
@@ -77,14 +104,22 @@ def resolve_model(profile: str, settings_override: str | None = None) -> str:
     return MODEL_ROUTING.get(profile, "llama3.2")
 
 
-def get_keep_alive_for_model(model: str, *, for_overnight: bool = False) -> int | str:
+def get_keep_alive_for_model(
+    model: str,
+    *,
+    for_overnight: bool = False,
+    config_default: str | int | None = None,
+) -> int | str:
     """Return the Ollama keep_alive value appropriate for *model*.
 
-    Aggressive unloading keeps peak RAM low on an 8 GB machine:
+    Priority:
     - overnight / batch jobs → 0  (unload immediately after response)
     - llava:7b (vision)       → 0  (large model, always unload)
     - qwen2.5-coder variants  → "120s"
-    - llama3.2 / summarize    → "60s"
+    - general models          → config_default (from settings) or "5m"
+
+    *config_default* is read from ``llm.ollama_performance.keep_alive`` in
+    settings.json so operators can tune it without code changes.
     """
     if for_overnight:
         return 0
@@ -93,8 +128,8 @@ def get_keep_alive_for_model(model: str, *, for_overnight: bool = False) -> int 
         return 0
     if "qwen2.5-coder" in name or "coder" in name:
         return "120s"
-    # default: small llama / summarizer
-    return "60s"
+    # Use operator-configured default; fall back to 5 minutes
+    return config_default if config_default is not None else "5m"
 
 
 def _llm_unavailable_response(
@@ -164,7 +199,10 @@ class LLMService:
         provider = cfg.get("provider", "ollama")
         start = time.monotonic()
 
-        keep_alive = get_keep_alive_for_model(cfg["model"], for_overnight=for_overnight)
+        keep_alive_default = cfg.get("keep_alive_default", "5m")
+        keep_alive = get_keep_alive_for_model(
+            cfg["model"], for_overnight=for_overnight, config_default=keep_alive_default
+        )
 
         if provider == "ollama":
             reply, meta = await self._generate_ollama(
@@ -187,6 +225,35 @@ class LLMService:
         ollama_latency_seconds.labels(model=cfg["model"]).observe(elapsed_ms / 1000)
 
         return reply, meta
+
+    async def generate_rich(
+        self,
+        message: str,
+        mode: str = "general",
+        profile: Optional[str] = None,
+        context_file_ids: Optional[List[str]] = None,
+        history: Optional[List[Dict[str, str]]] = None,
+        model_override: Optional[str] = None,
+        for_overnight: bool = False,
+    ) -> Tuple["LLMResponse", Dict[str, Any]]:
+        """Like :meth:`generate` but returns an :class:`LLMResponse` instead of a plain string.
+
+        The response object carries ``text``, ``markdown`` (same content), and a
+        reserved ``html`` field (currently ``None``).  Use this from new code paths
+        (job worker, WS push) where the caller needs the structured representation.
+        For backward-compatible callers that expect a plain string, :meth:`generate`
+        continues to work unchanged.
+        """
+        text, meta = await self.generate(
+            message=message,
+            mode=mode,
+            profile=profile,
+            context_file_ids=context_file_ids,
+            history=history,
+            model_override=model_override,
+            for_overnight=for_overnight,
+        )
+        return LLMResponse(text=text, markdown=text, html=None), meta
 
     async def _generate_ollama(
         self,
@@ -214,7 +281,10 @@ class LLMService:
 
         prompt_key = profile or mode or "general"
         system_prompt = (
-            get_date_context() + "\n" + self._settings.get_system_prompt(prompt_key)
+            get_date_context()
+            + "\n"
+            + self._settings.get_system_prompt(prompt_key)
+            + _MARKDOWN_SYSTEM_HINT
         )
 
         # 5H-3: Add structured output hints based on message content
@@ -486,7 +556,10 @@ class LLMService:
         model = resolve_model(profile or "general", model_override or cfg.get("model"))
         prompt_key = profile or mode or "general"
         system_prompt = (
-            get_date_context() + "\n" + self._settings.get_system_prompt(prompt_key)
+            get_date_context()
+            + "\n"
+            + self._settings.get_system_prompt(prompt_key)
+            + _MARKDOWN_SYSTEM_HINT
         )
         system_prompt = self._add_structured_hints(system_prompt, message, mode=mode)
         cb = get_ollama_circuit_breaker()
@@ -519,7 +592,10 @@ class LLMService:
         if cfg.get("max_tokens") is not None:
             options["num_predict"] = int(cfg["max_tokens"])
 
-        keep_alive = get_keep_alive_for_model(model, for_overnight=for_overnight)
+        keep_alive_default = cfg.get("keep_alive_default", "5m")
+        keep_alive = get_keep_alive_for_model(
+            model, for_overnight=for_overnight, config_default=keep_alive_default
+        )
 
         payload: Dict[str, Any] = {
             "model": model,
@@ -530,15 +606,15 @@ class LLMService:
         if keep_alive is not None:
             payload["keep_alive"] = keep_alive
 
-        timeout_val = cfg.get("timeout_seconds", 180)
-        try:
-            timeout_val = max(10, min(3600, float(timeout_val)))
-        except (ValueError, TypeError):
-            timeout_val = 180.0
+        # For streaming: use a short read-timeout per chunk (60 s) to detect stalled
+        # connections, but allow up to 600 s of total wall-clock time so long responses
+        # never get cut off by a single overall timeout.
+        stream_http_timeout = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=5.0)
+        outer_timeout = 600.0  # 10 min hard cap for the whole streaming session
 
         try:
-            async with asyncio.timeout(timeout_val):
-                async with httpx.AsyncClient(timeout=timeout_val) as client:
+            async with asyncio.timeout(outer_timeout):
+                async with httpx.AsyncClient(timeout=stream_http_timeout) as client:
                     async with client.stream(
                         "POST", f"{ollama_url}/api/chat", json=payload
                     ) as resp:
@@ -560,10 +636,18 @@ class LLMService:
         except asyncio.TimeoutError:
             await cb.record_failure()
             logger.warning(
-                "Ollama stream timed out for model %s after %.0fs", model, timeout_val
+                "Ollama stream hard-timeout for model %s (%.0fs cap)", model, outer_timeout
             )
             yield (
-                f"[Timeout: model {model} neodpověděl do {timeout_val:.0f}s. "
+                f"[Timeout: model {model} překročil limit {outer_timeout:.0f}s. "
+                "Zkus kratší zprávu nebo restartuj Ollamu.]"
+            )
+        except httpx.TimeoutException as exc:
+            # Covers ReadTimeout (stalled chunk) and ConnectTimeout
+            await cb.record_failure()
+            logger.warning("Ollama HTTP timeout during streaming for model %s: %s", model, exc)
+            yield (
+                f"[HTTP timeout: model {model} přestal odesílat tokeny. "
                 "Zkus kratší zprávu nebo restartuj Ollamu.]"
             )
         except httpx.ConnectError:
@@ -574,6 +658,31 @@ class LLMService:
             await cb.record_failure()
             logger.error("Ollama stream error: %s", exc, exc_info=True)
             yield f"[Chyba LLM: {exc}]"
+
+    async def stream_chat(
+        self,
+        message: str,
+        mode: str = "general",
+        profile: Optional[str] = None,
+        history: Optional[List[Dict[str, str]]] = None,
+        model_override: Optional[str] = None,
+        for_overnight: bool = False,
+    ) -> AsyncGenerator[str, None]:
+        """Public streaming API – yields token strings from Ollama.
+
+        Delegates to :meth:`generate_stream`.  Use this from WebSocket handlers
+        and the job worker when you need incremental output.  For a single
+        collected response, use :meth:`generate` instead.
+        """
+        async for token in self.generate_stream(
+            message=message,
+            mode=mode,
+            profile=profile,
+            history=history,
+            model_override=model_override,
+            for_overnight=for_overnight,
+        ):
+            yield token
 
     async def check_ollama_health(self) -> Dict[str, Any]:
         """Check if Ollama is running and return available models."""

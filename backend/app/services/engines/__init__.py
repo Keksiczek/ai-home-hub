@@ -17,6 +17,7 @@ from app.services.engines.overnight_engine import (
     run_nightly_summary,
 )
 from app.services.engines.resident_engine import run_resident_task, run_resident_mission
+from app.services.engines.chat_engine import run_chat_task
 
 __all__ = [
     "ProgressCallback",
@@ -31,4 +32,5 @@ __all__ = [
     "run_nightly_summary",
     "run_resident_task",
     "run_resident_mission",
+    "run_chat_task",
 ]

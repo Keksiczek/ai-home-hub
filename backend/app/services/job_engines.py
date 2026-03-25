@@ -5,6 +5,7 @@ All engine implementations have been split into the engines/ subpackage:
   - engines/research_engine.py – run_document_analysis
   - engines/media_engine.py   – run_media_ingest
   - engines/report_engine.py  – run_report_generation, _build_markdown_from_result
+  - engines/chat_engine.py    – run_chat_task (async chat pipeline, job-based)
 
 This module re-exports everything so existing imports continue to work unchanged.
 """
@@ -25,6 +26,7 @@ from app.services.engines import (  # noqa: F401  (re-exported for backward comp
     run_nightly_summary,
     run_resident_task,
     run_resident_mission,
+    run_chat_task,
 )
 from app.services.job_service import Job
 
@@ -43,6 +45,7 @@ _ENGINES = {
     "nightly_summary": run_nightly_summary,
     "resident_task": run_resident_task,
     "resident_mission": run_resident_mission,
+    "chat_task": run_chat_task,
 }
 
 
