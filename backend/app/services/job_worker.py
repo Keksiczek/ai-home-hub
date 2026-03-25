@@ -10,6 +10,9 @@ from app.services.background_service import BackgroundService
 from app.services.job_service import Job, JobService
 from app.services.metrics_service import (
     active_jobs,
+    ai_home_hub_job_active_workers,
+    ai_home_hub_job_failed_total,
+    ai_home_hub_job_queue_depth,
     job_duration_seconds,
     job_queue_depth,
     update_job_queue_metrics_from_list,
@@ -284,6 +287,7 @@ class JobWorker(BackgroundService):
         except Exception as exc:
             job.status = "failed"
             job.last_error = str(exc)
+            ai_home_hub_job_failed_total.inc()
             logger.error("Job %s failed: %s", job.id, exc, exc_info=True)
         finally:
             job_duration_seconds.labels(type=job.type).observe(
@@ -390,6 +394,7 @@ class JobWorker(BackgroundService):
         # Check how many slots are available
         running_count = len(self._running_job_ids)
         active_jobs.set(running_count)
+        ai_home_hub_job_active_workers.set(running_count)
         available_slots = max_concurrent - running_count
         if available_slots <= 0:
             return
@@ -400,6 +405,7 @@ class JobWorker(BackgroundService):
         # Update job queue depth metrics
         all_jobs = self._job_service.list_jobs(limit=200)
         update_job_queue_metrics_from_list([{"status": j.status} for j in all_jobs])
+        ai_home_hub_job_queue_depth.set(len(queued))
 
         if not queued:
             return

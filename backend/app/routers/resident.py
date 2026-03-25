@@ -699,12 +699,46 @@ async def list_plans(limit: int = Query(default=20, ge=1, le=100)) -> dict:
     }
 
 
+@router.get("/plans/pending")
+async def list_pending_plans() -> dict:
+    """List plans awaiting user approval (status = pending_approval).
+
+    Frontend should poll this endpoint to display plans for review.
+
+    Example response::
+
+        {
+          "plans": [
+            {
+              "plan_id": "abc-123",
+              "goal": "Reindexovat KB",
+              "status": "pending_approval",
+              "steps": [...],
+              "risk_level": "low",
+              "impact_assessment": "...",
+              "created_at": "2026-03-25T10:00:00Z"
+            }
+          ],
+          "count": 1
+        }
+    """
+    from app.services.resident_plan_service import get_resident_plan_service
+
+    plan_svc = get_resident_plan_service()
+    plans = plan_svc.list_plans(status="pending_approval", limit=50)
+    return {
+        "plans": [p.model_dump() for p in plans],
+        "count": len(plans),
+    }
+
+
 @router.post("/plan/{plan_id}/approve")
 async def approve_plan(plan_id: str, req: Optional[PlanApproveRequest] = None) -> dict:
     """Approve a plan and start execution as a background job.
 
-    Returns HTTP 202 with job_id. Execution progress is streamed via WS
-    as 'resident_plan_update' events.
+    Accepts plans in ``draft``, ``pending_approval``, or ``failed`` status.
+    Returns HTTP 202 with job_id.  Execution progress is streamed via WS
+    as ``resident_plan_update`` events.
     """
     from app.services.resident_plan_service import get_resident_plan_service
 
@@ -715,7 +749,7 @@ async def approve_plan(plan_id: str, req: Optional[PlanApproveRequest] = None) -
     if plan is None:
         raise HTTPException(404, "Plán nenalezen")
 
-    if plan.status not in ("draft", "failed"):
+    if plan.status not in ("draft", "pending_approval", "failed"):
         raise HTTPException(
             400,
             f"Plán nelze schválit – aktuální stav: {plan.status}",
@@ -760,6 +794,37 @@ async def approve_plan(plan_id: str, req: Optional[PlanApproveRequest] = None) -
             "plan_id": plan_id,
         },
     )
+
+
+class PlanRejectRequest(BaseModel):
+    """Request body for POST /resident/plan/{plan_id}/reject."""
+
+    reason: str = ""
+
+
+@router.post("/plan/{plan_id}/reject")
+async def reject_plan(plan_id: str, req: Optional[PlanRejectRequest] = None) -> dict:
+    """Reject a pending_approval plan.
+
+    The plan is marked as ``rejected`` and will not be executed.
+    An optional ``reason`` can be provided for audit purposes.
+    """
+    from app.services.resident_plan_service import get_resident_plan_service
+
+    plan_svc = get_resident_plan_service()
+    reason = req.reason if req else ""
+    plan = plan_svc.reject_plan(plan_id, reason=reason)
+    if plan is None:
+        raise HTTPException(
+            404,
+            "Plán nenalezen nebo není ve stavu pending_approval",
+        )
+    logger.info("Plan %s rejected (reason=%s)", plan_id, reason[:100])
+    return {
+        "status": "rejected",
+        "plan_id": plan_id,
+        "reason": reason,
+    }
 
 
 # ── History & Logs ────────────────────────────────────────────

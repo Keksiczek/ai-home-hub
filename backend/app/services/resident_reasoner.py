@@ -181,11 +181,36 @@ class ResidentReasoner:
                     }
                 )
 
-            return {
+            plan_dict = {
                 "steps": steps,
                 "raw_markdown": str(data.get("summary_markdown", ""))[:2000],
                 "model": meta.get("model", ""),
             }
+
+            # Persist plan as pending_approval – no side-effects until user approves
+            try:
+                from app.models.resident_models import PlanStep, ResidentPlan
+                from app.services.resident_plan_service import get_resident_plan_service
+
+                plan_steps = [PlanStep(**s) for s in steps]
+                plan = ResidentPlan(
+                    goal=goal,
+                    steps=plan_steps,
+                    raw_markdown=plan_dict["raw_markdown"],
+                    status="pending_approval",
+                    meta={"model": plan_dict["model"]},
+                )
+                get_resident_plan_service().save_plan(plan)
+                plan_dict["plan_id"] = plan.plan_id
+                logger.info(
+                    "Plan %s saved as pending_approval (goal=%s)",
+                    plan.plan_id,
+                    goal[:60],
+                )
+            except Exception as exc:
+                logger.error("Failed to persist plan: %s", exc)
+
+            return plan_dict
         except Exception as exc:
             logger.error("Plan generation failed: %s", exc, exc_info=True)
             return None

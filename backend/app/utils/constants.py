@@ -37,6 +37,32 @@ MIN_KB_SEARCH_SCORE: float = 0.3
 #: agent trees that would exhaust resources.
 MAX_SUB_AGENT_DEPTH: int = 2
 
+# ── LLM concurrency ─────────────────────────────────────────────────────────
+
+#: Maximum number of concurrent LLM (Ollama) requests across the whole
+#: application.  Ollama on a single GPU can rarely serve >1 request at a
+#: time without OOM or severe slowdown, so the default is 1.
+#: Override via LLM_MAX_CONCURRENT_REQUESTS env var.
+LLM_MAX_CONCURRENT_REQUESTS: int = int(
+    __import__("os").environ.get("LLM_MAX_CONCURRENT_REQUESTS", "1")
+)
+
+#: Timeout (seconds) that a caller will wait to acquire the LLM semaphore
+#: before raising LLMOverloadedError.  Keeps queues from growing unboundedly.
+LLM_SEMAPHORE_TIMEOUT: float = float(
+    __import__("os").environ.get("LLM_SEMAPHORE_TIMEOUT", "120")
+)
+
+# ── Agent orchestration (structured output) ─────────────────────────────────
+
+#: Maximum number of steps an agent orchestrator loop may execute before
+#: aborting with ABORTED_LOOPING.  Prevents runaway tool-call loops.
+AGENT_MAX_STEPS: int = 10
+
+#: Maximum number of JSON-parse retries when the LLM returns invalid output
+#: before marking the task as FAILED_INVALID_OUTPUT.
+AGENT_MAX_PARSE_RETRIES: int = 3
+
 # ── Text chunking ────────────────────────────────────────────────────────────
 
 #: Default target chunk size (in characters) used when splitting documents

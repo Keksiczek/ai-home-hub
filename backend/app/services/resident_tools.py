@@ -542,3 +542,130 @@ async def execute_tool_call(
             "error": str(exc)[:500],
             "duration_ms": duration_ms,
         }
+
+
+# ── Plan execution guard ─────────────────────────────────────────────────────
+
+
+async def execute_plan_steps(plan_id: str) -> Dict[str, Any]:
+    """Execute steps of an approved resident plan.
+
+    Only plans with status ``approved`` are executed.  After successful
+    execution the plan is marked ``executed``; on failure it is marked
+    ``failed``.  This function is intended to be called from the job worker
+    when a ``resident_plan_execute`` job is dispatched.
+
+    Returns a summary dict suitable for storing in the job result.
+    """
+    from app.services.resident_plan_service import get_resident_plan_service
+
+    plan_svc = get_resident_plan_service()
+    plan = plan_svc.get_plan(plan_id)
+
+    if plan is None:
+        return {"ok": False, "error": f"Plan {plan_id} not found"}
+
+    if plan.status != "approved":
+        logger.warning(
+            "execute_plan_steps: plan %s has status %s (expected approved), skipping",
+            plan_id,
+            plan.status,
+        )
+        return {
+            "ok": False,
+            "error": f"Plan not approved (status={plan.status})",
+        }
+
+    # Mark as running
+    plan.status = "running"
+    plan_svc.save_plan(plan)
+
+    executed_steps = 0
+    errors: List[str] = []
+
+    for step in plan.steps:
+        # Skip steps not in approved_steps list (if selective approval was used)
+        if plan.approved_steps and step.id not in plan.approved_steps:
+            step.status = "skipped"
+            continue
+
+        step.status = "running"
+        plan_svc.save_plan(plan)
+
+        try:
+            if step.tool == "none":
+                step.status = "completed"
+                step.result_summary = "Informační krok – bez akce"
+            elif step.tool == "kb":
+                # Execute KB action
+                action = step.params.get("action", "search")
+                if action == "search":
+                    result = await _kb_search(
+                        step.params.get("query", step.title)
+                    )
+                elif action == "store":
+                    result = await _kb_store(
+                        step.params.get("content", step.description),
+                        step.params.get("tags", ""),
+                    )
+                else:
+                    result = {"info": f"Unknown KB action: {action}"}
+                step.status = "completed"
+                step.result_summary = json.dumps(result, ensure_ascii=False)[:500]
+            elif step.tool in ("agent", "script"):
+                # For agent/script tools, create a tool_call and dispatch it
+                tool_name = step.params.get("tool_name", "get_system_stats")
+                tool_call = {
+                    "type": "function",
+                    "function": {
+                        "name": tool_name,
+                        "arguments": step.params.get("arguments", {}),
+                    },
+                }
+                result = await execute_tool_call(tool_call, {})
+                if result.get("ok"):
+                    step.status = "completed"
+                    step.result_summary = json.dumps(
+                        result.get("data", {}), ensure_ascii=False
+                    )[:500]
+                else:
+                    step.status = "failed"
+                    step.error = result.get("error", "Unknown error")
+                    errors.append(f"Step '{step.title}': {step.error}")
+            else:
+                step.status = "completed"
+                step.result_summary = f"Tool type '{step.tool}' – no handler"
+
+            executed_steps += 1
+        except Exception as exc:
+            step.status = "failed"
+            step.error = str(exc)[:500]
+            errors.append(f"Step '{step.title}': {exc}")
+            logger.error("Plan %s step '%s' failed: %s", plan_id, step.title, exc)
+
+        plan_svc.save_plan(plan)
+
+    # Final status
+    if errors:
+        plan.status = "failed"
+        plan.result_summary = f"{executed_steps} kroků provedeno, {len(errors)} chyb"
+    else:
+        plan.status = "executed"
+        plan.result_summary = f"Všech {executed_steps} kroků úspěšně dokončeno"
+
+    plan_svc.save_plan(plan)
+    logger.info(
+        "Plan %s execution finished: status=%s, steps=%d, errors=%d",
+        plan_id,
+        plan.status,
+        executed_steps,
+        len(errors),
+    )
+
+    return {
+        "ok": len(errors) == 0,
+        "plan_id": plan_id,
+        "executed_steps": executed_steps,
+        "errors": errors,
+        "result_summary": plan.result_summary,
+    }
