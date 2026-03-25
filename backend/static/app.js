@@ -1274,9 +1274,15 @@ async function sendMessageStreaming(body, sendBtn, chatSpinner) {
           }
           loadSessions();
         } else if (msg.type === 'error') {
+          receivedFinal = true;
+          clearInterval(heartbeat);
+          clearInterval(phaseTimer);
+          if (loadingEl.parentNode) loadingEl.remove();
+          bubble.style.display = '';
           cursor.remove();
-          textEl.textContent = msg.message || 'Chyba generovani';
+          textEl.textContent = msg.message || 'Chyba generování';
           textEl.style.color = 'var(--color-error, #e74c3c)';
+          streamWs.close();
         }
       } catch (e) {
         /* ignore parse errors */
@@ -1285,14 +1291,22 @@ async function sendMessageStreaming(body, sendBtn, chatSpinner) {
 
     streamWs.onclose = () => {
       clearInterval(heartbeat);
-      // If stream ended before we received is_final, show connection-lost message
-      if (!receivedFinal && !fullText) {
+      if (!receivedFinal) {
         clearInterval(phaseTimer);
         if (loadingEl.parentNode) loadingEl.remove();
         bubble.style.display = '';
         cursor.remove();
-        textEl.textContent = 'Model není dostupný / spojení přerušeno, zkus to znovu.';
-        textEl.style.color = 'var(--color-error, #e74c3c)';
+        if (fullText) {
+          // Partial response received before disconnect – mark it visually
+          const notice = document.createElement('p');
+          notice.className = 'bubble__meta';
+          notice.style.color = 'var(--color-error, #e74c3c)';
+          notice.textContent = '⚠ Spojení přerušeno – odpověď může být neúplná.';
+          bubble.appendChild(notice);
+        } else {
+          textEl.textContent = 'Model není dostupný / spojení přerušeno, zkus to znovu.';
+          textEl.style.color = 'var(--color-error, #e74c3c)';
+        }
       }
       _finishStreaming(sendBtn, chatSpinner, wsLabel, prevLabel);
       resolve();
