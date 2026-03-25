@@ -1,11 +1,13 @@
 /* Service Worker for AI Home Hub PWA – offline cache + push notifications */
 
-const CACHE_NAME = 'ai-home-hub-v2';
+const CACHE_NAME = 'ai-home-hub-v3';
 const STATIC_ASSETS = [
   '/',
   '/style.css',
   '/app.js',
   '/manifest.json',
+  '/icon-192.png',
+  '/icon-512.png',
 ];
 
 // API endpoints to cache for offline dashboard access
@@ -58,8 +60,16 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Other API calls – always network
+  // Other API calls – network-first, offline fallback
   if (url.pathname.startsWith('/api/')) {
+    event.respondWith(
+      fetch(event.request).catch(() =>
+        new Response(
+          JSON.stringify({ error: 'offline', message: 'Jsi offline – API není dostupné.' }),
+          { status: 503, headers: { 'Content-Type': 'application/json' } }
+        )
+      )
+    );
     return;
   }
 

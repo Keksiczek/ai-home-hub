@@ -9,7 +9,7 @@
    ============================================================ */
 const uploadedFiles = [];
 const attachedImages = []; // {filename, data (base64), mime_type, previewUrl}
-let currentSessionId = null;
+let currentSessionId = localStorage.getItem('aih_session_id') || null;
 let currentProfile = localStorage.getItem('aih_profile') || 'lean_ci';
 let ws = null;
 // wsReconnectTimer removed – handled inside ReconnectingWS
@@ -514,6 +514,7 @@ function bindProfilePills() {
       updateModelBadge();
       // Start new chat session on profile switch
       currentSessionId = null;
+      localStorage.removeItem('aih_session_id');
       const sessionLabel = document.getElementById('session-label');
       if (sessionLabel) sessionLabel.textContent = 'Nov\u00e1 relace';
       // RAM warning for vision profile (llava:7b is 4.4 GB)
@@ -657,6 +658,7 @@ function bindChatEvents() {
   // New chat button (sidebar)
   document.getElementById('new-chat-btn').addEventListener('click', () => {
     currentSessionId = null;
+    localStorage.removeItem('aih_session_id');
     document.getElementById('chat-history').innerHTML = '';
     document.getElementById('session-label').textContent = t('new_session');
     document.querySelectorAll('.session-item').forEach(el => el.classList.remove('active'));
@@ -724,6 +726,11 @@ function bindChatEvents() {
 
   // Load sessions list on init
   loadSessions();
+
+  // Auto-restore last session history from localStorage
+  if (currentSessionId) {
+    loadSession(currentSessionId, { silent: true });
+  }
 
   // BUG #1 fix: Load Ollama models on chat init so the dropdown is populated
   loadOllamaModels();
@@ -1025,6 +1032,7 @@ async function sendMessage() {
 
       if (data.session_id) {
         currentSessionId = data.session_id;
+        localStorage.setItem('aih_session_id', currentSessionId);
         document.getElementById('session-label').textContent = `Relace: ${data.session_id}`;
       }
       appendBubble('ai', data.reply, {
@@ -1053,6 +1061,7 @@ async function sendMessage() {
 
       if (data.session_id) {
         currentSessionId = data.session_id;
+        localStorage.setItem('aih_session_id', currentSessionId);
         document.getElementById('session-label').textContent = `Relace: ${data.session_id}`;
       }
       appendBubble('ai', data.reply, data.meta);
@@ -1151,6 +1160,14 @@ async function sendMessageStreaming(body, sendBtn, chatSpinner) {
   _streamingWs = streamWs;
 
   let fullText = '';
+  let receivedFinal = false;
+
+  // Heartbeat: keep WS alive during long model responses
+  const heartbeat = setInterval(() => {
+    if (streamWs.readyState === WebSocket.OPEN) {
+      streamWs.send(JSON.stringify({ type: 'ping' }));
+    }
+  }, 20000);
 
   return new Promise((resolve) => {
     streamWs.onopen = () => {
@@ -1160,19 +1177,21 @@ async function sendMessageStreaming(body, sendBtn, chatSpinner) {
     streamWs.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
-        if (msg.type === 'token') {
+        if (msg.type === 'chat_chunk' && !msg.is_final) {
+          const token = (msg.delta && (msg.delta.plain_text || msg.delta.markdown)) || '';
           // On first token, hide loading and show bubble
           if (!fullText) {
             clearInterval(phaseTimer);
             loadingEl.remove();
             bubble.style.display = '';
           }
-          fullText += msg.content;
+          fullText += token;
           // Update bubble text (keep cursor at end)
           textEl.textContent = fullText;
           textEl.appendChild(cursor);
           chatHistoryEl.scrollTop = chatHistoryEl.scrollHeight;
-        } else if (msg.type === 'done') {
+        } else if (msg.type === 'chat_chunk' && msg.is_final) {
+          receivedFinal = true;
           clearInterval(phaseTimer);
           if (loadingEl.parentNode) loadingEl.remove();
           bubble.style.display = '';
@@ -1210,6 +1229,7 @@ async function sendMessageStreaming(body, sendBtn, chatSpinner) {
           if (msg.meta) {
             if (msg.meta.session_id) {
               currentSessionId = msg.meta.session_id;
+              localStorage.setItem('aih_session_id', currentSessionId);
               document.getElementById('session-label').textContent = `Relace: ${msg.meta.session_id}`;
             }
             const metaP = document.createElement('p');
@@ -1264,17 +1284,28 @@ async function sendMessageStreaming(body, sendBtn, chatSpinner) {
     };
 
     streamWs.onclose = () => {
+      clearInterval(heartbeat);
+      // If stream ended before we received is_final, show connection-lost message
+      if (!receivedFinal && !fullText) {
+        clearInterval(phaseTimer);
+        if (loadingEl.parentNode) loadingEl.remove();
+        bubble.style.display = '';
+        cursor.remove();
+        textEl.textContent = 'Model není dostupný / spojení přerušeno, zkus to znovu.';
+        textEl.style.color = 'var(--color-error, #e74c3c)';
+      }
       _finishStreaming(sendBtn, chatSpinner, wsLabel, prevLabel);
       resolve();
     };
 
     streamWs.onerror = () => {
+      clearInterval(heartbeat);
       clearInterval(phaseTimer);
       if (loadingEl.parentNode) loadingEl.remove();
       bubble.style.display = '';
       cursor.remove();
       if (!fullText) {
-        textEl.textContent = 'Chyba pripojeni ke streamu';
+        textEl.textContent = 'Model není dostupný / spojení přerušeno, zkus to znovu.';
         textEl.style.color = 'var(--color-error, #e74c3c)';
       }
       _finishStreaming(sendBtn, chatSpinner, wsLabel, prevLabel);
@@ -1482,13 +1513,14 @@ async function loadSessions() {
   }
 }
 
-async function loadSession(sessionId) {
+async function loadSession(sessionId, opts = {}) {
   try {
     const resp = await fetch(`/api/chat/sessions/${sessionId}`);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
 
     currentSessionId = sessionId;
+    localStorage.setItem('aih_session_id', currentSessionId);
     document.getElementById('session-label').textContent = `Relace: ${sessionId}`;
 
     // Clear chat area and load messages
@@ -1510,7 +1542,13 @@ async function loadSession(sessionId) {
     document.getElementById('chat-sidebar').classList.remove('open');
   } catch (err) {
     console.error('Failed to load session:', err);
-    showToast(t('conversation_load_error'), 'error');
+    if (opts.silent) {
+      // Session no longer exists on server – clear stale localStorage entry
+      localStorage.removeItem('aih_session_id');
+      currentSessionId = null;
+    } else {
+      showToast(t('conversation_load_error'), 'error');
+    }
   }
 }
 
@@ -1522,6 +1560,7 @@ async function deleteSession(sessionId) {
 
     if (currentSessionId === sessionId) {
       currentSessionId = null;
+      localStorage.removeItem('aih_session_id');
       document.getElementById('chat-history').innerHTML = '';
       document.getElementById('session-label').textContent = t('new_session');
     }
