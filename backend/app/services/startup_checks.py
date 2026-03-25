@@ -131,20 +131,30 @@ async def _check_embedding_dim(
     ollama_url: str, model: str, result: Dict[str, Any]
 ) -> None:
     """Probe the embedding dimension and check Chroma collection compatibility."""
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                f"{ollama_url}/api/embed",
-                json={"model": model, "input": "startup dim probe"},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            emb = data.get("embeddings", [None])[0] or data.get("embedding")
-            if not emb:
-                raise ValueError("Empty embedding in response")
-            detected_dim = len(emb)
-    except Exception as exc:
-        logger.warning("Could not probe embedding dim: %s", exc)
+    detected_dim = None
+    # Try both endpoint variants for Ollama compatibility
+    for ep_path in ("/api/embed", "/api/embeddings"):
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                resp = await client.post(
+                    f"{ollama_url}{ep_path}",
+                    json={"model": model, "input": "startup dim probe"},
+                )
+                if resp.status_code == 404:
+                    continue
+                resp.raise_for_status()
+                data = resp.json()
+                emb = data.get("embeddings", [None])[0] or data.get("embedding")
+                if not emb:
+                    continue
+                detected_dim = len(emb)
+                break
+        except Exception as exc:
+            logger.debug("Embedding dim probe on %s failed: %s", ep_path, exc)
+            continue
+
+    if detected_dim is None:
+        logger.warning("Could not probe embedding dim on any endpoint")
         result["embedding_dim"] = "unknown"
         result["chroma_collection_match"] = "unknown"
         return
@@ -243,6 +253,18 @@ async def run_startup_checks(ollama_url: str) -> Dict[str, Any]:
     # Probe embedding dimension and verify Chroma collection compatibility
     if active_embed_model:
         await _check_embedding_dim(ollama_url, active_embed_model, result)
+
+    # Run embeddings service health check to resolve endpoint and detect dim
+    try:
+        from app.services.embeddings_service import get_embeddings_service
+
+        emb_svc = get_embeddings_service()
+        emb_ok = await emb_svc.check_health()
+        if not emb_ok:
+            result["embeddings"] = "unavailable"
+            logger.warning("Embeddings service disabled after health check")
+    except Exception as exc:
+        logger.warning("Embeddings health check failed: %s", exc)
 
     # 2. ChromaDB / KB
     logger.info("startup_check", extra={"check": "chromadb_write_test"})

@@ -101,13 +101,20 @@ LLM_FALLBACK_MODEL: str = __import__("os").environ.get(
 #: Timeouts (seconds) per logical request type.  Overridable per-type via
 #: LLM_TIMEOUT_CHAT_STREAM / LLM_TIMEOUT_AGENT_STEP / LLM_TIMEOUT_BACKGROUND_JOB.
 LLM_TIMEOUT_CHAT_STREAM: float = float(
-    __import__("os").environ.get("LLM_TIMEOUT_CHAT_STREAM", "25")
+    __import__("os").environ.get("LLM_TIMEOUT_CHAT_STREAM", "90")
 )
 LLM_TIMEOUT_AGENT_STEP: float = float(
-    __import__("os").environ.get("LLM_TIMEOUT_AGENT_STEP", "40")
+    __import__("os").environ.get("LLM_TIMEOUT_AGENT_STEP", "90")
 )
 LLM_TIMEOUT_BACKGROUND_JOB: float = float(
-    __import__("os").environ.get("LLM_TIMEOUT_BACKGROUND_JOB", "120")
+    __import__("os").environ.get("LLM_TIMEOUT_BACKGROUND_JOB", "180")
+)
+
+#: Timeout (seconds) for embedding HTTP requests.  Embedding on CPU with a
+#: model that needs loading can take 30+ seconds; default allows headroom.
+#: Override via LLM_TIMEOUT_EMBEDDING env var.
+LLM_TIMEOUT_EMBEDDING: float = float(
+    __import__("os").environ.get("LLM_TIMEOUT_EMBEDDING", "60")
 )
 
 # ── Agent orchestration (structured output) ─────────────────────────────────
