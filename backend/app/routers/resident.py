@@ -43,6 +43,12 @@ class MissionChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000)
 
 
+class ResidentActionRequest(BaseModel):
+    """Request body for POST /resident/action – manual action trigger."""
+    action: str = Field(..., min_length=1, max_length=100)
+    params: Dict[str, Any] = Field(default_factory=dict)
+
+
 class AgentSettingsPatch(BaseModel):
     interval_seconds: Optional[int] = Field(None, ge=5, le=3600)
     model: Optional[str] = None
@@ -158,6 +164,39 @@ async def resident_add_task(req: ResidentTaskRequest) -> dict:
         priority="normal",
     )
     return {"job_id": job.id, "status": "queued", "title": req.title}
+
+
+@router.post("/action")
+async def resident_action(req: ResidentActionRequest) -> dict:
+    """Manually trigger a resident action via the job engine.
+
+    Validates the action against ALLOWED_ACTIONS, creates a resident_task job,
+    and returns the job ID. The action will be processed by _process_task_queue()
+    on the next tick (or can be forced with POST /resident/run-now).
+    """
+    from app.services.resident_agent.core import ALLOWED_ACTIONS
+
+    if req.action not in ALLOWED_ACTIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Action '{req.action}' not allowed. "
+            f"Allowed: {', '.join(sorted(ALLOWED_ACTIONS))}",
+        )
+
+    job_svc = get_job_service()
+    job = job_svc.create_job(
+        type="resident_task",
+        title=f"Manual resident action: {req.action}",
+        input_summary=f"Manual trigger for resident action {req.action}",
+        payload={
+            "action_type": req.action,
+            "params": req.params,
+            "manual_trigger": True,
+        },
+        priority="normal",
+    )
+    logger.info("Manual resident action created: %s (job=%s)", req.action, job.id)
+    return {"job_id": job.id, "action": req.action, "status": "queued"}
 
 
 @router.get("/steps")

@@ -32,21 +32,72 @@ ALLOWED_ACTION_TYPES = frozenset(
 # Action types that are always destructive → requires_confirmation must be True
 DESTRUCTIVE_ACTION_TYPES = frozenset({"kb_maintenance", "job_cleanup"})
 
+# Actions the reasoner can suggest for direct dispatch
+REASONER_ALLOWED_ACTIONS = frozenset({
+    "system_health", "git_status", "lean_metrics", "kb_search",
+    "write_memory", "memory_store", "memory_search", "create_mission",
+    "system_status", "no_op", "web_search", "send_notification",
+})
+
+# Safe actions that never require confirmation
+REASONER_SAFE_ACTIONS = frozenset({
+    "system_health", "git_status", "lean_metrics", "kb_search",
+    "memory_search", "system_status", "no_op", "write_memory",
+})
+
+# ── Autonomous reasoner system prompt ──────────────────────────
+REASONER_SYSTEM_PROMPT = """Jsi autonomní Resident Agent – zvědavý, proaktivní a systematický správce domácího AI hubu.
+
+TVOJE ROLE:
+- Pravidelně kontroluješ stav systému, git repozitářů a job queue
+- Píšeš krátké "thought" záznamy o tom, co sis všiml a co chceš prozkoumat
+- Sám si zadáváš jednoduché úkoly, pokud vidíš problém nebo příležitost
+- Když je vše OK, zapiš reflexi typu "Systém běží hladce, další krok by mohl být X…"
+- Když vidíš více failů jobů, navrhni analýzu nebo create_mission
+- git_status a system_health můžeš používat často, ale neopakuj stejnou akci dva ticky po sobě
+
+POVOLENÉ AKCE (action):
+system_health, git_status, lean_metrics, kb_search, write_memory, memory_store,
+memory_search, create_mission, system_status, no_op, web_search, send_notification
+
+PRAVIDLA:
+- Odpověz POUZE JSON polem akcí, žádný markdown, žádný text kolem
+- Každá akce musí mít: action, title, requires_confirmation
+- Volitelně: params (dict), thought (1-2 věty proč), priority (low/medium/high)
+- Safe akce (system_health, git_status, lean_metrics, kb_search, memory_search, system_status, no_op, write_memory) → requires_confirmation: false
+- Destruktivní akce (kb_maintenance, job_cleanup) → requires_confirmation: true VŽDY
+- Max 3 akce najednou
+
+PŘÍKLADY VÝSTUPU:
+[
+  {"action": "system_health", "params": {}, "requires_confirmation": false, "title": "Ranní health check", "thought": "Dlouho jsem nekontroloval systém.", "priority": "medium"},
+  {"action": "git_status", "params": {"path": "/home/user/projects/ai-home-hub"}, "requires_confirmation": false, "title": "Zkontroluj repozitář", "thought": "Probíhaly změny v kódu.", "priority": "medium"},
+  {"action": "lean_metrics", "params": {}, "requires_confirmation": false, "title": "Shrnutí výkonnosti job queue", "priority": "low"},
+  {"action": "write_memory", "params": {"content": "Systém stabilní, CPU nízké.", "importance": 3}, "requires_confirmation": false, "title": "Zápis reflexe", "thought": "Chci si poznamenat aktuální stav."},
+  {"action": "create_mission", "params": {"goal": "Analyzovat opakované selhání jobů"}, "requires_confirmation": true, "title": "Mise: analýza selhání", "thought": "Vidím 5+ failed jobů za 24h."}
+]
+"""
+
 
 class ResidentReasoner:
     """Generates structured action suggestions by calling LLM with system context."""
 
     async def generate_suggestions(self, mode: str) -> Optional[ResidentSuggestion]:
-        """Collect context, call LLM, return a ResidentSuggestion or None."""
+        """Collect context, call LLM, return a ResidentSuggestion or None.
+
+        Uses a concise JSON-only prompt with action examples. Falls back to
+        a deterministic safe action if LLM returns invalid JSON.
+        """
         if mode == "observer":
             return None
 
         context = await self._collect_context()
         context_summary = self._build_context_summary(context)
 
+        # Keep context short: max ~300 chars
         user_message = (
-            f"AKTUÁLNÍ STAV SYSTÉMU:\n{context_summary}\n\n"
-            "Na základě stavu navrhni 1–5 užitečných akcí. Odpověz POUZE JSON polem."
+            f"STAV:\n{context_summary[:400]}\n\n"
+            "Navrhni 1–3 akce. Odpověz POUZE JSON polem."
         )
 
         try:
@@ -55,15 +106,17 @@ class ResidentReasoner:
                 message=user_message,
                 mode="resident_reasoner",
                 profile="general",
+                history=[{"role": "system", "content": REASONER_SYSTEM_PROMPT}],
             )
 
             if meta.get("status") == "llm_unavailable":
-                logger.warning("Reasoner: LLM unavailable, skipping suggestions")
-                return None
+                logger.warning("Reasoner: LLM unavailable, using fallback")
+                return self._fallback_suggestion(mode, context_summary)
 
             actions = self._parse_suggestions(reply)
             if not actions:
-                return None
+                logger.warning("Reasoner: no valid actions parsed, using fallback")
+                return self._fallback_suggestion(mode, context_summary)
 
             return ResidentSuggestion(
                 mode=mode,
@@ -71,8 +124,26 @@ class ResidentReasoner:
                 context_summary=context_summary[:500],
             )
         except Exception as exc:
-            logger.error("Reasoner suggestion generation failed: %s", exc)
-            return None
+            logger.error("Reasoner suggestion generation failed: %s, using fallback", exc)
+            return self._fallback_suggestion(mode, context_summary[:500])
+
+    def _fallback_suggestion(self, mode: str, context_summary: str = "") -> ResidentSuggestion:
+        """Return a deterministic safe fallback suggestion when LLM fails."""
+        fallback_action = SuggestedAction(
+            title="System check (fallback)",
+            description="Automatický system health check – LLM nedostupné.",
+            action_type="health_check",
+            action="system_health",
+            priority="medium",
+            requires_confirmation=False,
+            steps=["system_health"],
+            thought="LLM nedostupné nebo vrátilo nevalidní odpověď, provádím bezpečný fallback.",
+        )
+        return ResidentSuggestion(
+            mode=mode,
+            actions=[fallback_action],
+            context_summary=context_summary,
+        )
 
     async def plan_mission(
         self, goal: str, context: str = ""
@@ -321,8 +392,15 @@ class ResidentReasoner:
     # ── Parsing ─────────────────────────────────────────────────
 
     def _parse_suggestions(self, reply: str) -> List[SuggestedAction]:
-        """Parse LLM reply into a list of SuggestedAction, with safety filtering."""
-        data = self._extract_json(reply)
+        """Parse LLM reply into a list of SuggestedAction, with safety filtering.
+
+        Supports both old format (action_type) and new format (action + params + thought).
+        """
+        try:
+            data = self._extract_json(reply)
+        except (ValueError, json.JSONDecodeError):
+            logger.warning("Reasoner: failed to parse JSON from reply")
+            return []
 
         # Expect a list
         items = (
@@ -336,16 +414,33 @@ class ResidentReasoner:
             if not isinstance(item, dict):
                 continue
 
+            # Support new format: "action" field for direct dispatch
+            direct_action = item.get("action", "")
             action_type = item.get("action_type", "other")
+
+            # Map direct_action to action_type if not provided
+            if direct_action and action_type == "other":
+                if direct_action in ("system_health", "lean_metrics"):
+                    action_type = "health_check"
+                elif direct_action in ("kb_search", "kb_maintenance"):
+                    action_type = "kb_maintenance" if "maintenance" in direct_action else "analysis"
+                elif direct_action in ("git_status",):
+                    action_type = "analysis"
+                elif direct_action in ("write_memory", "memory_store"):
+                    action_type = "other"
+                elif direct_action == "create_mission":
+                    action_type = "other"
+
             if action_type not in ALLOWED_ACTION_TYPES:
-                logger.warning(
-                    "Reasoner: filtered out disallowed action_type=%s", action_type
-                )
-                continue
+                action_type = "other"
 
             # Enforce requires_confirmation for destructive types
+            requires_conf = bool(item.get("requires_confirmation", True))
             if action_type in DESTRUCTIVE_ACTION_TYPES:
-                item["requires_confirmation"] = True
+                requires_conf = True
+            # Safe actions override
+            if direct_action in REASONER_SAFE_ACTIONS:
+                requires_conf = False
 
             try:
                 actions.append(
@@ -354,16 +449,17 @@ class ResidentReasoner:
                         title=str(item.get("title", "Bez názvu"))[:100],
                         description=str(item.get("description", ""))[:300],
                         action_type=action_type,
+                        action=str(direct_action)[:50],
                         priority=(
-                            item.get("priority", "low")
+                            item.get("priority", "medium")
                             if item.get("priority") in ("low", "medium", "high")
-                            else "low"
+                            else "medium"
                         ),
-                        requires_confirmation=bool(
-                            item.get("requires_confirmation", True)
-                        ),
+                        requires_confirmation=requires_conf,
                         estimated_cost=str(item.get("estimated_cost", ""))[:200],
                         steps=[str(s)[:200] for s in item.get("steps", [])[:10]],
+                        thought=str(item.get("thought", ""))[:300],
+                        params=item.get("params", {}) if isinstance(item.get("params"), dict) else {},
                     )
                 )
             except Exception as exc:

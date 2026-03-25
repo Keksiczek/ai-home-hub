@@ -195,6 +195,73 @@ class ToolsMixin:
             )
             return {"action": "send_notification", "sent": success}
 
+        elif action == "system_health":
+            from app.services.resource_monitor import get_resource_monitor
+
+            monitor = get_resource_monitor()
+            snap = monitor.to_dict()
+            return {
+                "action": "system_health",
+                "ram_percent": snap.get("ram_used_percent", "?"),
+                "cpu_percent": snap.get("cpu_percent", "?"),
+                "throttled": snap.get("throttle", False),
+                "blocked": snap.get("block", False),
+            }
+
+        elif action == "lean_metrics":
+            from app.services.job_service import get_job_service
+            from datetime import datetime, timedelta, timezone
+
+            job_svc = get_job_service()
+            since_24h = (
+                datetime.now(timezone.utc) - timedelta(hours=24)
+            ).isoformat()
+            stats = job_svc.get_stats_since(since_24h)
+            failed = job_svc.count_jobs(status="failed", since=since_24h)
+            queued = len(job_svc.list_jobs(status="queued", limit=100))
+            return {
+                "action": "lean_metrics",
+                "tasks_total": stats.get("tasks_total", 0),
+                "success_rate": stats.get("success_rate", 0),
+                "avg_duration_s": stats.get("avg_task_duration_s", 0),
+                "failed_24h": failed,
+                "queued": queued,
+            }
+
+        elif action == "write_memory":
+            from app.services.memory_service import get_memory_service
+
+            mem = get_memory_service()
+            memory_id = await mem.add_memory(
+                text=params.get("content", params.get("text", "")),
+                tags=["resident", params.get("category", "thought")],
+                source="resident_agent",
+                importance=params.get("importance", 4),
+            )
+            return {"action": "write_memory", "memory_id": memory_id}
+
+        elif action == "create_mission":
+            from app.services.job_service import get_job_service
+
+            job_svc = get_job_service()
+            goal = params.get("goal", "Unnamed mission")
+            job = job_svc.create_job(
+                type="resident_mission",
+                title=f"[Auto-mission] {goal}",
+                input_summary=params.get("context", ""),
+                payload={
+                    "plan": {
+                        "goal": goal,
+                        "steps": params.get("steps", []),
+                        "current_step": 0,
+                        "status": "planned",
+                    },
+                    "auto_created": True,
+                },
+                priority="normal",
+            )
+            return {"action": "create_mission", "job_id": job.id, "goal": goal}
+
         elif action == "system_status":
             from app.services.resource_monitor import get_resource_monitor
 
