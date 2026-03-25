@@ -1067,6 +1067,88 @@ async def get_mode_history(limit: int = Query(default=20, ge=1, le=50)) -> dict:
     return {"history": history, "count": len(history)}
 
 
+# ── Curiosity backlog ────────────────────────────────────────
+
+
+@router.get("/curiosity")
+async def get_curiosity_items(
+    status: Optional[str] = Query(default=None, description="Filter by status: open, in_progress, done, dropped"),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> dict:
+    """List curiosity backlog items for debugging."""
+    from app.services.resident_curiosity import get_curiosity_service
+
+    svc = get_curiosity_service()
+    items = svc.list_items(status=status, limit=limit)
+    return {
+        "items": [
+            {
+                "id": i.id,
+                "kind": i.kind,
+                "source": i.source,
+                "title": i.title,
+                "priority": i.priority,
+                "status": i.status,
+                "dedup_key": i.dedup_key,
+                "updated_at": i.updated_at,
+            }
+            for i in items
+        ],
+        "count": len(items),
+    }
+
+
+@router.get("/thoughts")
+async def get_thought_log(
+    limit: int = Query(default=50, ge=1, le=200),
+) -> dict:
+    """Return recent thought/decision memory entries for debugging."""
+    from app.services.memory_service import get_memory_service
+
+    mem = get_memory_service()
+    # Search for thought and decision entries
+    entries = []
+    for category in ("thought", "decision"):
+        try:
+            results = await mem.search_memories(
+                query=category,
+                tags=["resident", category],
+                limit=limit,
+            )
+            entries.extend(results)
+        except Exception:
+            pass
+
+    # Deduplicate by id and sort newest first
+    seen_ids: set = set()
+    unique: list = []
+    for entry in entries:
+        eid = entry.get("id", id(entry))
+        if eid not in seen_ids:
+            seen_ids.add(eid)
+            unique.append(entry)
+
+    # Sort by timestamp descending
+    unique.sort(key=lambda e: e.get("timestamp", e.get("created_at", "")), reverse=True)
+    unique = unique[:limit]
+
+    return {
+        "thoughts": [
+            {
+                "id": e.get("id", ""),
+                "timestamp": e.get("timestamp", e.get("created_at", "")),
+                "category": next(
+                    (t for t in e.get("tags", []) if t in ("thought", "decision")),
+                    "thought",
+                ),
+                "content": str(e.get("text", e.get("content", "")))[:300],
+            }
+            for e in unique
+        ],
+        "count": len(unique),
+    }
+
+
 # ── Reflections ──────────────────────────────────────────────
 
 

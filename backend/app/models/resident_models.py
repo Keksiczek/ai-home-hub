@@ -212,8 +212,10 @@ class CuriosityItem(BaseModel):
     source: str = ""  # e.g. "job_failure", "lean_metrics", "kb_stats", "manual", "reasoner"
     title: str = Field(..., max_length=120)
     detail: str = ""  # max ~500 chars
-    priority: Literal["low", "medium", "high"] = "medium"
+    dedup_key: str = ""  # e.g. "job_failure:anomaly:resident_task" for deduplication
+    priority: Literal["medium", "high"] = "medium"
     status: Literal["open", "in_progress", "done", "dropped"] = "open"
+    resolution_summary: str = ""  # brief summary when item is resolved
     created_at: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
