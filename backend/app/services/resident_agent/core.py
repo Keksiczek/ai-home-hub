@@ -168,6 +168,7 @@ class ResidentAgentState:
 THOUGHT_TICK_INTERVAL = 4  # run reasoner every 4th tick (~2 min at 30s interval)
 MISSION_TICK_INTERVAL = 4  # check missions every 4th tick (~2 min)
 PROACTIVE_TICK_INTERVAL = 2  # deterministic proactive action every 2nd tick (~1 min)
+CURIOSITY_TICK_INTERVAL = 8  # curiosity backlog every 8th tick (~4 min)
 
 # Actions that can be dispatched directly without LLM
 DIRECT_DISPATCH_ACTIONS = frozenset({
@@ -845,6 +846,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             await self._process_missions()
             await self._thought_tick()
             await self._proactive_action_tick()
+            await self._curiosity_tick()
             await self._periodic_check()
             await self._proactive_alerts()
             await self._summarize_old_memories()
@@ -1123,7 +1125,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                 if thought:
                     await mem.add_memory(
                         text=f"[Thought] {thought}",
-                        tags=["resident", "thought", "auto"],
+                        tags=["resident", "thought", "decision", "auto"],
                         source="resident_agent",
                         importance=3,
                     )
@@ -1175,7 +1177,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             mem = get_memory_service()
             await mem.add_memory(
                 text=result_text[:500],
-                tags=["resident", "proactive_check", action_name],
+                tags=["resident", "observation", "proactive_check", action_name],
                 source="resident_agent",
                 importance=2,
             )
@@ -1290,6 +1292,14 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             avg_dur = stats.get("avg_task_duration_s", 0)
             failed = job_svc.count_jobs(status="failed", since=since_24h)
             queued = len(job_svc.list_jobs(status="queued", limit=100))
+            # Curiosity hook: low success rate
+            try:
+                if total > 0 and success_rate < 0.80:
+                    from app.services.resident_curiosity import get_curiosity_service
+                    get_curiosity_service().hook_low_success_rate(success_rate, failed)
+            except Exception:
+                pass
+
             return (
                 f"Job queue metriky (24h): {total} jobů, "
                 f"{success_rate:.0%} úspěšnost, "
@@ -1298,6 +1308,81 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             )
         except Exception as exc:
             return f"Lean metrics check failed: {exc}"
+
+    # ── Curiosity tick ──────────────────────────────────────────────
+
+    async def _curiosity_tick(self) -> None:
+        """Every CURIOSITY_TICK_INTERVAL ticks, pick the top open curiosity item
+        and create a safe analysis job from it.  Writes a thought to memory."""
+        if self._state.tick_count % CURIOSITY_TICK_INTERVAL != 0:
+            return
+
+        try:
+            from app.services.resident_curiosity import get_curiosity_service
+
+            curiosity_svc = get_curiosity_service()
+            item = curiosity_svc.pick_next_open()
+
+            if item is None:
+                # Nothing to investigate – write a brief thought
+                try:
+                    from app.services.memory_service import get_memory_service
+                    mem = get_memory_service()
+                    await mem.add_memory(
+                        text="[Thought] Nemám aktuálně žádné otázky k prozkoumání.",
+                        tags=["resident", "thought", "curiosity"],
+                        source="resident_agent",
+                        importance=2,
+                    )
+                except Exception:
+                    pass
+                return
+
+            # Write thought to memory
+            try:
+                from app.services.memory_service import get_memory_service
+                mem = get_memory_service()
+                await mem.add_memory(
+                    text=(
+                        f"[Thought] Chci se věnovat: {item.title}. "
+                        f"Důvod: {item.detail or item.source}."
+                    )[:500],
+                    tags=["resident", "thought", "curiosity"],
+                    source="resident_agent",
+                    importance=6,
+                )
+            except Exception as exc:
+                logger.debug("Failed to store curiosity thought: %s", exc)
+
+            # Create safe analysis job
+            from app.services.job_service import get_job_service
+            job_svc = get_job_service()
+            job = job_svc.create_job(
+                type="resident_task",
+                title=f"Curiosity: {item.title}"[:200],
+                input_summary=item.detail[:200],
+                payload={
+                    "action_type": "analysis",
+                    "curiosity_id": item.id,
+                    "auto_from_curiosity": True,
+                },
+                priority="low",
+            )
+
+            # Mark curiosity item as in_progress
+            curiosity_svc.update_item_status(item.id, "in_progress")
+
+            # Track related job
+            item.related_job_ids.append(job.id)
+            curiosity_svc._save(item)
+
+            logger.info(
+                "Curiosity tick: picked %s → job %s (%s)",
+                item.id, job.id, item.title[:40],
+            )
+
+        except Exception as exc:
+            logger.error("Curiosity tick failed: %s", exc)
 
     async def _process_missions(self) -> None:
         """Process active resident_mission jobs – advance current step."""
@@ -1485,6 +1570,15 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             total_chunks = stats.get("total_chunks", 0)
             if total_chunks >= KB_DOCS_ALERT_THRESHOLD:
                 alerts.append(f"KB size large ({total_chunks} chunks)")
+            # Curiosity hook: KB gaps (very few chunks)
+            if total_chunks < 50:
+                try:
+                    from app.services.resident_curiosity import get_curiosity_service
+                    get_curiosity_service().hook_kb_gap(
+                        f"Pouze {total_chunks} chunků v KB – zvážit doplnění dokumentace"
+                    )
+                except Exception:
+                    pass
         except Exception as exc:
             logger.debug("Alert check (KB) failed: %s", exc)
 
@@ -1885,6 +1979,14 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                     self._state.errors_since_start += 1
                     logger.error("Resident task %s failed: %s", job.id, exc)
                     await self.emit_thought("error", content=f"Úkol selhal: {exc}")
+                    # Curiosity hook: track job failure
+                    try:
+                        from app.services.resident_curiosity import get_curiosity_service
+                        get_curiosity_service().hook_job_failure(
+                            job_id=job.id, job_type=job.type, error=str(exc)
+                        )
+                    except Exception:
+                        pass
                 finally:
                     job_svc.update_job(job)
                     # Generate reflection for completed task

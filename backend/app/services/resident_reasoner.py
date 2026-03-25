@@ -55,6 +55,9 @@ TVOJE ROLE:
 - Když je vše OK, zapiš reflexi typu "Systém běží hladce, další krok by mohl být X…"
 - Když vidíš více failů jobů, navrhni analýzu nebo create_mission
 - git_status a system_health můžeš používat často, ale neopakuj stejnou akci dva ticky po sobě
+- Pokud vidíš položky v "Curiosity backlog", jsou to věci, které tě dlouhodobě zajímají
+- Když nic nehoří, můžeš navrhnout akce, které pomáhají tyto curiosity položky prozkoumat
+- Můžeš zapsat write_memory thought k některé curiosity položce ("Co jsem o tom zjistil")
 
 POVOLENÉ AKCE (action):
 system_health, git_status, lean_metrics, kb_search, write_memory, memory_store,
@@ -345,6 +348,19 @@ class ResidentReasoner:
         except Exception as exc:
             logger.debug("Context: KB stats failed: %s", exc)
 
+        # Curiosity backlog (top open items)
+        try:
+            from app.services.resident_curiosity import get_curiosity_service
+
+            curiosity_svc = get_curiosity_service()
+            open_items = curiosity_svc.list_items(status="open", limit=3)
+            ctx["curiosity_items"] = [
+                {"title": i.title, "priority": i.priority, "kind": i.kind}
+                for i in open_items
+            ]
+        except Exception as exc:
+            logger.debug("Context: curiosity items failed: %s", exc)
+
         # Resource monitor
         try:
             from app.services.resource_monitor import get_resource_monitor
@@ -386,6 +402,14 @@ class ResidentReasoner:
             f"CPU {res.get('cpu_percent', '?')}%, "
             f"throttled={res.get('throttled', False)}, blocked={res.get('blocked', False)}"
         )
+
+        # Curiosity backlog summary (top 3 open items)
+        curiosity_items = ctx.get("curiosity_items", [])
+        if curiosity_items:
+            parts = []
+            for ci in curiosity_items[:3]:
+                parts.append(f"[{ci.get('priority', '?')}] {ci.get('title', '?')}")
+            lines.append(f"Curiosity backlog: {'; '.join(parts)}")
 
         return "\n".join(lines)
 

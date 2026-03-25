@@ -199,3 +199,26 @@ class ResidentReasoningCycle(BaseModel):
     final_suggestions: List[SuggestedAction] = []
     model: str = ""
     total_duration_ms: int = 0
+
+
+# ── Curiosity Backlog ───────────────────────────────────────
+
+
+class CuriosityItem(BaseModel):
+    """A single item in the resident agent's curiosity backlog."""
+
+    id: str = Field(default_factory=lambda: f"cur-{uuid.uuid4().hex[:8]}")
+    kind: Literal["question", "hypothesis", "anomaly", "idea"] = "question"
+    source: str = ""  # e.g. "job_failure", "lean_metrics", "kb_stats", "manual", "reasoner"
+    title: str = Field(..., max_length=120)
+    detail: str = ""  # max ~500 chars
+    priority: Literal["low", "medium", "high"] = "medium"
+    status: Literal["open", "in_progress", "done", "dropped"] = "open"
+    created_at: str = Field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
+    updated_at: str = Field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
+    related_job_ids: List[str] = Field(default_factory=list)
+    related_mission_ids: List[str] = Field(default_factory=list)
