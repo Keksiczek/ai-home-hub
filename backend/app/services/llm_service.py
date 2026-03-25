@@ -22,8 +22,31 @@ from app.utils.circuit_breaker import (
     CircuitBreakerOpen,
     get_ollama_circuit_breaker,
 )
+from app.utils.constants import LLM_MAX_CONCURRENT_REQUESTS, LLM_SEMAPHORE_TIMEOUT
 
 logger = logging.getLogger(__name__)
+
+# ── Global backpressure semaphore ────────────────────────────────────────────
+# Limits concurrent Ollama requests across the entire application.  Shared by
+# all callers (chat, agent orchestrator, resident reasoner, …).  Default is 1
+# because a single-GPU Ollama instance typically cannot serve parallel requests
+# without OOM or heavy swap.  Configurable via LLM_MAX_CONCURRENT_REQUESTS env.
+_llm_semaphore = asyncio.Semaphore(LLM_MAX_CONCURRENT_REQUESTS)
+
+
+class LLMOverloadedError(Exception):
+    """Raised when the LLM semaphore cannot be acquired within the timeout.
+
+    Callers (orchestrators, job workers) can catch this specifically to decide
+    whether to retry later or abort gracefully.
+    """
+
+    def __init__(self, timeout: float) -> None:
+        self.timeout = timeout
+        super().__init__(
+            f"LLM overloaded: semaphore not acquired within {timeout:.0f}s "
+            f"(max_concurrent={LLM_MAX_CONCURRENT_REQUESTS})"
+        )
 
 _DAYS_CS = ["pondělí", "úterý", "středa", "čtvrtek", "pátek", "sobota", "neděle"]
 _MONTHS_CS = [
@@ -205,9 +228,17 @@ class LLMService:
         )
 
         if provider == "ollama":
-            reply, meta = await self._generate_ollama(
-                message, mode, history or [], cfg, keep_alive=keep_alive, profile=profile
-            )
+            try:
+                async with asyncio.timeout(LLM_SEMAPHORE_TIMEOUT):
+                    await _llm_semaphore.acquire()
+            except asyncio.TimeoutError:
+                raise LLMOverloadedError(LLM_SEMAPHORE_TIMEOUT)
+            try:
+                reply, meta = await self._generate_ollama(
+                    message, mode, history or [], cfg, keep_alive=keep_alive, profile=profile
+                )
+            finally:
+                _llm_semaphore.release()
         else:
             reply, meta = self._generate_stub(message, mode, context_file_ids or [])
 
@@ -612,6 +643,14 @@ class LLMService:
         stream_http_timeout = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=5.0)
         outer_timeout = 600.0  # 10 min hard cap for the whole streaming session
 
+        # Acquire the global LLM semaphore before streaming
+        try:
+            async with asyncio.timeout(LLM_SEMAPHORE_TIMEOUT):
+                await _llm_semaphore.acquire()
+        except asyncio.TimeoutError:
+            yield f"[LLM přetížené – semafor nebyl získán do {LLM_SEMAPHORE_TIMEOUT:.0f}s]"
+            return
+
         try:
             async with asyncio.timeout(outer_timeout):
                 async with httpx.AsyncClient(timeout=stream_http_timeout) as client:
@@ -658,6 +697,8 @@ class LLMService:
             await cb.record_failure()
             logger.error("Ollama stream error: %s", exc, exc_info=True)
             yield f"[Chyba LLM: {exc}]"
+        finally:
+            _llm_semaphore.release()
 
     async def stream_chat(
         self,

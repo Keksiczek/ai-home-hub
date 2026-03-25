@@ -199,6 +199,26 @@ safe_mode_enabled = Gauge(
 )
 
 
+# ── Core operational metrics (ai_home_hub_ prefix) ───────────────────────────
+# These three metrics give an at-a-glance view of system health and are
+# intended for Grafana dashboards / alerting.
+
+ai_home_hub_job_queue_depth = Gauge(
+    "ai_home_hub_job_queue_depth",
+    "Current number of queued (waiting) jobs",
+)
+
+ai_home_hub_job_active_workers = Gauge(
+    "ai_home_hub_job_active_workers",
+    "Number of currently executing job workers (0 or 1+ depending on concurrency)",
+)
+
+ai_home_hub_job_failed_total = Counter(
+    "ai_home_hub_job_failed_total",
+    "Cumulative count of failed jobs since process start",
+)
+
+
 def init_app_info(version: str = "0.5.0") -> None:
     """Set static application info labels."""
     app_info.info(

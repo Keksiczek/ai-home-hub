@@ -116,10 +116,28 @@ class PlanStep(BaseModel):
 
 
 class ResidentPlan(BaseModel):
-    """Full resident plan with steps, stored as JSON file."""
+    """Full resident plan with steps, stored as JSON file.
+
+    Lifecycle:  draft → pending_approval → approved → running → completed/failed
+                                         ↘ rejected
+
+    The ``pending_approval`` state is the default after the reasoner generates
+    a plan.  The plan must be explicitly approved via API before any tools
+    execute its steps.  ``executed`` is an alias for ``completed`` kept for
+    backward compatibility with code that checks ``plan.status == "executed"``.
+    """
 
     plan_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    status: Literal["draft", "approved", "running", "completed", "failed"] = "draft"
+    status: Literal[
+        "draft",
+        "pending_approval",
+        "approved",
+        "rejected",
+        "running",
+        "completed",
+        "failed",
+        "executed",
+    ] = "draft"
     created_at: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
@@ -131,6 +149,8 @@ class ResidentPlan(BaseModel):
     execution_mode: Literal["sequential", "parallel"] = "sequential"
     job_id: Optional[str] = None
     result_summary: str = ""
+    impact_assessment: str = ""
+    risk_level: Literal["low", "medium", "high"] = "low"
 
 
 class PlanCreateRequest(BaseModel):
