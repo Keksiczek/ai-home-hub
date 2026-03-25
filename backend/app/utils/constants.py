@@ -53,6 +53,63 @@ LLM_SEMAPHORE_TIMEOUT: float = float(
     __import__("os").environ.get("LLM_SEMAPHORE_TIMEOUT", "120")
 )
 
+# ── LLM CPU-backend optimisation ─────────────────────────────────────────────
+
+#: Number of CPU threads Ollama should use for inference.
+#: Defaults to half the available logical CPUs (good balance on Mac/Linux).
+#: Override via LLM_NUM_THREADS env var.
+LLM_NUM_THREADS: int = int(
+    __import__("os").environ.get(
+        "LLM_NUM_THREADS",
+        str(max(1, (__import__("os").cpu_count() or 4) // 2)),
+    )
+)
+
+#: Maximum tokens to predict per non-streaming request.  Smaller values
+#: yield faster first-token latency on CPU at the cost of truncated replies.
+#: Override via LLM_NUM_PREDICT env var.
+LLM_NUM_PREDICT: int = int(__import__("os").environ.get("LLM_NUM_PREDICT", "512"))
+
+#: When True, CPU-optimisation parameters (num_thread, num_predict, low
+#: temperature) are injected into every Ollama payload.  Auto-detected from
+#: the absence of CUDA_VISIBLE_DEVICES / OLLAMA_NUM_GPU; can be forced with
+#: LLM_CPU_BACKEND=true.
+_cpu_backend_env = __import__("os").environ.get("LLM_CPU_BACKEND", "").lower()
+_cuda_visible = __import__("os").environ.get("CUDA_VISIBLE_DEVICES", "")
+_ollama_num_gpu = __import__("os").environ.get("OLLAMA_NUM_GPU", "")
+LLM_CPU_BACKEND: bool = (
+    _cpu_backend_env == "true"
+    or (_cpu_backend_env != "false" and not _cuda_visible and not _ollama_num_gpu)
+)
+
+# ── Per-model circuit breaker / fallback ─────────────────────────────────────
+
+#: Consecutive failures per model before it is disabled for MODEL_CB_DISABLE_TTL.
+MODEL_CB_FAILURE_THRESHOLD: int = 3
+
+#: Seconds a model stays disabled after hitting MODEL_CB_FAILURE_THRESHOLD.
+MODEL_CB_DISABLE_TTL: float = 300.0  # 5 minutes
+
+#: Fallback model used when the requested model is circuit-broken.
+#: Override via LLM_FALLBACK_MODEL env var.
+LLM_FALLBACK_MODEL: str = __import__("os").environ.get(
+    "LLM_FALLBACK_MODEL", "llama3.2:3b"
+)
+
+# ── Request-type timeouts ─────────────────────────────────────────────────────
+
+#: Timeouts (seconds) per logical request type.  Overridable per-type via
+#: LLM_TIMEOUT_CHAT_STREAM / LLM_TIMEOUT_AGENT_STEP / LLM_TIMEOUT_BACKGROUND_JOB.
+LLM_TIMEOUT_CHAT_STREAM: float = float(
+    __import__("os").environ.get("LLM_TIMEOUT_CHAT_STREAM", "25")
+)
+LLM_TIMEOUT_AGENT_STEP: float = float(
+    __import__("os").environ.get("LLM_TIMEOUT_AGENT_STEP", "40")
+)
+LLM_TIMEOUT_BACKGROUND_JOB: float = float(
+    __import__("os").environ.get("LLM_TIMEOUT_BACKGROUND_JOB", "120")
+)
+
 # ── Agent orchestration (structured output) ─────────────────────────────────
 
 #: Maximum number of steps an agent orchestrator loop may execute before

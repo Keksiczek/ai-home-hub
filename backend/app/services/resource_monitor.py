@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 
+import httpx
 import psutil
 
 from app.services.metrics_service import ollama_memory_bytes
@@ -17,9 +18,10 @@ from app.services.metrics_service import ollama_memory_bytes
 logger = logging.getLogger(__name__)
 
 # Thresholds
-RAM_WARN_PERCENT = 75  # % system RAM used → warn
+RAM_WARN_PERCENT = 75   # % system RAM used → warn
 RAM_BLOCK_PERCENT = 88  # % system RAM used → block new agents/jobs
-CPU_WARN_PERCENT = 70  # % CPU (1s sample) → warn
+RAM_BG_PAUSE_PERCENT = 85  # % system RAM used → pause background jobs
+CPU_WARN_PERCENT = 70   # % CPU (1s sample) → warn
 OLLAMA_PROCESS_NAMES = {"ollama", "ollama_llama_server"}
 
 
@@ -50,10 +52,13 @@ class ResourceSnapshot:
     cpu_percent: float
     backend_rss_mb: float
     ollama_rss_mb: float
+    ollama_cpu_percent: float
+    ollama_model_ram_mb: float
     swap_used_mb: float
     swap_total_mb: float
     throttle: bool = False
     block: bool = False
+    pause_background: bool = False
     warnings: list[str] = field(default_factory=list)
 
 
@@ -83,17 +88,49 @@ class ResourceMonitor:
         if self._task:
             self._task.cancel()
 
+    async def _fetch_ollama_model_ram(self, ollama_url: str) -> float:
+        """Query /api/show for loaded model size in MB. Returns 0.0 on failure."""
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                resp = await client.get(f"{ollama_url}/api/ps")
+                resp.raise_for_status()
+                data = resp.json()
+                models = data.get("models") or []
+                total_mb = 0.0
+                for m in models:
+                    size_vram = m.get("size_vram", 0) or 0
+                    size = m.get("size", 0) or 0
+                    total_mb += (size_vram + size) / 1024 / 1024
+                return total_mb
+        except Exception:
+            return 0.0
+
     async def _loop(self) -> None:
+        from app.services.settings_service import get_settings_service
         from app.services.ws_manager import WS_EVENT_RESOURCE_UPDATE
 
         while True:
             try:
                 self._tick_count += 1
                 snap = await asyncio.to_thread(self._take_snapshot)
+
+                # Enrich with async Ollama model RAM data
+                try:
+                    cfg = get_settings_service().get_llm_config()
+                    ollama_url = cfg.get("ollama_url", "http://localhost:11434").rstrip("/")
+                    snap.ollama_model_ram_mb = await self._fetch_ollama_model_ram(ollama_url)
+                except Exception:
+                    pass
+
                 self._latest = snap
                 if snap.block:
                     logger.warning(
                         "RESOURCE BLOCK: RAM %s%% – new agents/jobs blocked",
+                        snap.ram_used_percent,
+                    )
+                elif snap.pause_background:
+                    logger.warning(
+                        "RESOURCE WARN: High RAM usage (%s%%), pause background jobs",
                         snap.ram_used_percent,
                     )
                 elif snap.throttle:
@@ -122,11 +159,13 @@ class ResourceMonitor:
         except (psutil.AccessDenied, psutil.NoSuchProcess):
             backend_rss = 0.0
 
-        # Find Ollama process RSS using the robust helper (already in a thread)
+        # Find Ollama process RSS + CPU using the robust helper (already in a thread)
         ollama_rss = 0.0
+        ollama_cpu = 0.0
         for proc in _find_ollama_processes():
             try:
                 ollama_rss += proc.memory_info().rss / 1024 / 1024
+                ollama_cpu += proc.cpu_percent(interval=None)
             except (psutil.AccessDenied, psutil.NoSuchProcess):
                 pass
         ollama_memory_bytes.set(ollama_rss * 1024 * 1024)
@@ -135,6 +174,8 @@ class ResourceMonitor:
         warnings = []
         if ram_pct >= RAM_WARN_PERCENT:
             warnings.append(f"RAM at {ram_pct:.1f}%")
+        if ram_pct >= RAM_BG_PAUSE_PERCENT:
+            warnings.append("High RAM usage, pause background jobs")
         if cpu >= CPU_WARN_PERCENT:
             warnings.append(f"CPU at {cpu:.1f}%")
         if swap.used > 0:
@@ -148,10 +189,13 @@ class ResourceMonitor:
             cpu_percent=cpu,
             backend_rss_mb=backend_rss,
             ollama_rss_mb=ollama_rss,
+            ollama_cpu_percent=ollama_cpu,
+            ollama_model_ram_mb=0.0,  # populated async by _fetch_ollama_model_ram
             swap_used_mb=swap.used / 1024 / 1024,
             swap_total_mb=swap.total / 1024 / 1024,
             throttle=ram_pct >= RAM_WARN_PERCENT or cpu >= CPU_WARN_PERCENT,
             block=ram_pct >= RAM_BLOCK_PERCENT,
+            pause_background=ram_pct >= RAM_BG_PAUSE_PERCENT,
             warnings=warnings,
         )
 
@@ -169,6 +213,12 @@ class ResourceMonitor:
             return False
         return self._latest.throttle
 
+    def is_background_paused(self) -> bool:
+        """True = RAM ≥85%, new background jobs should be paused."""
+        if self._latest is None:
+            return False
+        return self._latest.pause_background
+
     def to_dict(self) -> dict:
         if self._latest is None:
             return {"status": "no_data"}
@@ -181,10 +231,13 @@ class ResourceMonitor:
             "cpu_percent": s.cpu_percent,
             "backend_rss_mb": round(s.backend_rss_mb, 1),
             "ollama_rss_mb": round(s.ollama_rss_mb, 1),
+            "ollama_cpu_percent": round(s.ollama_cpu_percent, 1),
+            "ollama_model_ram_mb": round(s.ollama_model_ram_mb, 1),
             "swap_used_mb": round(s.swap_used_mb, 1),
             "swap_total_mb": round(s.swap_total_mb, 1),
             "throttle": s.throttle,
             "block": s.block,
+            "pause_background": s.pause_background,
             "warnings": s.warnings,
         }
 
