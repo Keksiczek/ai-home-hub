@@ -168,7 +168,8 @@ class ResidentAgentState:
 THOUGHT_TICK_INTERVAL = 4  # run reasoner every 4th tick (~2 min at 30s interval)
 MISSION_TICK_INTERVAL = 4  # check missions every 4th tick (~2 min)
 PROACTIVE_TICK_INTERVAL = 2  # deterministic proactive action every 2nd tick (~1 min)
-CURIOSITY_TICK_INTERVAL = 8  # curiosity backlog every 8th tick (~4 min)
+CURIOSITY_TICK_INTERVAL = 10  # curiosity backlog every 10th tick (~5 min)
+MAX_CURIOSITY_IN_PROGRESS = 3  # WIP limit for concurrent curiosity items
 
 # Actions that can be dispatched directly without LLM
 DIRECT_DISPATCH_ACTIONS = frozenset({
@@ -1313,7 +1314,11 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
 
     async def _curiosity_tick(self) -> None:
         """Every CURIOSITY_TICK_INTERVAL ticks, pick the top open curiosity item
-        and create a safe analysis job from it.  Writes a thought to memory."""
+        and create a safe analysis job from it.  Writes a thought to memory.
+
+        Enforces WIP limit (MAX_CURIOSITY_IN_PROGRESS) and only creates
+        analysis-type jobs (no destructive actions).
+        """
         if self._state.tick_count % CURIOSITY_TICK_INTERVAL != 0:
             return
 
@@ -1321,15 +1326,18 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             from app.services.resident_curiosity import get_curiosity_service
 
             curiosity_svc = get_curiosity_service()
-            item = curiosity_svc.pick_next_open()
 
-            if item is None:
-                # Nothing to investigate – write a brief thought
+            # WIP limit check
+            in_progress_count = curiosity_svc.count_by_status("in_progress")
+            if in_progress_count >= MAX_CURIOSITY_IN_PROGRESS:
                 try:
                     from app.services.memory_service import get_memory_service
                     mem = get_memory_service()
                     await mem.add_memory(
-                        text="[Thought] Nemám aktuálně žádné otázky k prozkoumání.",
+                        text=(
+                            f"[Thought] Mam rozpracovanych {in_progress_count} "
+                            "veci z curiosity backlogu, nebudu otvirat dalsi."
+                        )[:200],
                         tags=["resident", "thought", "curiosity"],
                         source="resident_agent",
                         importance=2,
@@ -1338,15 +1346,28 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                     pass
                 return
 
-            # Write thought to memory
+            item = curiosity_svc.pick_next_open()
+
+            if item is None:
+                try:
+                    from app.services.memory_service import get_memory_service
+                    mem = get_memory_service()
+                    await mem.add_memory(
+                        text="[Thought] Nemam aktualne zadne otazky k prozkoumani."[:200],
+                        tags=["resident", "thought", "curiosity"],
+                        source="resident_agent",
+                        importance=2,
+                    )
+                except Exception:
+                    pass
+                return
+
+            # Write concise thought to memory (max 200 chars)
             try:
                 from app.services.memory_service import get_memory_service
                 mem = get_memory_service()
                 await mem.add_memory(
-                    text=(
-                        f"[Thought] Chci se věnovat: {item.title}. "
-                        f"Důvod: {item.detail or item.source}."
-                    )[:500],
+                    text=f"[Thought] Chci prozkoumat: {item.title}."[:200],
                     tags=["resident", "thought", "curiosity"],
                     source="resident_agent",
                     importance=6,
@@ -1354,7 +1375,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             except Exception as exc:
                 logger.debug("Failed to store curiosity thought: %s", exc)
 
-            # Create safe analysis job
+            # Create safe analysis job – ONLY action_type="analysis" allowed
             from app.services.job_service import get_job_service
             job_svc = get_job_service()
             job = job_svc.create_job(
@@ -1377,12 +1398,57 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             curiosity_svc._save(item)
 
             logger.info(
-                "Curiosity tick: picked %s → job %s (%s)",
+                "Curiosity tick: picked %s -> job %s (%s)",
                 item.id, job.id, item.title[:40],
             )
 
         except Exception as exc:
             logger.error("Curiosity tick failed: %s", exc)
+
+    async def _resolve_curiosity_from_job(self, job) -> None:
+        """Close the originating curiosity item after its analysis job finishes."""
+        curiosity_id = job.payload.get("curiosity_id")
+        if not curiosity_id or job.type != "resident_task":
+            return
+
+        try:
+            from app.services.resident_curiosity import get_curiosity_service
+            from app.services.memory_service import get_memory_service
+
+            curiosity_svc = get_curiosity_service()
+            mem = get_memory_service()
+            item = curiosity_svc.get_item(curiosity_id)
+            if not item:
+                return
+
+            if job.status == "succeeded":
+                summary = str(job.meta.get("result", ""))[:200]
+                curiosity_svc.resolve_item(
+                    curiosity_id, "done", resolution_summary=summary,
+                )
+                await mem.add_memory(
+                    text=f"[Thought] Dovyresil jsem curiosity '{item.title}': {summary}"[:200],
+                    tags=["resident", "thought", "curiosity"],
+                    source="resident_agent",
+                    importance=4,
+                )
+            elif job.status == "failed":
+                curiosity_svc.update_item_status(curiosity_id, "open")
+                item_reloaded = curiosity_svc.get_item(curiosity_id)
+                if item_reloaded and item_reloaded.priority != "high":
+                    item_reloaded.priority = "high"
+                    curiosity_svc._save(item_reloaded)
+                await mem.add_memory(
+                    text=(
+                        f"[Thought] Analyza curiosity '{item.title}' selhala, "
+                        "bude potreba to resit znovu nebo manualne."
+                    )[:200],
+                    tags=["resident", "thought", "curiosity"],
+                    source="resident_agent",
+                    importance=5,
+                )
+        except Exception as exc:
+            logger.debug("Failed to resolve curiosity from job: %s", exc)
 
     async def _process_missions(self) -> None:
         """Process active resident_mission jobs – advance current step."""
@@ -1978,7 +2044,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                     job.finished_at = _now()
                     self._state.errors_since_start += 1
                     logger.error("Resident task %s failed: %s", job.id, exc)
-                    await self.emit_thought("error", content=f"Úkol selhal: {exc}")
+                    await self.emit_thought("error", content=f"Ukol selhal: {exc}")
                     # Curiosity hook: track job failure
                     try:
                         from app.services.resident_curiosity import get_curiosity_service
@@ -1991,6 +2057,8 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                     job_svc.update_job(job)
                     # Generate reflection for completed task
                     await self._generate_reflection_for_job(job)
+                    # Close curiosity item based on job result
+                    await self._resolve_curiosity_from_job(job)
 
                 self._state.current_task = None
                 self._state.status = "idle"

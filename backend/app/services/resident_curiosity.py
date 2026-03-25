@@ -32,6 +32,13 @@ class CuriosityService:
         safe_id = item_id.replace("/", "").replace("..", "")
         return CURIOSITY_DIR / f"{safe_id}.json"
 
+    # ── Dedup key helper ─────────────────────────────────────────
+
+    @staticmethod
+    def make_dedup_key(source: str, kind: str, identifier: str = "global") -> str:
+        """Build a dedup key: ``source:kind:identifier``."""
+        return f"{source}:{kind}:{identifier}"
+
     # ── Create ──────────────────────────────────────────────────
 
     def create_item(
@@ -41,15 +48,45 @@ class CuriosityService:
         source: str = "",
         detail: str = "",
         priority: str = "medium",
+        dedup_key: str = "",
         related_job_ids: Optional[List[str]] = None,
         related_mission_ids: Optional[List[str]] = None,
     ) -> CuriosityItem:
-        """Create and persist a new curiosity item."""
+        """Create and persist a new curiosity item.
+
+        If *dedup_key* is provided and an open/in_progress item with the same
+        key already exists, the existing item is updated (touched + priority
+        escalated if needed) instead of creating a duplicate.
+        """
+        # Clamp priority – "low" is no longer generated
+        if priority not in ("medium", "high"):
+            priority = "medium"
+
+        # Dedup: if matching open/in_progress item exists, update it instead
+        if dedup_key:
+            existing = self._find_by_dedup_key(dedup_key)
+            if existing is not None:
+                existing.updated_at = datetime.now(timezone.utc).isoformat()
+                # Escalate priority if incoming is higher
+                if priority == "high" and existing.priority != "high":
+                    existing.priority = "high"
+                # Append new related job IDs
+                for jid in (related_job_ids or []):
+                    if jid not in existing.related_job_ids:
+                        existing.related_job_ids.append(jid)
+                self._save(existing)
+                logger.info(
+                    "Curiosity dedup: updated existing %s (key=%s)",
+                    existing.id, dedup_key,
+                )
+                return existing
+
         item = CuriosityItem(
             kind=kind,
             source=source,
             title=title[:120],
             detail=detail[:500],
+            dedup_key=dedup_key,
             priority=priority,
             related_job_ids=related_job_ids or [],
             related_mission_ids=related_mission_ids or [],
@@ -95,8 +132,7 @@ class CuriosityService:
             except Exception as exc:
                 logger.debug("Skipping malformed curiosity file %s: %s", path.name, exc)
 
-        # Sort: high > medium > low, then oldest updated_at first
-        priority_order = {"high": 0, "medium": 1, "low": 2}
+        priority_order = {"high": 0, "medium": 1}
         items.sort(key=lambda i: (priority_order.get(i.priority, 9), i.updated_at))
         return items[:limit]
 
@@ -104,6 +140,19 @@ class CuriosityService:
         """Return the highest-priority, least-recently-touched open item."""
         items = self.list_items(status="open", limit=1)
         return items[0] if items else None
+
+    def count_by_status(self, status: str) -> int:
+        """Count items with the given status (without loading all into memory)."""
+        count = 0
+        for path in CURIOSITY_DIR.glob("*.json"):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if data.get("status") == status:
+                    count += 1
+            except Exception:
+                pass
+        return count
 
     # ── Update ──────────────────────────────────────────────────
 
@@ -116,6 +165,20 @@ class CuriosityService:
         item.updated_at = datetime.now(timezone.utc).isoformat()
         self._save(item)
         logger.info("Curiosity %s status → %s", item_id, status)
+        return item
+
+    def resolve_item(
+        self, item_id: str, status: str, resolution_summary: str = ""
+    ) -> Optional[CuriosityItem]:
+        """Resolve (done/dropped) an item with an optional summary."""
+        item = self.get_item(item_id)
+        if not item:
+            return None
+        item.status = status
+        item.resolution_summary = resolution_summary[:200]
+        item.updated_at = datetime.now(timezone.utc).isoformat()
+        self._save(item)
+        logger.info("Curiosity %s resolved → %s", item_id, status)
         return item
 
     def touch_item(self, item_id: str) -> Optional[CuriosityItem]:
@@ -134,7 +197,24 @@ class CuriosityService:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(item.model_dump(), f, indent=2, ensure_ascii=False)
 
-    # ── Duplicate guard ─────────────────────────────────────────
+    # ── Dedup lookup ─────────────────────────────────────────────
+
+    def _find_by_dedup_key(self, dedup_key: str) -> Optional[CuriosityItem]:
+        """Find an open or in_progress item matching the given dedup_key."""
+        for path in CURIOSITY_DIR.glob("*.json"):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if (
+                    data.get("dedup_key") == dedup_key
+                    and data.get("status") in ("open", "in_progress")
+                ):
+                    return CuriosityItem(**data)
+            except Exception:
+                pass
+        return None
+
+    # ── Duplicate guard (legacy, kept for compatibility) ─────────
 
     def has_recent_similar(self, title_prefix: str, hours: int = 24) -> bool:
         """Check if an open/in_progress item with a similar title exists recently."""
@@ -153,49 +233,43 @@ class CuriosityService:
 
     def hook_job_failure(self, job_id: str, job_type: str, error: str) -> Optional[CuriosityItem]:
         """Create a curiosity item when a resident job fails."""
-        title_prefix = f"Selhání jobu typu {job_type}"
-        if self.has_recent_similar(title_prefix, hours=12):
-            return None  # already tracked
-
+        dedup_key = self.make_dedup_key("job_failure", "anomaly", job_type)
         return self.create_item(
             kind="anomaly",
             source="job_failure",
-            title=f"{title_prefix}"[:120],
+            title=f"Selhani jobu typu {job_type}"[:120],
             detail=f"Job {job_id} selhal: {error[:300]}"[:500],
             priority="high",
+            dedup_key=dedup_key,
             related_job_ids=[job_id],
         )
 
     def hook_low_success_rate(self, success_rate: float, failed_count: int) -> Optional[CuriosityItem]:
         """Create a curiosity item when job success rate drops below threshold."""
-        title_prefix = "Nízká úspěšnost jobů"
-        if self.has_recent_similar(title_prefix, hours=24):
-            return None
-
+        dedup_key = self.make_dedup_key("lean_metrics", "hypothesis", "success_rate")
         return self.create_item(
             kind="hypothesis",
             source="lean_metrics",
-            title=f"Nízká úspěšnost jobů za posledních 24 h ({success_rate:.0%})"[:120],
+            title=f"Nizka uspesnost jobu za poslednich 24 h ({success_rate:.0%})"[:120],
             detail=(
                 f"Success rate ~{success_rate:.0%}, "
-                f"počet selhání: {failed_count}. "
-                "Doporučeno zjistit příčiny."
+                f"pocet selhani: {failed_count}. "
+                "Doporuceno zjistit priciny."
             )[:500],
             priority="medium",
+            dedup_key=dedup_key,
         )
 
     def hook_kb_gap(self, gap_description: str) -> Optional[CuriosityItem]:
         """Create a curiosity item when KB has gaps (few chunks, missing collection)."""
-        title_prefix = "Rozšířit KB"
-        if self.has_recent_similar(title_prefix, hours=48):
-            return None
-
+        dedup_key = self.make_dedup_key("kb_stats", "idea", gap_description[:40])
         return self.create_item(
             kind="idea",
             source="kb_stats",
-            title=f"Rozšířit KB: {gap_description}"[:120],
-            detail=f"Knowledge base má mezery: {gap_description}"[:500],
-            priority="low",
+            title=f"Rozsirit KB: {gap_description}"[:120],
+            detail=f"Knowledge base ma mezery: {gap_description}"[:500],
+            priority="medium",  # was "low", now clamped to medium
+            dedup_key=dedup_key,
         )
 
 
