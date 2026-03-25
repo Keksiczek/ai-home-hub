@@ -21,14 +21,20 @@ ResidentMode = Literal["observer", "advisor", "autonomous"]
 class SuggestedAction(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
     title: str
-    description: str
+    description: str = ""
     action_type: Literal[
         "kb_maintenance", "job_cleanup", "health_check", "analysis", "other"
-    ]
-    priority: Literal["low", "medium", "high"]
+    ] = "other"
+    # Direct action name for dispatch (e.g. "git_status", "system_health")
+    action: str = ""
+    priority: Literal["low", "medium", "high"] = "medium"
     requires_confirmation: bool = True
     estimated_cost: str = ""
     steps: List[str] = []
+    # Agent's internal reasoning / thought about why this action is proposed
+    thought: str = ""
+    # Optional params for direct dispatch
+    params: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ResidentSuggestion(BaseModel):

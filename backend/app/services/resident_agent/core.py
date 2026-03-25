@@ -54,6 +54,8 @@ ALLOWED_ACTIONS = [
     "system_health",
     "github_ci_status",
     "lean_metrics",
+    "write_memory",
+    "create_mission",
 ]
 
 # ── Action tiers (Hardening v2) ───────────────────────────────────────────────
@@ -84,6 +86,8 @@ ACTION_TIERS: dict[str, list[str]] = {
         "queue_job",
         "update_settings",
         "spawn_specialist",
+        "write_memory",
+        "create_mission",
     ],
     "dangerous": [
         "spawn_devops_agent",
@@ -117,6 +121,9 @@ MODE_ALLOWED_ACTIONS = {
         "git_log",
         "kb_search",
         "memory_search",
+        "lean_metrics",
+        "write_memory",
+        "memory_store",
     },
     "autonomous": set(ALLOWED_ACTIONS),  # all actions
 }
@@ -158,8 +165,23 @@ class ResidentAgentState:
         return d
 
 
-THOUGHT_TICK_INTERVAL = 20  # run reasoner every 20th tick (~10 min at 30s interval)
+THOUGHT_TICK_INTERVAL = 4  # run reasoner every 4th tick (~2 min at 30s interval)
 MISSION_TICK_INTERVAL = 4  # check missions every 4th tick (~2 min)
+PROACTIVE_TICK_INTERVAL = 2  # deterministic proactive action every 2nd tick (~1 min)
+
+# Actions that can be dispatched directly without LLM
+DIRECT_DISPATCH_ACTIONS = frozenset({
+    "system_health",
+    "git_status",
+    "lean_metrics",
+    "kb_search",
+    "memory_store",
+    "memory_search",
+    "write_memory",
+    "create_mission",
+    "system_status",
+    "no_op",
+})
 MAX_SUGGESTIONS_HISTORY = 20
 MAX_REFLECTIONS_HISTORY = 50
 MAX_CYCLE_HISTORY = 200
@@ -278,6 +300,8 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         self._last_known_mode: str = ""
         # Pending actions for advisor mode
         self._pending_actions: List[dict] = []
+        # Proactive action round-robin index
+        self._proactive_action_index: int = 0
 
     def set_broadcast(self, fn: Callable) -> None:
         """Register a coroutine for broadcasting WebSocket messages."""
@@ -605,6 +629,39 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             return 0.0
         return time.monotonic() - self._start_time
 
+    async def _seed_initial_jobs(self) -> None:
+        """Create seed jobs if the resident_task queue is empty on startup."""
+        try:
+            from app.services.job_service import get_job_service
+
+            job_svc = get_job_service()
+            # Reset any stale running jobs from previous crash
+            job_svc.reset_stale_running_jobs()
+
+            queued = job_svc.list_jobs(status="queued", type="resident_task", limit=5)
+            if queued:
+                logger.info("Seed skipped – %d jobs already queued", len(queued))
+                return
+
+            job_svc.create_job(
+                type="resident_task",
+                title="Inicializační system check",
+                input_summary="Zkontroluj stav systému, git projekty a zapiš do paměti.",
+                payload={"action_type": "system_health", "auto_seed": True},
+                priority="normal",
+            )
+            job_svc.create_job(
+                type="resident_task",
+                title="Načti lean metriky",
+                input_summary="Přečti job queue stats a ulož do paměti.",
+                payload={"action_type": "lean_metrics", "auto_seed": True},
+                priority="normal",
+            )
+            logger.info("Seeded 2 initial resident_task jobs")
+            self._add_log("INFO", "seed_jobs_created", count=2)
+        except Exception as exc:
+            logger.warning("Failed to seed initial jobs: %s", exc)
+
     async def _on_start(self) -> None:
         try:
             from app.services.memory_service import get_memory_service
@@ -703,6 +760,9 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         # Warm-up LLM in background (don't block start)
         asyncio.create_task(self._warmup_llm())
 
+        # Seed initial jobs if queue is empty
+        await self._seed_initial_jobs()
+
         super().start()  # creates the asyncio.Task (sync, non-awaited)
         return {"status": "started", "message": "Resident agent started successfully."}
 
@@ -784,6 +844,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             await self._process_task_queue()
             await self._process_missions()
             await self._thought_tick()
+            await self._proactive_action_tick()
             await self._periodic_check()
             await self._proactive_alerts()
             await self._summarize_old_memories()
@@ -989,11 +1050,11 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             if len(self._suggestions) > MAX_SUGGESTIONS_HISTORY:
                 self._suggestions = self._suggestions[-MAX_SUGGESTIONS_HISTORY:]
 
-            # Autonomous mode only: auto-execute safe (non-confirmation) actions.
-            # Advisor mode must NEVER auto-execute – user approval is required.
-            if mode == "autonomous":
-                await self._auto_execute_safe_actions(suggestion)
-            # advisor: suggestions stay as-is, pending user approval via UI
+            # Create resident_task jobs from suggestions that don't require confirmation
+            await self._create_jobs_from_suggestions(suggestion, mode)
+
+            # Store agent thoughts from suggestions into memory
+            await self._store_suggestion_thoughts(suggestion)
 
             await self._broadcast(
                 {
@@ -1012,8 +1073,13 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         except Exception as exc:
             logger.error("Thought tick failed: %s", exc)
 
-    async def _auto_execute_safe_actions(self, suggestion) -> None:
-        """In autonomous mode, execute actions that don't require confirmation."""
+    async def _create_jobs_from_suggestions(self, suggestion, mode: str) -> None:
+        """Create resident_task jobs from suggestion actions.
+
+        In both advisor and autonomous modes, actions with requires_confirmation=False
+        are turned into jobs automatically. In advisor mode, jobs are tagged with
+        auto_from_suggestion=True for visibility.
+        """
         from app.services.job_service import get_job_service
 
         job_svc = get_job_service()
@@ -1022,17 +1088,216 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             if action.requires_confirmation:
                 continue
 
+            # Map action fields – support both 'action' and 'action_type' from reasoner
+            action_type = getattr(action, "action", None) or action.action_type
+
             job = job_svc.create_job(
                 type="resident_task",
                 title=f"[Auto] {action.title}",
-                input_summary=action.description,
-                payload={"action_type": action.action_type, "auto_executed": True},
+                input_summary=action.description[:300],
+                payload={
+                    "action_type": action_type,
+                    "steps": action.steps,
+                    "suggestion_id": suggestion.id,
+                    "auto_from_suggestion": True,
+                    "params": getattr(action, "params", {}),
+                },
                 priority="normal",
             )
             suggestion.executed_action_ids.append(action.id)
             logger.info(
-                "Auto-executed suggestion action: %s (job=%s)", action.title, job.id
+                "Created job from suggestion (mode=%s): %s (job=%s)",
+                mode,
+                action.title,
+                job.id,
             )
+
+    async def _store_suggestion_thoughts(self, suggestion) -> None:
+        """Store agent 'thought' fields from suggestions into memory."""
+        try:
+            from app.services.memory_service import get_memory_service
+
+            mem = get_memory_service()
+            for action in suggestion.actions:
+                thought = getattr(action, "thought", None)
+                if thought:
+                    await mem.add_memory(
+                        text=f"[Thought] {thought}",
+                        tags=["resident", "thought", "auto"],
+                        source="resident_agent",
+                        importance=3,
+                    )
+        except Exception as exc:
+            logger.debug("Failed to store suggestion thoughts: %s", exc)
+
+    # ── Proactive deterministic actions ──────────────────────────
+
+    _PROACTIVE_ACTIONS = ["system_health", "git_status", "lean_metrics"]
+
+    async def _proactive_action_tick(self) -> None:
+        """Every PROACTIVE_TICK_INTERVAL ticks, run one deterministic action (no LLM).
+
+        Round-robins through system_health → git_status → lean_metrics.
+        Results are stored in memory and recorded in the cycle history.
+        """
+        if self._state.tick_count % PROACTIVE_TICK_INTERVAL != 0:
+            return
+
+        action_name = self._PROACTIVE_ACTIONS[
+            self._proactive_action_index % len(self._PROACTIVE_ACTIONS)
+        ]
+        self._proactive_action_index += 1
+
+        cycle_id = f"cycle-{self._state.tick_count:04d}"
+        self._add_log(
+            "INFO",
+            "proactive_check_start",
+            cycle_id=cycle_id,
+            action=action_name,
+        )
+
+        result_text = ""
+        try:
+            if action_name == "system_health":
+                result_text = await self._proactive_system_health()
+            elif action_name == "git_status":
+                result_text = await self._proactive_git_status()
+            elif action_name == "lean_metrics":
+                result_text = await self._proactive_lean_metrics()
+        except Exception as exc:
+            result_text = f"Proactive {action_name} failed: {exc}"
+            logger.warning(result_text)
+
+        # Store result in memory
+        try:
+            from app.services.memory_service import get_memory_service
+
+            mem = get_memory_service()
+            await mem.add_memory(
+                text=result_text[:500],
+                tags=["resident", "proactive_check", action_name],
+                source="resident_agent",
+                importance=2,
+            )
+        except Exception as exc:
+            logger.debug("Failed to store proactive check in memory: %s", exc)
+
+        # Record in cycle history
+        record = CycleRecord(
+            cycle_id=cycle_id,
+            cycle_number=self._state.tick_count,
+            timestamp=_now(),
+            status="success",
+            action_type="proactive_check",
+            action_target=action_name,
+            output_preview=result_text[:200],
+        )
+        self._add_cycle_record(record)
+
+        self._add_log(
+            "INFO",
+            "proactive_check_done",
+            cycle_id=cycle_id,
+            action=action_name,
+            result=result_text[:200],
+        )
+
+    async def _proactive_system_health(self) -> str:
+        """Deterministic system health check – no LLM."""
+        try:
+            from app.services.resource_monitor import get_resource_monitor
+
+            monitor = get_resource_monitor()
+            snap = monitor.to_dict()
+            ram = snap.get("ram_used_percent", "?")
+            cpu = snap.get("cpu_percent", "?")
+            throttled = snap.get("throttle", False)
+            blocked = snap.get("block", False)
+            return (
+                f"System health check – RAM {ram}%, CPU {cpu}%, "
+                f"throttled={throttled}, blocked={blocked}"
+            )
+        except Exception as exc:
+            return f"System health check failed: {exc}"
+
+    async def _proactive_git_status(self) -> str:
+        """Check git status for configured projects – no LLM."""
+        parts = []
+        try:
+            from app.services.settings_service import get_settings_service
+
+            settings = get_settings_service().load()
+            projects = (
+                settings.get("integrations", {})
+                .get("vscode", {})
+                .get("projects", {})
+            )
+            if not projects:
+                return "Git status – no projects configured"
+
+            from app.services.git_service import GitService
+
+            git_svc = GitService()
+            for name, project in projects.items():
+                path = (
+                    project
+                    if isinstance(project, str)
+                    else project.get("path", "")
+                )
+                if not path:
+                    continue
+                try:
+                    status = await git_svc.status(path)
+                    # Check for uncommitted changes
+                    if isinstance(status, dict):
+                        modified = status.get("modified", [])
+                        untracked = status.get("untracked", [])
+                        staged = status.get("staged", [])
+                        changes = modified + untracked + staged
+                        if changes:
+                            files_str = ", ".join(str(f) for f in changes[:5])
+                            if len(changes) > 5:
+                                files_str += f" (+{len(changes) - 5} more)"
+                            parts.append(
+                                f"Repo {name} má necommitnuté změny: {files_str}"
+                            )
+                        else:
+                            parts.append(f"Repo {name} – čistý stav")
+                    elif isinstance(status, str) and status.strip():
+                        parts.append(f"Repo {name}: {status[:200]}")
+                    else:
+                        parts.append(f"Repo {name} – čistý stav")
+                except Exception as exc:
+                    parts.append(f"Repo {name} – chyba: {exc}")
+        except Exception as exc:
+            return f"Git status check failed: {exc}"
+
+        return "; ".join(parts) if parts else "Git status – no projects found"
+
+    async def _proactive_lean_metrics(self) -> str:
+        """Read job queue stats – no LLM."""
+        try:
+            from app.services.job_service import get_job_service
+            from datetime import timedelta
+
+            job_svc = get_job_service()
+            since_24h = (
+                datetime.now(timezone.utc) - timedelta(hours=24)
+            ).isoformat()
+            stats = job_svc.get_stats_since(since_24h)
+            total = stats.get("tasks_total", 0)
+            success_rate = stats.get("success_rate", 0)
+            avg_dur = stats.get("avg_task_duration_s", 0)
+            failed = job_svc.count_jobs(status="failed", since=since_24h)
+            queued = len(job_svc.list_jobs(status="queued", limit=100))
+            return (
+                f"Job queue metriky (24h): {total} jobů, "
+                f"{success_rate:.0%} úspěšnost, "
+                f"prům. doba {avg_dur:.1f}s, "
+                f"{failed} selhalo, {queued} ve frontě"
+            )
+        except Exception as exc:
+            return f"Lean metrics check failed: {exc}"
 
     async def _process_missions(self) -> None:
         """Process active resident_mission jobs – advance current step."""
@@ -1595,7 +1860,15 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                     await self.emit_thought(
                         "thinking", content=f"Spouštím úkol: {job.title}"
                     )
-                    result = await self._execute_with_llm(task)
+                    # Direct dispatch for known action types (no LLM needed)
+                    action_type = job.payload.get("action_type")
+                    if action_type and action_type in DIRECT_DISPATCH_ACTIONS:
+                        result = await self._dispatch_action({
+                            "action": action_type,
+                            "params": job.payload.get("params", {}),
+                        })
+                    else:
+                        result = await self._execute_with_llm(task)
                     job.status = "succeeded"
                     job.progress = 100.0
                     job.finished_at = _now()
