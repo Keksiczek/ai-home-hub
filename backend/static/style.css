@@ -1954,6 +1954,15 @@ body {
     min-height: 150px;
   }
 
+  /* Sticky chat input bar at bottom of mobile screen */
+  .chat-input-area {
+    position: sticky;
+    bottom: 0;
+    background: var(--bg-panel, #0f172a);
+    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+    z-index: 10;
+  }
+
   .bubble {
     max-width: 90%;
     padding: 0.625rem 0.875rem;
