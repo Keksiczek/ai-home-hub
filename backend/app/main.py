@@ -64,7 +64,7 @@ async def lifespan(app: FastAPI):
     from pathlib import Path
 
     base = Path(__file__).parent.parent / "data"
-    for subdir in ("sessions", "artifacts", "uploads", "uploads/media", "jobs"):
+    for subdir in ("sessions", "artifacts", "uploads", "uploads/media", "jobs", "resident_plans"):
         (base / subdir).mkdir(parents=True, exist_ok=True)
 
     # Log actionable first-time-setup warnings

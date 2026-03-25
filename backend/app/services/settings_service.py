@@ -447,6 +447,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
             "report_generation",
             "resident_task",
             "chat_task",
+            "resident_plan_execute",
         ],
         "night_only_job_types": [
             "kb_reindex",

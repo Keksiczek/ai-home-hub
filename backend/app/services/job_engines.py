@@ -27,6 +27,7 @@ from app.services.engines import (  # noqa: F401  (re-exported for backward comp
     run_resident_task,
     run_resident_mission,
     run_chat_task,
+    run_resident_plan_execute,
 )
 from app.services.job_service import Job
 
@@ -46,6 +47,7 @@ _ENGINES = {
     "resident_task": run_resident_task,
     "resident_mission": run_resident_mission,
     "chat_task": run_chat_task,
+    "resident_plan_execute": run_resident_plan_execute,
 }
 
 

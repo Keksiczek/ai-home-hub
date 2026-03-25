@@ -101,6 +101,95 @@ class ResidentReasoner:
             logger.error("Mission planning failed: %s", exc)
             return None
 
+    async def generate_plan(
+        self, goal: str, context: Optional[Dict[str, Any]] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Generate a structured plan with steps – NO execution, draft only.
+
+        Returns a dict with keys: steps (list), raw_markdown (str), model (str).
+        Each step: {title, description, tool, params, depends_on}.
+        """
+        context_text = ""
+        if context:
+            context_text = f"\nKONTEXT: {json.dumps(context, ensure_ascii=False)}"
+
+        user_message = (
+            f"CÍL PLÁNU: {goal}{context_text}\n\n"
+            "Vytvoř strukturovaný plán kroků pro dosažení cíle.\n"
+            "DŮLEŽITÉ: Neprováděj ŽÁDNÉ akce. Pouze navrhni kroky.\n\n"
+            "Odpověz POUZE JSON objektem v tomto formátu:\n"
+            "{\n"
+            '  "steps": [\n'
+            "    {\n"
+            '      "title": "Název kroku",\n'
+            '      "description": "Detailní popis co se má udělat",\n'
+            '      "tool": "agent" | "script" | "kb" | "none",\n'
+            '      "params": {},\n'
+            '      "depends_on": []\n'
+            "    }\n"
+            "  ],\n"
+            '  "summary_markdown": "## Plán\\n- krok 1...\\n..."\n'
+            "}\n\n"
+            "Pravidla:\n"
+            "- tool=agent: krok vyžaduje AI agenta (params: {agent_type, workspace})\n"
+            "- tool=script: krok volá existující nástroj (params: {tool_name, arguments})\n"
+            "- tool=kb: krok pracuje s knowledge base (params: {action: search|store, query|content})\n"
+            "- tool=none: informační/manuální krok bez automatizace\n"
+            "- depends_on: seznam ID předchozích kroků, na kterých závisí\n"
+            "- Max 10 kroků.\n"
+        )
+
+        try:
+            llm = get_llm_service()
+            reply, meta = await llm.generate(
+                message=user_message,
+                mode="resident_plan_generator",
+                profile="general",
+            )
+
+            if meta.get("status") == "llm_unavailable":
+                logger.warning("Plan generation: LLM unavailable")
+                return None
+
+            data = self._extract_json(reply)
+            if not isinstance(data, dict):
+                logger.error("Plan generation: LLM did not return a dict")
+                return None
+
+            raw_steps = data.get("steps", [])
+            if not raw_steps:
+                return None
+
+            steps = []
+            for i, s in enumerate(raw_steps[:10]):
+                if not isinstance(s, dict):
+                    continue
+                tool = s.get("tool", "none")
+                if tool not in ("agent", "script", "kb", "none"):
+                    tool = "none"
+                steps.append(
+                    {
+                        "title": str(s.get("title", f"Krok {i+1}"))[:200],
+                        "description": str(s.get("description", ""))[:500],
+                        "tool": tool,
+                        "params": s.get("params", {}) if isinstance(s.get("params"), dict) else {},
+                        "depends_on": (
+                            [str(d) for d in s.get("depends_on", [])]
+                            if isinstance(s.get("depends_on"), list)
+                            else []
+                        ),
+                    }
+                )
+
+            return {
+                "steps": steps,
+                "raw_markdown": str(data.get("summary_markdown", ""))[:2000],
+                "model": meta.get("model", ""),
+            }
+        except Exception as exc:
+            logger.error("Plan generation failed: %s", exc, exc_info=True)
+            return None
+
     async def generate_reflection(
         self, job_id: str, job_type: str, goal: str, status: str, error: str = ""
     ) -> Optional[ResidentReflection]:

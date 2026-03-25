@@ -24,6 +24,7 @@ WS_EVENT_JOB_COMPLETED = "job_completed"
 WS_EVENT_JOB_FAILED = "job_failed"
 WS_EVENT_CHAT_RESULT = "chat_result"    # async POST /chat result delivered via WS
 WS_EVENT_CHAT_CHUNK = "chat_chunk"      # streaming token chunk from WS /chat/stream
+WS_EVENT_RESIDENT_PLAN_UPDATE = "resident_plan_update"
 
 
 class ConnectionManager:
