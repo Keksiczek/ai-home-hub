@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
+from app.models.resident_models import PlanApproveRequest, PlanCreateRequest
 from app.services.resident_agent import get_resident_agent
 from app.services.job_service import get_job_service
 from app.services.settings_service import get_settings_service
@@ -629,6 +630,136 @@ async def mission_chat(mission_id: str, req: MissionChatRequest) -> dict:
         "meta": meta,
         "chat_history": chat_history,
     }
+
+
+# ── Resident Plan → Confirm → Execute ────────────────────────
+
+
+@router.post("/plan")
+async def create_plan(req: PlanCreateRequest) -> dict:
+    """Generate a structured plan via LLM – NO execution, draft only.
+
+    Returns a full plan object with steps, ready for user review and approval.
+    """
+    from app.models.resident_models import PlanStep, ResidentPlan
+    from app.services.resident_reasoner import get_resident_reasoner
+    from app.services.resident_plan_service import get_resident_plan_service
+
+    reasoner = get_resident_reasoner()
+    plan_svc = get_resident_plan_service()
+
+    result = await reasoner.generate_plan(req.goal, req.context if req.context else None)
+    if result is None:
+        raise HTTPException(
+            500,
+            "Nepodařilo se vygenerovat plán (LLM nedostupné nebo nevrátilo platný plán)",
+        )
+
+    # Build plan object
+    steps = [PlanStep(**s) for s in result["steps"]]
+    plan = ResidentPlan(
+        goal=req.goal,
+        steps=steps,
+        raw_markdown=result.get("raw_markdown", ""),
+        meta={
+            "source": "resident_reasoner",
+            "model": result.get("model", ""),
+            "cost_estimate": None,
+            "context": req.context,
+        },
+    )
+    plan_svc.save_plan(plan)
+
+    logger.info("Plan created: %s (%d steps)", plan.plan_id, len(steps))
+    return plan.model_dump()
+
+
+@router.get("/plan/{plan_id}")
+async def get_plan(plan_id: str) -> dict:
+    """Retrieve a stored plan by ID."""
+    from app.services.resident_plan_service import get_resident_plan_service
+
+    plan_svc = get_resident_plan_service()
+    plan = plan_svc.get_plan(plan_id)
+    if plan is None:
+        raise HTTPException(404, "Plán nenalezen")
+    return plan.model_dump()
+
+
+@router.get("/plans")
+async def list_plans(limit: int = Query(default=20, ge=1, le=100)) -> dict:
+    """List recent resident plans."""
+    from app.services.resident_plan_service import get_resident_plan_service
+
+    plan_svc = get_resident_plan_service()
+    plans = plan_svc.list_plans(limit=limit)
+    return {
+        "plans": [p.model_dump() for p in plans],
+        "count": len(plans),
+    }
+
+
+@router.post("/plan/{plan_id}/approve")
+async def approve_plan(plan_id: str, req: Optional[PlanApproveRequest] = None) -> dict:
+    """Approve a plan and start execution as a background job.
+
+    Returns HTTP 202 with job_id. Execution progress is streamed via WS
+    as 'resident_plan_update' events.
+    """
+    from app.services.resident_plan_service import get_resident_plan_service
+
+    plan_svc = get_resident_plan_service()
+    job_svc = get_job_service()
+
+    plan = plan_svc.get_plan(plan_id)
+    if plan is None:
+        raise HTTPException(404, "Plán nenalezen")
+
+    if plan.status not in ("draft", "failed"):
+        raise HTTPException(
+            400,
+            f"Plán nelze schválit – aktuální stav: {plan.status}",
+        )
+
+    # Parse approval options
+    approved_steps = None
+    mode = "sequential"
+    if req is not None:
+        approved_steps = req.approved_steps
+        mode = req.mode
+
+    # Update plan status
+    plan.status = "approved"
+    plan.approved_steps = approved_steps
+    plan.execution_mode = mode
+    plan_svc.save_plan(plan)
+
+    # Create background job
+    job = job_svc.create_job(
+        type="resident_plan_execute",
+        title=f"Plán: {plan.goal[:80]}",
+        input_summary=plan.goal,
+        payload={
+            "plan_id": plan_id,
+            "approved_steps": approved_steps,
+            "mode": mode,
+        },
+        priority="normal",
+    )
+
+    # Store job_id in plan
+    plan.job_id = job.id
+    plan_svc.save_plan(plan)
+
+    logger.info("Plan %s approved → job %s", plan_id, job.id)
+    return JSONResponse(
+        status_code=202,
+        content={
+            "status": "accepted",
+            "job_id": job.id,
+            "plan_id": plan_id,
+        },
+    )
 
 
 # ── History & Logs ────────────────────────────────────────────

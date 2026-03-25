@@ -98,6 +98,58 @@ class ResidentReflection(BaseModel):
 # ── Tool-calling reasoning cycles ───────────────────────────
 
 
+# ── Resident Plan (Plan → Confirm → Execute) ───────────────
+
+
+class PlanStep(BaseModel):
+    """Single step in a resident plan."""
+
+    id: str = Field(default_factory=lambda: f"step-{uuid.uuid4().hex[:6]}")
+    title: str
+    description: str = ""
+    tool: Literal["agent", "script", "kb", "none"] = "none"
+    params: Dict[str, Any] = Field(default_factory=dict)
+    depends_on: List[str] = Field(default_factory=list)
+    status: Literal["pending", "running", "completed", "failed", "skipped"] = "pending"
+    result_summary: str = ""
+    error: Optional[str] = None
+
+
+class ResidentPlan(BaseModel):
+    """Full resident plan with steps, stored as JSON file."""
+
+    plan_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    status: Literal["draft", "approved", "running", "completed", "failed"] = "draft"
+    created_at: str = Field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
+    goal: str
+    steps: List[PlanStep] = Field(default_factory=list)
+    raw_markdown: str = ""
+    meta: Dict[str, Any] = Field(default_factory=dict)
+    approved_steps: Optional[List[str]] = None
+    execution_mode: Literal["sequential", "parallel"] = "sequential"
+    job_id: Optional[str] = None
+    result_summary: str = ""
+
+
+class PlanCreateRequest(BaseModel):
+    """Request body for POST /resident/plan."""
+
+    goal: str = Field(..., min_length=1, max_length=1000)
+    context: Dict[str, Any] = Field(default_factory=dict)
+
+
+class PlanApproveRequest(BaseModel):
+    """Request body for POST /resident/plan/{plan_id}/approve."""
+
+    approved_steps: Optional[List[str]] = None
+    mode: Literal["sequential", "parallel"] = "sequential"
+
+
+# ── Tool-calling reasoning cycles ───────────────────────────
+
+
 class ToolCallRecord(BaseModel):
     """One tool invocation inside a reasoning cycle."""
 
