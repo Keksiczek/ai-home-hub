@@ -20,9 +20,17 @@ from app.services.metrics_service import ollama_latency_seconds, ollama_requests
 from app.services.settings_service import get_settings_service
 from app.utils.circuit_breaker import (
     CircuitBreakerOpen,
+    get_model_circuit_breaker_registry,
     get_ollama_circuit_breaker,
+    get_timeout_for_request,
 )
-from app.utils.constants import LLM_MAX_CONCURRENT_REQUESTS, LLM_SEMAPHORE_TIMEOUT
+from app.utils.constants import (
+    LLM_CPU_BACKEND,
+    LLM_MAX_CONCURRENT_REQUESTS,
+    LLM_NUM_PREDICT,
+    LLM_NUM_THREADS,
+    LLM_SEMAPHORE_TIMEOUT,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -294,10 +302,24 @@ class LLMService:
         cfg: Dict[str, Any],
         keep_alive: int | str | None = None,
         profile: Optional[str] = None,
+        request_type: str = "agent_step",
     ) -> Tuple[str, Dict[str, Any]]:
         ollama_url = cfg.get("ollama_url", "http://localhost:11434").rstrip("/")
         model = cfg.get("model", "llama3.2")
         cb = get_ollama_circuit_breaker()
+        model_cb = get_model_circuit_breaker_registry()
+
+        # Per-model circuit breaker: redirect to fallback if model is disabled
+        if model_cb.is_disabled(model):
+            fallback = model_cb.get_fallback(model)
+            logger.warning(
+                "Model '%s' je dočasně disabled – přepínám na fallback '%s'",
+                model,
+                fallback,
+            )
+            cfg = dict(cfg)
+            cfg["model"] = fallback
+            model = fallback
 
         # Circuit breaker: fast-fail if Ollama has been failing repeatedly
         if not await cb.can_execute():
@@ -359,6 +381,18 @@ class LLMService:
         if cfg.get("max_tokens") is not None:
             options["num_predict"] = int(cfg["max_tokens"])
 
+        # CPU-backend optimisations: inject thread count and token cap
+        if LLM_CPU_BACKEND:
+            options.setdefault("num_thread", LLM_NUM_THREADS)
+            options.setdefault("num_predict", LLM_NUM_PREDICT)
+            # Conservative temperature for stable output on CPU
+            options.setdefault("temperature", 0.1)
+            logger.debug(
+                "CPU backend opts applied: num_thread=%d, num_predict=%d",
+                options["num_thread"],
+                options["num_predict"],
+            )
+
         payload: Dict[str, Any] = {
             "model": model,
             "messages": messages,
@@ -368,12 +402,16 @@ class LLMService:
         if keep_alive is not None:
             payload["keep_alive"] = keep_alive
 
-        timeout = cfg.get("timeout_seconds", 180)
+        # Use request-type-aware timeout; fall back to settings value if larger
+        rt_timeout = get_timeout_for_request(request_type, model)
+        settings_timeout = cfg.get("timeout_seconds", 180)
         try:
-            timeout = max(10, min(3600, float(timeout)))
+            settings_timeout = max(10, min(3600, float(settings_timeout)))
         except (ValueError, TypeError):
-            logger.warning("Invalid timeout value: %s, using default 180s", timeout)
-            timeout = 180.0
+            settings_timeout = 180.0
+        # For non-streaming requests prefer the request-type timeout unless
+        # the operator configured a longer one explicitly.
+        timeout = rt_timeout if rt_timeout <= settings_timeout else settings_timeout
         meta_base = {
             "provider": "ollama",
             "model": model,
@@ -445,12 +483,14 @@ class LLMService:
                     except Exception as exc:
                         logger.warning("Auto-translation failed: %s", exc)
 
-            # Success – reset circuit breaker
+            # Success – reset circuit breakers
             await cb.record_success()
+            await model_cb.record_success(model)
             return reply, meta_base
 
         except asyncio.TimeoutError:
             await cb.record_failure()
+            await model_cb.record_failure(model)
             logger.warning(
                 "Ollama call timed out for model %s after %.0fs (mode=%s)",
                 model,
@@ -459,11 +499,12 @@ class LLMService:
             )
             return _llm_unavailable_response(
                 model,
-                f"Timeout: model {model} neodpověděl do {timeout:.0f}s.",
+                "Model pomalý, zkus kratší dotaz nebo jinou modelku.",
                 retry_after_s=30,
             )
         except httpx.ConnectError:
             await cb.record_failure()
+            await model_cb.record_failure(model)
             logger.warning(
                 "Ollama not available at %s, falling back to stub", ollama_url
             )
@@ -484,6 +525,7 @@ class LLMService:
                     "error": str(exc),
                 }
             await cb.record_failure()
+            await model_cb.record_failure(model)
             logger.error("Ollama server error after retries: %s", exc, exc_info=True)
             return _llm_unavailable_response(
                 model,
@@ -492,10 +534,11 @@ class LLMService:
             )
         except httpx.TimeoutException:
             await cb.record_failure()
+            await model_cb.record_failure(model)
             logger.error("Ollama HTTP timeout for model %s", model)
             return _llm_unavailable_response(
                 model,
-                f"HTTP timeout při komunikaci s Ollamou (model {model}).",
+                "Model pomalý, zkus kratší dotaz nebo jinou modelku.",
                 retry_after_s=30,
             )
         except Exception as exc:
@@ -594,8 +637,19 @@ class LLMService:
         )
         system_prompt = self._add_structured_hints(system_prompt, message, mode=mode)
         cb = get_ollama_circuit_breaker()
+        model_cb = get_model_circuit_breaker_registry()
 
-        # Circuit breaker: fast-fail if Ollama has been failing repeatedly
+        # Per-model circuit breaker: redirect to fallback if model is disabled
+        if model_cb.is_disabled(model):
+            fallback = model_cb.get_fallback(model)
+            logger.warning(
+                "Stream: model '%s' je dočasně disabled – přepínám na fallback '%s'",
+                model,
+                fallback,
+            )
+            model = fallback
+
+        # Global circuit breaker: fast-fail if Ollama has been failing repeatedly
         if not await cb.can_execute():
             logger.warning(
                 "Circuit breaker OPEN – skipping stream request (model=%s)", model
@@ -623,6 +677,12 @@ class LLMService:
         if cfg.get("max_tokens") is not None:
             options["num_predict"] = int(cfg["max_tokens"])
 
+        # CPU-backend optimisations for streaming
+        if LLM_CPU_BACKEND:
+            options.setdefault("num_thread", LLM_NUM_THREADS)
+            options.setdefault("num_predict", LLM_NUM_PREDICT)
+            options.setdefault("temperature", 0.1)
+
         keep_alive_default = cfg.get("keep_alive_default", "5m")
         keep_alive = get_keep_alive_for_model(
             model, for_overnight=for_overnight, config_default=keep_alive_default
@@ -637,11 +697,16 @@ class LLMService:
         if keep_alive is not None:
             payload["keep_alive"] = keep_alive
 
-        # For streaming: use a short read-timeout per chunk (60 s) to detect stalled
-        # connections, but allow up to 600 s of total wall-clock time so long responses
-        # never get cut off by a single overall timeout.
-        stream_http_timeout = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=5.0)
-        outer_timeout = 600.0  # 10 min hard cap for the whole streaming session
+        # chat_stream timeout governs time-to-first-token; per-chunk read timeout
+        # is set shorter so stalled connections are detected quickly.
+        chat_stream_timeout = get_timeout_for_request("chat_stream", model)
+        stream_http_timeout = httpx.Timeout(
+            connect=10.0, read=chat_stream_timeout, write=10.0, pool=5.0
+        )
+        # Hard outer cap: background jobs may stream for longer
+        outer_timeout = get_timeout_for_request(
+            "background_job" if for_overnight else "chat_stream", model
+        ) * 4  # 4× the per-request timeout as a generous wall-clock cap
 
         # Acquire the global LLM semaphore before streaming
         try:
@@ -670,25 +735,22 @@ class LLMService:
                             token = chunk.get("message", {}).get("content", "")
                             if token:
                                 yield token
-            # Success – reset circuit breaker
+            # Success – reset circuit breakers
             await cb.record_success()
+            await model_cb.record_success(model)
         except asyncio.TimeoutError:
             await cb.record_failure()
+            await model_cb.record_failure(model)
             logger.warning(
                 "Ollama stream hard-timeout for model %s (%.0fs cap)", model, outer_timeout
             )
-            yield (
-                f"[Timeout: model {model} překročil limit {outer_timeout:.0f}s. "
-                "Zkus kratší zprávu nebo restartuj Ollamu.]"
-            )
+            yield "Model pomalý, zkus kratší dotaz nebo jinou modelku."
         except httpx.TimeoutException as exc:
             # Covers ReadTimeout (stalled chunk) and ConnectTimeout
             await cb.record_failure()
+            await model_cb.record_failure(model)
             logger.warning("Ollama HTTP timeout during streaming for model %s: %s", model, exc)
-            yield (
-                f"[HTTP timeout: model {model} přestal odesílat tokeny. "
-                "Zkus kratší zprávu nebo restartuj Ollamu.]"
-            )
+            yield "Model pomalý, zkus kratší dotaz nebo jinou modelku."
         except httpx.ConnectError:
             await cb.record_failure()
             logger.warning("Ollama not available for streaming, yielding stub")

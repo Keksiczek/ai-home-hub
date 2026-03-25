@@ -127,6 +127,62 @@ async def check_chromadb() -> str:
         return "error"
 
 
+async def _check_embedding_dim(
+    ollama_url: str, model: str, result: Dict[str, Any]
+) -> None:
+    """Probe the embedding dimension and check Chroma collection compatibility."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"{ollama_url}/api/embed",
+                json={"model": model, "input": "startup dim probe"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            emb = data.get("embeddings", [None])[0] or data.get("embedding")
+            if not emb:
+                raise ValueError("Empty embedding in response")
+            detected_dim = len(emb)
+    except Exception as exc:
+        logger.warning("Could not probe embedding dim: %s", exc)
+        result["embedding_dim"] = "unknown"
+        result["chroma_collection_match"] = "unknown"
+        return
+
+    result["embedding_dim"] = detected_dim
+
+    # Compare against the stored Chroma collection dim (if any)
+    try:
+        from app.services.vector_store_service import get_vector_store_service
+
+        vs = get_vector_store_service()
+        col_meta = vs.collection.metadata or {}
+        stored_dim = col_meta.get("embedding_dim")
+        if stored_dim is None:
+            # Legacy collection: no dim metadata – assume match until mismatch at runtime
+            chroma_match = "YES (no dim stored)"
+        elif int(stored_dim) == detected_dim:
+            chroma_match = "YES"
+        else:
+            chroma_match = f"NO (stored={stored_dim}, detected={detected_dim})"
+            logger.warning(
+                "Embedding dim mismatch at startup: Chroma has %s, model produces %d. "
+                "Collection will be reset on first embed call.",
+                stored_dim,
+                detected_dim,
+            )
+    except Exception as exc:
+        logger.warning("Could not check Chroma collection dim: %s", exc)
+        chroma_match = "unknown"
+
+    result["chroma_collection_match"] = chroma_match
+    logger.info(
+        "Embedding model OK, dim: %d, Chroma collection match: %s",
+        detected_dim,
+        chroma_match,
+    )
+
+
 async def run_startup_checks(ollama_url: str) -> Dict[str, Any]:
     """Run all startup checks. Returns component health dict.
 
@@ -159,12 +215,14 @@ async def run_startup_checks(ollama_url: str) -> Dict[str, Any]:
         result["ollama_models"] = []
         logger.warning("Ollama unavailable – LLM features will be degraded")
 
-    # Check embedding model availability
+    # Check embedding model availability and detect dimension
     available_base = {m.split(":")[0] for m in available_models}
     if EMBEDDING_MODEL in available_base:
         result["embeddings"] = "ok"
+        active_embed_model = EMBEDDING_MODEL
     elif EMBEDDING_FALLBACK in available_base:
         result["embeddings"] = f"degraded: missing model {EMBEDDING_MODEL}"
+        active_embed_model = EMBEDDING_FALLBACK
         logger.warning(
             "KB nefunkční: spusť `ollama pull %s` a restartuj app. "
             "Using fallback model '%s'.",
@@ -173,12 +231,18 @@ async def run_startup_checks(ollama_url: str) -> Dict[str, Any]:
         )
     elif available_models:
         result["embeddings"] = "unavailable"
+        active_embed_model = None
         logger.error(
             "KB nefunkční: spusť `ollama pull %s` a restartuj app",
             EMBEDDING_MODEL,
         )
     else:
         result["embeddings"] = "unavailable"
+        active_embed_model = None
+
+    # Probe embedding dimension and verify Chroma collection compatibility
+    if active_embed_model:
+        await _check_embedding_dim(ollama_url, active_embed_model, result)
 
     # 2. ChromaDB / KB
     logger.info("startup_check", extra={"check": "chromadb_write_test"})

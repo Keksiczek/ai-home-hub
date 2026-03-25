@@ -27,6 +27,7 @@ class EmbeddingsService:
         self._cache_misses: int = 0
         self._active_model: Optional[str] = None  # tracks which model is in use
         self._status: str = "unknown"  # "ok", "degraded", "unavailable"
+        self._embedding_dim: Optional[int] = None  # detected dimension
 
     async def get_embedding(self, text: str) -> Optional[List[float]]:
         """Get embedding with cache support. Falls back to generate_embedding on miss."""
@@ -60,7 +61,12 @@ class EmbeddingsService:
         return embedding
 
     async def _fetch_embedding_from_ollama(self, text: str) -> Optional[List[float]]:
-        """Call Ollama embeddings API directly, with fallback to llama3.2."""
+        """Call Ollama embeddings API directly, with fallback to llama3.2.
+
+        Auto-detects embedding dimension on first successful call and triggers
+        a Chroma collection reset when the detected dimension differs from the
+        one the collection was built with.
+        """
         settings = get_settings_service().load()
         ollama_url = (
             settings.get("llm", {})
@@ -90,6 +96,25 @@ class EmbeddingsService:
                         "embedding"
                     )
                     if embedding:
+                        new_dim = len(embedding)
+
+                        # Auto-detect dimension and handle Chroma mismatch
+                        if self._embedding_dim is None:
+                            self._embedding_dim = new_dim
+                            logger.info(
+                                "Embedding dim auto-detected: %d (model=%s)", new_dim, model
+                            )
+                        elif self._embedding_dim != new_dim:
+                            logger.warning(
+                                "Embedding dim changed: %d → %d (model=%s). "
+                                "Resetting Chroma collection.",
+                                self._embedding_dim,
+                                new_dim,
+                                model,
+                            )
+                            self._embedding_dim = new_dim
+                            await self._reset_chroma_collection(new_dim)
+
                         if self._active_model != model:
                             self._active_model = model
                             if model != primary_model:
@@ -112,6 +137,37 @@ class EmbeddingsService:
         )
         self._status = "unavailable"
         return None
+
+    async def _reset_chroma_collection(self, new_dim: int) -> None:
+        """Drop and recreate the default Chroma collection when dimension changes."""
+        try:
+            from app.services.vector_store_service import (
+                CHROMA_DIR,
+                VectorStoreService,
+                get_vector_store_service,
+            )
+
+            vs = get_vector_store_service()
+            col_name = VectorStoreService.COLLECTION_NAME
+            await asyncio.to_thread(vs.client.delete_collection, col_name)
+            vs.collection = await asyncio.to_thread(
+                vs.client.get_or_create_collection,
+                col_name,
+                metadata={"hnsw:space": "cosine", "embedding_dim": new_dim},
+            )
+            logger.warning(
+                "Dropped old Chroma collection '%s', recreated for dim %d",
+                col_name,
+                new_dim,
+            )
+            # Invalidate the local embedding cache – old vectors are gone
+            self._cache.clear()
+        except Exception as exc:
+            logger.error("Failed to reset Chroma collection: %s", exc, exc_info=True)
+
+    def get_embedding_dim(self) -> Optional[int]:
+        """Return the detected embedding dimension, or None if not yet known."""
+        return self._embedding_dim
 
     def get_status(self) -> str:
         """Return current embeddings status for health checks."""
