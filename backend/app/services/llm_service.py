@@ -150,10 +150,12 @@ def get_keep_alive_for_model(
     - overnight / batch jobs → 0  (unload immediately after response)
     - llava:7b (vision)       → 0  (large model, always unload)
     - qwen2.5-coder variants  → "120s"
-    - general models          → config_default (from settings) or "5m"
+    - general models          → config_default (from settings) or OLLAMA_KEEP_ALIVE env var or "30m"
 
     *config_default* is read from ``llm.ollama_performance.keep_alive`` in
-    settings.json so operators can tune it without code changes.
+    settings.json so operators can tune it without code changes.  When neither
+    config_default nor the settings value is set, the ``OLLAMA_KEEP_ALIVE``
+    environment variable is used (default ``"30m"``).
     """
     if for_overnight:
         return 0
@@ -162,8 +164,10 @@ def get_keep_alive_for_model(
         return 0
     if "qwen2.5-coder" in name or "coder" in name:
         return "120s"
-    # Use operator-configured default; fall back to 5 minutes
-    return config_default if config_default is not None else "5m"
+    if config_default is not None:
+        return config_default
+    # Fall back to OLLAMA_KEEP_ALIVE env var, then 30 minutes
+    return os.environ.get("OLLAMA_KEEP_ALIVE", "30m")
 
 
 def _llm_unavailable_response(
@@ -237,7 +241,7 @@ class LLMService:
         provider = cfg.get("provider", "ollama")
         start = time.monotonic()
 
-        keep_alive_default = cfg.get("keep_alive_default", "5m")
+        keep_alive_default = cfg.get("keep_alive_default")
         keep_alive = get_keep_alive_for_model(
             cfg["model"], for_overnight=for_overnight, config_default=keep_alive_default
         )
@@ -734,7 +738,7 @@ class LLMService:
             options.setdefault("num_predict", LLM_NUM_PREDICT)
             options.setdefault("temperature", 0.1)
 
-        keep_alive_default = cfg.get("keep_alive_default", "5m")
+        keep_alive_default = cfg.get("keep_alive_default")
         keep_alive = get_keep_alive_for_model(
             model, for_overnight=for_overnight, config_default=keep_alive_default
         )

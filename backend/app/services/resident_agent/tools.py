@@ -219,9 +219,23 @@ class ToolsMixin:
             from app.services.notification_service import get_notification_service
 
             notif = get_notification_service()
+            body = params.get("body", params.get("message", ""))
+            if not body:
+                return {"action": "send_notification", "sent": False, "error": "body is required"}
+            # Rate limit check
+            if not notif.can_agent_notify():
+                return {"action": "send_notification", "sent": False, "error": "hourly limit reached"}
+            notif.record_agent_notification()
+            level = params.get("level", "info")
+            if level not in ("info", "warning", "insight"):
+                level = "info"
             success = await notif.send(
-                title="Resident Agent",
-                message=params.get("message", ""),
+                title=params.get("title", "Resident Agent")[:100],
+                body=body[:500],
+                level=level,
+                source="resident_agent",
+                action_url=params.get("action_url"),
+                importance=max(7, params.get("importance", 7)),
             )
             return {"action": "send_notification", "sent": success}
 

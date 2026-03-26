@@ -950,6 +950,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             await self._curiosity_tick()
             await self._periodic_check()
             await self._proactive_alerts()
+            await self._digest_tick()
             await self._summarize_old_memories()
             # Successful tick resets consecutive error counter
             self._state.consecutive_errors = 0
@@ -1268,12 +1269,34 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             for action in suggestion.actions:
                 thought = getattr(action, "thought", None)
                 if thought:
+                    importance = getattr(action, "importance", 3)
+                    if isinstance(importance, str):
+                        importance = 3
                     await mem.add_memory(
                         text=f"[Thought] {thought}",
                         tags=["resident", "thought", "decision", "auto"],
                         source="resident_agent",
-                        importance=3,
+                        importance=importance,
                     )
+                    # Notify on important thoughts (importance >= 8)
+                    if importance >= 8:
+                        try:
+                            import os
+
+                            if os.environ.get("NOTIFICATIONS_ENABLED", "true").lower() != "false":
+                                from app.services.notification_service import get_notification_service
+
+                                notif_svc = get_notification_service()
+                                await notif_svc.send(
+                                    title=f"Agent: {thought[:60]}",
+                                    body=thought[:250],
+                                    level="insight",
+                                    source="resident_agent",
+                                    action_url="/resident/thoughts",
+                                    importance=8,
+                                )
+                        except Exception as exc:
+                            logger.debug("Important thought notification failed: %s", exc)
         except Exception as exc:
             logger.debug("Failed to store suggestion thoughts: %s", exc)
 
@@ -2318,12 +2341,35 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                     job.status = "succeeded"
                     job.progress = 100.0
                     job.finished_at = _now()
-                    job.meta["result"] = str(result)[:500]
+                    output_summary = str(result)[:500]
+                    job.meta["result"] = output_summary
                     await self.emit_thought(
                         "tool_result",
                         tool="task",
                         result_preview=f"Úkol dokončen: {job.title}",
                     )
+                    # Insight notification for analysis jobs with substantial output
+                    if (
+                        job.payload.get("action_type") == "analysis"
+                        and len(output_summary) > 150
+                    ):
+                        try:
+                            import os
+
+                            if os.environ.get("NOTIFICATIONS_ENABLED", "true").lower() != "false":
+                                from app.services.notification_service import get_notification_service
+
+                                notif_svc = get_notification_service()
+                                await notif_svc.send(
+                                    title=f"Agent zjistil: {job.title[:50]}",
+                                    body=output_summary[:250],
+                                    level="insight",
+                                    source="resident_agent",
+                                    action_url="/resident/thoughts",
+                                    importance=7,
+                                )
+                        except Exception as exc:
+                            logger.debug("Analysis insight notification failed: %s", exc)
                 except Exception as exc:
                     job.status = "failed"
                     job.last_error = str(exc)
@@ -2443,12 +2489,183 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                 except Exception as exc:
                     logger.debug("Failed to store system check: %s", exc)
 
+            # ── Notification triggers ────────────────────────────────
+            await self._check_notification_triggers(snapshot)
+
             logger.info(
                 "Resident periodic check completed (tick %d)", self._state.tick_count
             )
 
         except Exception as exc:
             logger.error("Resident periodic check error: %s", exc)
+
+    # ── Notification triggers ────────────────────────────────────────────────
+
+    async def _check_notification_triggers(self, snapshot: dict) -> None:
+        """Check various conditions and send proactive notifications."""
+        import os
+
+        if os.environ.get("NOTIFICATIONS_ENABLED", "true").lower() == "false":
+            return
+
+        try:
+            from app.services.notification_service import get_notification_service
+
+            notif_svc = get_notification_service()
+
+            # 1) High RAM – two consecutive ticks above 85%
+            ram_pct = snapshot.get("ram_used_percent", 0)
+            if ram_pct > 85:
+                prev = getattr(self, "_prev_high_ram", False)
+                if prev:
+                    await notif_svc.send(
+                        title="Vysoká RAM",
+                        body=f"RAM {ram_pct:.0f}% – systém je pod zátěží.",
+                        level="warning",
+                        source="resident_agent",
+                        importance=7,
+                    )
+                    self._prev_high_ram = False  # don't spam every tick
+                else:
+                    self._prev_high_ram = True
+            else:
+                self._prev_high_ram = False
+
+            # 2) Series of failed jobs – 3+ in last hour
+            try:
+                from app.services.job_service import get_job_service
+                from datetime import timedelta
+
+                job_svc = get_job_service()
+                since_1h = (
+                    datetime.now(timezone.utc) - timedelta(hours=1)
+                ).isoformat()
+                failed_count = job_svc.count_jobs(status="failed", since=since_1h)
+                if failed_count >= 3:
+                    # Only notify once per hour
+                    last_fail_notif = getattr(self, "_last_failed_jobs_notif_hour", -1)
+                    current_hour = datetime.now(timezone.utc).hour
+                    if last_fail_notif != current_hour:
+                        await notif_svc.send(
+                            title="Opakované chyby jobů",
+                            body=f"{failed_count} jobů selhalo v poslední hodině.",
+                            level="warning",
+                            source="resident_agent",
+                            importance=8,
+                        )
+                        self._last_failed_jobs_notif_hour = current_hour
+            except Exception as exc:
+                logger.debug("Failed jobs notification check error: %s", exc)
+
+        except Exception as exc:
+            logger.debug("Notification trigger check error: %s", exc)
+
+    async def _digest_tick(self) -> None:
+        """Send a daily digest notification once per day at the configured hour."""
+        import os
+
+        if os.environ.get("NOTIFICATIONS_ENABLED", "true").lower() == "false":
+            return
+        if os.environ.get("RESIDENT_DAILY_DIGEST_ENABLED", "true").lower() != "true":
+            return
+
+        digest_hour = int(os.environ.get("RESIDENT_DAILY_DIGEST_HOUR", "18"))
+        now = datetime.now(timezone.utc)
+        current_hour = now.hour
+
+        if current_hour != digest_hour:
+            return
+
+        # Ensure max once per 23 hours
+        last_digest = getattr(self, "_last_digest_at", None)
+        if last_digest:
+            elapsed = (now - last_digest).total_seconds()
+            if elapsed < 23 * 3600:
+                return
+
+        try:
+            from app.services.job_service import get_job_service
+            from app.services.notification_service import get_notification_service
+            from datetime import timedelta
+
+            job_svc = get_job_service()
+            notif_svc = get_notification_service()
+            since_24h = (now - timedelta(hours=24)).isoformat()
+            stats = job_svc.get_stats_since(since_24h)
+
+            succeeded = int(stats.get("tasks_total", 0) * stats.get("success_rate", 0))
+            failed = job_svc.count_jobs(status="failed", since=since_24h)
+
+            # Closed curiosity items
+            closed_curiosity = 0
+            try:
+                from app.services.resident_curiosity import get_curiosity_service
+
+                curiosity_svc = get_curiosity_service()
+                closed_items = curiosity_svc.list_items(status="closed", limit=100)
+                # Filter to last 24h
+                closed_curiosity = sum(
+                    1 for item in closed_items
+                    if getattr(item, "closed_at", "") >= since_24h
+                )
+            except Exception:
+                pass
+
+            date_str = now.strftime("%d.%m.%Y")
+            body_parts = [
+                f"Ticků: {self._state.tick_count}",
+                f"Joby: {succeeded} úspěšných, {failed} selhalo",
+                f"Curiosity uzavřeno: {closed_curiosity}",
+            ]
+
+            # Top 2 thoughts by importance
+            try:
+                from app.services.memory_service import get_memory_service
+
+                mem = get_memory_service()
+                recent_mems = await mem.search_memory("resident thought", top_k=5)
+                top_thoughts = sorted(
+                    recent_mems,
+                    key=lambda m: getattr(m, "importance", 0),
+                    reverse=True,
+                )[:2]
+                for t in top_thoughts:
+                    text = getattr(t, "text", "")[:80]
+                    if text:
+                        body_parts.append(f"• {text}")
+            except Exception:
+                pass
+
+            body = "\n".join(body_parts)
+
+            await notif_svc.send(
+                title=f"Denní přehled – {date_str}",
+                body=body,
+                level="info",
+                source="resident_agent",
+                action_url="/resident",
+                importance=5,
+            )
+
+            # Store digest in memory
+            try:
+                from app.services.memory_service import get_memory_service
+
+                mem = get_memory_service()
+                await mem.add_memory(
+                    text=f"Daily digest {date_str}: {body}",
+                    tags=["resident", "decision"],
+                    source="resident_agent",
+                    importance=5,
+                )
+            except Exception:
+                pass
+
+            self._last_digest_at = now
+            logger.info("Daily digest sent for %s", date_str)
+
+        except Exception as exc:
+            logger.error("Daily digest failed: %s", exc)
 
     async def _summarize_old_memories(self) -> None:
         """Every 50 ticks, summarize old low-importance records into one summary."""
