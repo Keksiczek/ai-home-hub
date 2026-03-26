@@ -53,7 +53,7 @@ def _mock_deps():
 
 
 def test_chat_stream_ws_token_sequence(_mock_deps, client):
-    """WebSocket stream should send token → token → token → done."""
+    """WebSocket stream should send chat_chunk → chat_chunk → chat_chunk → final chunk."""
     with client.websocket_connect("/api/chat/stream") as ws:
         ws.send_json({"message": "Hi", "mode": "general"})
 
@@ -61,22 +61,26 @@ def test_chat_stream_ws_token_sequence(_mock_deps, client):
         while True:
             data = ws.receive_json()
             messages.append(data)
-            if data.get("type") in ("done", "error"):
+            if data.get("type") == "error" or data.get("is_final"):
                 break
 
-    # Should have 3 tokens + 1 done
-    token_msgs = [m for m in messages if m["type"] == "token"]
-    done_msgs = [m for m in messages if m["type"] == "done"]
+    # Should have 3 streaming chunks + 1 final chunk
+    stream_msgs = [
+        m for m in messages if m["type"] == "chat_chunk" and not m.get("is_final")
+    ]
+    final_msgs = [
+        m for m in messages if m["type"] == "chat_chunk" and m.get("is_final")
+    ]
 
-    assert len(token_msgs) == 3
-    assert token_msgs[0]["content"] == "Hello"
-    assert token_msgs[1]["content"] == " "
-    assert token_msgs[2]["content"] == "World"
+    assert len(stream_msgs) == 3
+    assert stream_msgs[0]["delta"]["plain_text"] == "Hello"
+    assert stream_msgs[1]["delta"]["plain_text"] == " "
+    assert stream_msgs[2]["delta"]["plain_text"] == "World"
 
-    assert len(done_msgs) == 1
-    assert "meta" in done_msgs[0]
-    assert done_msgs[0]["meta"]["session_id"] == "test-ws"
-    assert done_msgs[0]["meta"]["provider"] == "ollama"
+    assert len(final_msgs) == 1
+    assert "meta" in final_msgs[0]
+    assert final_msgs[0]["meta"]["session_id"] == "test-ws"
+    assert final_msgs[0]["meta"]["provider"] == "ollama"
 
 
 def test_chat_stream_ws_empty_message(_mock_deps, client):

@@ -43,12 +43,12 @@ async def test_empty_response_triggers_retry():
 
     call_count = 0
 
-    async def _fake_call(ollama_url, payload, timeout):
+    async def _fake_call(ollama_url, payload, timeout, *, api_path="/api/chat"):
         nonlocal call_count
         call_count += 1
         if call_count <= 1:
-            return ""  # First call returns empty
-        return "Actual response"
+            return "", {}  # First call returns empty
+        return "Actual response", {}
 
     with patch(
         "app.services.llm_service._call_ollama_with_retry", side_effect=_fake_call
@@ -67,8 +67,8 @@ async def test_empty_response_fallback_after_retries():
     """After 2 retries still empty, return fallback message."""
     from app.services.llm_service import LLMService
 
-    async def _always_empty(ollama_url, payload, timeout):
-        return ""
+    async def _always_empty(ollama_url, payload, timeout, *, api_path="/api/chat"):
+        return "", {}
 
     with patch(
         "app.services.llm_service._call_ollama_with_retry", side_effect=_always_empty
@@ -168,10 +168,10 @@ async def test_auto_translate_disabled():
 
     call_count = 0
 
-    async def _fake_call(ollama_url, payload, timeout):
+    async def _fake_call(ollama_url, payload, timeout, *, api_path="/api/chat"):
         nonlocal call_count
         call_count += 1
-        return english_reply
+        return english_reply, {}
 
     mock_svc = MagicMock()
     mock_svc.get_llm_config.return_value = {

@@ -7,7 +7,7 @@ import pytest
 
 @pytest.fixture
 def _mock_services():
-    """Mock LLM and session services for model switching tests."""
+    """Mock LLM, session, and job services for model switching tests."""
     mock_session_svc = MagicMock()
     mock_session_svc.session_exists.return_value = True
     mock_session_svc.get_history_for_llm.return_value = []
@@ -18,6 +18,12 @@ def _mock_services():
     mock_llm_svc.generate = AsyncMock(
         return_value=("reply", {"provider": "ollama", "model": "llama3.2"})
     )
+
+    # Mock job service to capture the created job payload
+    mock_job = MagicMock()
+    mock_job.id = "test-job-id"
+    mock_job_svc = MagicMock()
+    mock_job_svc.create_job.return_value = mock_job
 
     async def _fake_enrich(msg, **kw):
         return msg, {
@@ -30,16 +36,17 @@ def _mock_services():
         patch("app.routers.chat.get_session_service", return_value=mock_session_svc),
         patch("app.routers.chat.get_llm_service", return_value=mock_llm_svc),
         patch("app.routers.chat.enrich_message", side_effect=_fake_enrich),
+        patch("app.services.job_service.get_job_service", return_value=mock_job_svc),
     ]
     for p in patches:
         p.start()
-    yield {"llm": mock_llm_svc, "session": mock_session_svc}
+    yield {"llm": mock_llm_svc, "session": mock_session_svc, "job": mock_job_svc}
     for p in patches:
         p.stop()
 
 
 def test_model_override_in_request(_mock_services, client):
-    """Model field in ChatRequest should override the profile default."""
+    """Model field in ChatRequest should be passed through to the job payload."""
     resp = client.post(
         "/api/chat",
         json={
@@ -48,11 +55,12 @@ def test_model_override_in_request(_mock_services, client):
             "model": "mistral:7b",
         },
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 202
 
-    # Verify generate was called with model_override
-    call_kwargs = _mock_services["llm"].generate.call_args
-    assert call_kwargs.kwargs.get("model_override") == "mistral:7b"
+    # Verify model_override is in the job payload
+    call_kwargs = _mock_services["job"].create_job.call_args
+    payload = call_kwargs.kwargs.get("payload") or call_kwargs[1].get("payload")
+    assert payload["model_override"] == "mistral:7b"
 
 
 def test_session_model_override_used_when_no_request_model(_mock_services, client):
@@ -66,10 +74,11 @@ def test_session_model_override_used_when_no_request_model(_mock_services, clien
             "session_id": "test-session",
         },
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 202
 
-    call_kwargs = _mock_services["llm"].generate.call_args
-    assert call_kwargs.kwargs.get("model_override") == "gemma2:9b"
+    call_kwargs = _mock_services["job"].create_job.call_args
+    payload = call_kwargs.kwargs.get("payload") or call_kwargs[1].get("payload")
+    assert payload["model_override"] == "gemma2:9b"
 
 
 def test_request_model_overrides_session_override(_mock_services, client):
@@ -84,10 +93,11 @@ def test_request_model_overrides_session_override(_mock_services, client):
             "model": "phi3:latest",
         },
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 202
 
-    call_kwargs = _mock_services["llm"].generate.call_args
-    assert call_kwargs.kwargs.get("model_override") == "phi3:latest"
+    call_kwargs = _mock_services["job"].create_job.call_args
+    payload = call_kwargs.kwargs.get("payload") or call_kwargs[1].get("payload")
+    assert payload["model_override"] == "phi3:latest"
 
 
 def test_no_model_override_passes_none(_mock_services, client):
@@ -99,10 +109,11 @@ def test_no_model_override_passes_none(_mock_services, client):
             "session_id": "test-session",
         },
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 202
 
-    call_kwargs = _mock_services["llm"].generate.call_args
-    assert call_kwargs.kwargs.get("model_override") is None
+    call_kwargs = _mock_services["job"].create_job.call_args
+    payload = call_kwargs.kwargs.get("payload") or call_kwargs[1].get("payload")
+    assert payload["model_override"] is None
 
 
 def test_session_model_override_set_and_get():
