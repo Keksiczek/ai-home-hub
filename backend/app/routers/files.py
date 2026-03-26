@@ -284,12 +284,5 @@ async def file_action(
         resolved.unlink()
         return {"status": "deleted", "path": str(resolved)}
 
-    elif type == "open_vscode":
-        from app.services.vscode_service import get_vscode_service
-
-        vscode_svc = get_vscode_service()
-        result = await vscode_svc.open_file(str(resolved))
-        return {"status": "opened", "path": str(resolved), "detail": result}
-
     else:
         raise HTTPException(status_code=400, detail=f"Unknown action type: {type}")
