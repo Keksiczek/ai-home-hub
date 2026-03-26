@@ -10,7 +10,6 @@ from app.models.schemas import OpenClawActionRequest, OpenClawActionResponse
 from app.services.openclaw_service import OpenClawService, get_openclaw_service
 from app.services.settings_service import get_settings_service
 from app.services.git_service import get_git_service
-from app.services.vscode_service import get_vscode_service
 from app.services.macos_service import get_macos_service
 from app.services.ws_manager import get_ws_manager
 
@@ -22,7 +21,6 @@ HISTORY_FILE = Path(__file__).parent.parent.parent / "data" / "actions_history.j
 # Map step service names to their singleton getters (services with run_action)
 _SERVICE_MAP = {
     "git": get_git_service,
-    "vscode": get_vscode_service,
     "macos": get_macos_service,
 }
 

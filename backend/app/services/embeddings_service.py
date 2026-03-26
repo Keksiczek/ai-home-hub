@@ -256,13 +256,24 @@ class EmbeddingsService:
         """Probe embedding endpoint availability and update enabled flag.
 
         Called during startup to eagerly detect whether embeddings work.
-        If the probe succeeds the service is enabled; otherwise it is disabled
-        with a clear log message.  Also detects and resolves Chroma dimension
-        mismatches (drop + recreate).
+        Runs a one-shot startup probe to determine the correct Ollama embed
+        endpoint (/api/embed vs /api/embeddings), caches it for the entire
+        runtime, and logs the result clearly.
+
+        Also detects and resolves Chroma dimension mismatches (drop + recreate).
         """
-        result = await self._fetch_embedding_from_ollama("health probe")
+        # Reset resolved endpoint so the probe tries both paths fresh
+        self._resolved_endpoint = None
+
+        result = await self._fetch_embedding_from_ollama("startup embed probe")
         if result is not None:
             self._enabled = True
+            logger.info(
+                "Ollama embed endpoint: %s (model=%s, dim=%s)",
+                self._resolved_endpoint or "unknown",
+                self._active_model or "unknown",
+                self._embedding_dim,
+            )
             # Verify Chroma collection dimension compatibility
             await self._verify_chroma_dim()
             return True

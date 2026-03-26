@@ -121,20 +121,6 @@ class MCPCallRequest(BaseModel):
     arguments: Dict[str, Any] = {}
 
 
-class VSCodeOpenProjectRequest(BaseModel):
-    project_key: str
-
-
-class VSCodeOpenFileRequest(BaseModel):
-    file_path: str
-    line: Optional[int] = None
-
-
-class VSCodeRunTaskRequest(BaseModel):
-    project_key: str
-    task_name: str
-
-
 class GitOperationRequest(BaseModel):
     repo_path: str
     message: Optional[str] = None
@@ -144,11 +130,6 @@ class GitOperationRequest(BaseModel):
 class MacOSActionRequest(BaseModel):
     action: str  # safari_open | mail_send | volume_set | sleep_display | finder_open | quit_app
     params: Dict[str, Any] = {}
-
-
-class AntigravityAgentRequest(BaseModel):
-    prompt: str
-    workspace: Optional[str] = None
 
 
 # ── Filesystem ──────────────────────────────────────────────

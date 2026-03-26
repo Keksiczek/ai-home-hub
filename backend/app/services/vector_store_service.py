@@ -11,6 +11,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+# Suppress ChromaDB PostHog telemetry before import – chromadb==0.4.x has a
+# bug where Settings(anonymized_telemetry=False) alone is not enough and the
+# PostHog capture() call still fires, spamming logs with errors.
+os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
+
 import chromadb
 from chromadb.config import Settings
 

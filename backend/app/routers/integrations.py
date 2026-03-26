@@ -7,22 +7,16 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.utils.auth import verify_api_key
 
 from app.models.schemas import (
-    AntigravityAgentRequest,
     GitOperationRequest,
     MacOSActionRequest,
     MCPCallRequest,
     NotificationRequest,
-    VSCodeOpenProjectRequest,
-    VSCodeRunTaskRequest,
-    VSCodeOpenFileRequest,
 )
-from app.services.antigravity_service import get_antigravity_service
 from app.services.claude_mcp_service import get_claude_mcp_service
 from app.services.git_service import get_git_service
 from app.services.macos_service import get_macos_service
 from app.services.notification_service import get_notification_service
 from app.services.openclaw_service import get_openclaw_service
-from app.services.vscode_service import get_vscode_service
 
 router = APIRouter()
 
@@ -42,96 +36,6 @@ async def mcp_available_tools() -> Dict[str, Any]:
     """List available MCP tools and connection status."""
     svc = get_claude_mcp_service()
     return svc.get_status()
-
-
-# ── VS Code ─────────────────────────────────────────────────
-
-
-@router.post("/integrations/vscode/open-project", tags=["integrations", "vscode"])
-async def vscode_open_project(body: VSCodeOpenProjectRequest) -> Dict[str, Any]:
-    """Open a configured project in VS Code."""
-    svc = get_vscode_service()
-    result = await svc.run_action("open_project", {"project_key": body.project_key})
-    if result.get("status") == "error":
-        raise HTTPException(status_code=400, detail=result["detail"])
-    return result
-
-
-@router.post("/integrations/vscode/open-file", tags=["integrations", "vscode"])
-async def vscode_open_file(body: VSCodeOpenFileRequest) -> Dict[str, Any]:
-    """Open a specific file (optionally at a line number) in VS Code."""
-    svc = get_vscode_service()
-    result = await svc.run_action(
-        "open_file", {"file_path": body.file_path, "line": body.line}
-    )
-    return result
-
-
-@router.post("/integrations/vscode/run-task", tags=["integrations", "vscode"])
-async def vscode_run_task(body: VSCodeRunTaskRequest) -> Dict[str, Any]:
-    """Execute a VS Code task in a configured project."""
-    svc = get_vscode_service()
-    result = await svc.run_action(
-        "run_task", {"project_key": body.project_key, "task_name": body.task_name}
-    )
-    return result
-
-
-@router.get("/integrations/vscode/diagnostics", tags=["integrations", "vscode"])
-async def vscode_diagnostics(project_key: str) -> Dict[str, Any]:
-    """Get diagnostic information for a project."""
-    svc = get_vscode_service()
-    return await svc.get_diagnostics(project_key)
-
-
-@router.get("/integrations/vscode/projects", tags=["integrations", "vscode"])
-async def vscode_projects() -> Dict[str, Any]:
-    """List all configured VS Code projects."""
-    svc = get_vscode_service()
-    return {"projects": svc.list_projects()}
-
-
-@router.get("/integrations/vscode/version", tags=["integrations", "vscode"])
-async def vscode_version() -> Dict[str, Any]:
-    """Return VS Code version."""
-    svc = get_vscode_service()
-    version = await svc.get_version()
-    return {"version": version}
-
-
-# ── Antigravity ─────────────────────────────────────────────
-
-
-@router.post(
-    "/integrations/antigravity/start-agent", tags=["integrations", "antigravity"]
-)
-async def antigravity_start_agent(body: AntigravityAgentRequest) -> Dict[str, Any]:
-    """Start an Antigravity agent task."""
-    svc = get_antigravity_service()
-    return await svc.start_agent_task(body.prompt, body.workspace)
-
-
-@router.get(
-    "/integrations/antigravity/agent-status", tags=["integrations", "antigravity"]
-)
-async def antigravity_agent_status(task_id: str) -> Dict[str, Any]:
-    """Check Antigravity agent progress."""
-    svc = get_antigravity_service()
-    return await svc.get_agent_status(task_id)
-
-
-@router.get("/integrations/antigravity/artifacts", tags=["integrations", "antigravity"])
-async def antigravity_artifacts(task_id: str) -> Dict[str, Any]:
-    """Retrieve artifacts from an Antigravity task."""
-    svc = get_antigravity_service()
-    return await svc.retrieve_artifacts(task_id)
-
-
-@router.get("/integrations/antigravity/health", tags=["integrations", "antigravity"])
-async def antigravity_health() -> Dict[str, Any]:
-    """Check if Antigravity IDE API is reachable."""
-    svc = get_antigravity_service()
-    return await svc.check_health()
 
 
 # ── Mac OS ──────────────────────────────────────────────────
