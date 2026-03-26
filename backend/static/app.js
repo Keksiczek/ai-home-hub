@@ -218,6 +218,7 @@ document.addEventListener('DOMContentLoaded', () => {
   bindFilesManager();
   bindCustomProfileBtn();
   initWebSocket();
+  initNotifications();
   checkSetupStatus();
   bindMobileDragDrop();
   loadVersionFromHealth();
@@ -458,7 +459,7 @@ function setWsStatus(state) {
 
 function handleWsMessage(msg) {
   if (msg.type === 'agent_update') updateAgentCard(msg.agent);
-  else if (msg.type === 'notification') showToast(msg.message, 'info');
+  else if (msg.type === 'notification') handleNotificationWs(msg);
   else if (msg.type === 'ingest_progress') handleIngestProgress(msg);
   else if (msg.type === 'job_update') handleJobUpdate(msg.job);
   else if (msg.type === 'status_alert') handleStatusAlert(msg);
@@ -11255,6 +11256,170 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Initialize marketplace events on DOM ready
 document.addEventListener('DOMContentLoaded', bindMarketplaceEvents);
+
+/* ============================================================
+   NOTIFICATIONS – bell icon, dropdown, WS handler
+   ============================================================ */
+const _notifications = [];
+
+function initNotifications() {
+  const bellBtn = document.getElementById('notif-bell-btn');
+  const dropdown = document.getElementById('notif-dropdown');
+  const readAllBtn = document.getElementById('notif-read-all-btn');
+
+  if (!bellBtn) return;
+
+  bellBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const visible = dropdown.style.display !== 'none';
+    dropdown.style.display = visible ? 'none' : 'flex';
+    if (!visible) _renderNotifDropdown();
+  });
+
+  if (readAllBtn) {
+    readAllBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      try {
+        await fetch('/api/notifications/read-all', { method: 'POST' });
+        _notifications.forEach(n => n.read = true);
+        _updateNotifBadge();
+        _renderNotifDropdown();
+      } catch (err) { /* ignore */ }
+    });
+  }
+
+  // Close dropdown on click outside
+  document.addEventListener('click', (e) => {
+    const wrap = document.getElementById('notif-bell-wrap');
+    if (wrap && !wrap.contains(e.target)) {
+      dropdown.style.display = 'none';
+    }
+  });
+
+  // Fetch initial unread notifications
+  _fetchNotifications();
+}
+
+async function _fetchNotifications() {
+  try {
+    const res = await fetch('/api/notifications?unread_only=true&limit=20');
+    if (!res.ok) return;
+    const data = await res.json();
+    _notifications.length = 0;
+    (data.notifications || []).forEach(n => _notifications.push(n));
+    _updateNotifBadge();
+  } catch (err) { /* ignore */ }
+}
+
+function handleNotificationWs(msg) {
+  // Add to local array (newest first)
+  _notifications.unshift({
+    id: msg.id,
+    title: msg.title || '',
+    body: msg.body || msg.message || '',
+    level: msg.level || 'info',
+    source: msg.source || 'system',
+    action_url: msg.action_url || null,
+    importance: msg.importance || 5,
+    read: false,
+    created_at: msg.created_at || new Date().toISOString(),
+  });
+  // Keep max 50 in memory
+  if (_notifications.length > 50) _notifications.length = 50;
+  _updateNotifBadge();
+  // Shake animation
+  const bellBtn = document.getElementById('notif-bell-btn');
+  if (bellBtn) {
+    bellBtn.classList.add('notif-bell-btn--shake');
+    setTimeout(() => bellBtn.classList.remove('notif-bell-btn--shake'), 700);
+  }
+  // If dropdown is visible, re-render
+  const dropdown = document.getElementById('notif-dropdown');
+  if (dropdown && dropdown.style.display !== 'none') {
+    _renderNotifDropdown();
+  }
+  // Also show a toast for high-importance notifications
+  if (msg.importance >= 7) {
+    showToast(msg.title || msg.body || 'Nová notifikace', 'info');
+  }
+}
+
+function _updateNotifBadge() {
+  const badge = document.getElementById('notif-badge');
+  if (!badge) return;
+  const unread = _notifications.filter(n => !n.read).length;
+  if (unread > 0) {
+    badge.textContent = unread > 99 ? '99+' : String(unread);
+    badge.style.display = 'flex';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function _renderNotifDropdown() {
+  const list = document.getElementById('notif-dropdown-list');
+  if (!list) return;
+
+  const items = _notifications.slice(0, 10);
+  if (items.length === 0) {
+    list.innerHTML = '<div class="notif-empty">Žádné notifikace</div>';
+    return;
+  }
+
+  const levelIcons = { warning: '\u26A0\uFE0F', alert: '\u26A0\uFE0F', insight: '\uD83D\uDCA1', info: '\u2139\uFE0F' };
+
+  list.innerHTML = items.map(n => {
+    const icon = levelIcons[n.level] || levelIcons.info;
+    const unreadCls = n.read ? '' : ' notif-item--unread';
+    const bodyTrunc = (n.body || '').length > 80 ? n.body.substring(0, 80) + '…' : (n.body || '');
+    const timeStr = _relativeTime(n.created_at);
+    return `<div class="notif-item${unreadCls}" data-notif-id="${escHtml(n.id)}" data-action-url="${escHtml(n.action_url || '')}">
+      <span class="notif-item-icon">${icon}</span>
+      <div class="notif-item-content">
+        <div class="notif-item-title">${escHtml(n.title)}</div>
+        <div class="notif-item-body">${escHtml(bodyTrunc)}</div>
+        <div class="notif-item-time">${escHtml(timeStr)}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Bind click handlers
+  list.querySelectorAll('.notif-item').forEach(el => {
+    el.addEventListener('click', async () => {
+      const nid = el.dataset.notifId;
+      const url = el.dataset.actionUrl;
+      // Mark as read
+      try {
+        await fetch(`/api/notifications/${nid}/read`, { method: 'POST' });
+        const notif = _notifications.find(n => n.id === nid);
+        if (notif) notif.read = true;
+        _updateNotifBadge();
+        el.classList.remove('notif-item--unread');
+      } catch (err) { /* ignore */ }
+      // Navigate if action_url exists
+      if (url) {
+        const tabMatch = url.match(/^\/?(\w[\w-]*)/);
+        if (tabMatch) {
+          const tab = tabMatch[1];
+          const navBtn = document.querySelector(`.nav-item[data-tab="${tab}"]`);
+          if (navBtn) navBtn.click();
+        }
+      }
+      document.getElementById('notif-dropdown').style.display = 'none';
+    });
+  });
+}
+
+function _relativeTime(isoStr) {
+  if (!isoStr) return '';
+  try {
+    const diff = (Date.now() - new Date(isoStr).getTime()) / 1000;
+    if (diff < 60) return 'právě teď';
+    if (diff < 3600) return `před ${Math.floor(diff / 60)} min`;
+    if (diff < 86400) return `před ${Math.floor(diff / 3600)} h`;
+    return `před ${Math.floor(diff / 86400)} d`;
+  } catch (e) { return ''; }
+}
 
 // ── Auto-Cleanup Settings ─────────────────────────────────────────────────
 

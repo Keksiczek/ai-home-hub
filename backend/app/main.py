@@ -38,6 +38,7 @@ from app.routers import capabilities as capabilities_router
 from app.routers import cleanup as cleanup_router
 from app.routers import alerting as alerting_router
 from app.routers import control as control_router
+from app.routers import notifications as notifications_router
 
 # Wire up broadcast callback so agents/tasks can push WS updates
 from app.services.ws_manager import get_ws_manager
@@ -133,6 +134,11 @@ async def lifespan(app: FastAPI):
     resource_mon.set_broadcast(ws_manager.broadcast)
     resource_task = resource_mon.start()
     _supervisor.register("resource_monitor", resource_task, resource_mon.start)
+
+    # Notification service – initialize singleton with WS broadcast
+    from app.services.notification_service import get_notification_service
+
+    get_notification_service().set_broadcast(ws_manager.broadcast)
 
     # Resident agent – initialize singleton, does NOT auto-start (waits for API call)
     from app.services.resident_agent import get_resident_agent
@@ -304,6 +310,7 @@ app.include_router(capabilities_router.router, prefix="/api", tags=["capabilitie
 app.include_router(cleanup_router.router, prefix="/api", tags=["cleanup"])
 app.include_router(alerting_router.router, prefix="/api", tags=["alerting"])
 app.include_router(control_router.router, prefix="/api", tags=["control"])
+app.include_router(notifications_router.router, prefix="/api", tags=["notifications"])
 
 # Status (has its own /api/status prefix)
 app.include_router(status.router)

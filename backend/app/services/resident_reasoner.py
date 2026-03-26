@@ -107,6 +107,12 @@ memory_search, create_mission, system_status, no_op, web_search, send_notificati
                  nebo chceš zjistit aktuální informace mimo KB.
                  NIKDY nepoužívej pro osobní data nebo interní systémy.
 
+- send_notification → pošli mi přímou zprávu
+                 params: {"title": "...", "body": "...", "level": "info|warning|insight"}
+                 Použij POUZE pokud jsi zjistil něco konkrétního a důležitého (importance >= 7).
+                 NIKDY po routine checku, nikdy jen proto, že jsi dokončil tick.
+                 Max 3x za hodinu.
+
 PRAVIDLA:
 - Max 3 akce najednou.
 - Každá akce musí mít: action, title, requires_confirmation.
