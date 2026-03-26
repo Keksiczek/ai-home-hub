@@ -271,6 +271,18 @@ class ToolsMixin:
             return {"action": "write_memory", "memory_id": memory_id}
 
         elif action == "create_mission":
+            # Budget check: missions per day
+            if not self._can_create_mission():
+                self._add_log(
+                    "WARN", "throttled_missions_daily_limit",
+                    missions_today=self._missions_today,
+                )
+                return {
+                    "action": "create_mission",
+                    "blocked": True,
+                    "reason": "Daily mission limit reached",
+                }
+
             from app.services.job_service import get_job_service
 
             job_svc = get_job_service()
@@ -290,6 +302,7 @@ class ToolsMixin:
                 },
                 priority="normal",
             )
+            self._record_mission_created()
             return {"action": "create_mission", "job_id": job.id, "goal": goal}
 
         elif action == "system_status":

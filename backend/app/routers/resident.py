@@ -1138,10 +1138,11 @@ async def get_thought_log(
                 "id": e.get("id", ""),
                 "timestamp": e.get("timestamp", e.get("created_at", "")),
                 "category": next(
-                    (t for t in e.get("tags", []) if t in ("thought", "decision")),
+                    (t for t in e.get("tags", []) if t in ("thought", "decision", "observation")),
                     "thought",
                 ),
                 "content": str(e.get("text", e.get("content", "")))[:300],
+                "importance": e.get("importance", 0),
             }
             for e in unique
         ],

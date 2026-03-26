@@ -194,6 +194,22 @@ METRICS_CACHE_TTL_S = 60  # 1 minute
 # Performance: KB reindex cooldown
 KB_REINDEX_COOLDOWN_S = 300  # 5 minutes
 
+# ── Budget / rate limits ──────────────────────────────────────────────
+import os as _os
+
+RESIDENT_MAX_LLM_CALLS_PER_HOUR = int(
+    _os.environ.get("RESIDENT_MAX_LLM_CALLS_PER_HOUR", "20")
+)
+RESIDENT_MAX_MISSIONS_PER_DAY = int(
+    _os.environ.get("RESIDENT_MAX_MISSIONS_PER_DAY", "5")
+)
+RESIDENT_MAX_ANALYSIS_JOBS_PER_HOUR = int(
+    _os.environ.get("RESIDENT_MAX_ANALYSIS_JOBS_PER_HOUR", "10")
+)
+RESIDENT_LLM_COOLDOWN_AFTER_FAIL_S = int(
+    _os.environ.get("RESIDENT_LLM_COOLDOWN_AFTER_FAIL_S", "120")
+)
+
 WS_EVENT_RESIDENT_SUGGESTION = "resident_suggestion"
 
 
@@ -304,6 +320,14 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         self._pending_actions: List[dict] = []
         # Proactive action round-robin index
         self._proactive_action_index: int = 0
+        # Budget / rate limit counters
+        self._llm_calls_this_hour: int = 0
+        self._llm_calls_reset_at: float = time.monotonic() + 3600
+        self._missions_today: int = 0
+        self._missions_reset_date: str = ""
+        self._analysis_jobs_this_hour: int = 0
+        self._analysis_jobs_reset_at: float = time.monotonic() + 3600
+        self._llm_last_fail_at: float = 0.0
 
     def set_broadcast(self, fn: Callable) -> None:
         """Register a coroutine for broadcasting WebSocket messages."""
@@ -619,11 +643,83 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             "cooldowns": cooldown_status,
         }
 
+    # ── Budget / rate limit helpers ──────────────────────────────────────
+
+    def _refresh_budget_counters(self) -> None:
+        """Reset hourly/daily budget counters when their window expires."""
+        now = time.monotonic()
+        if now >= self._llm_calls_reset_at:
+            self._llm_calls_this_hour = 0
+            self._llm_calls_reset_at = now + 3600
+        if now >= self._analysis_jobs_reset_at:
+            self._analysis_jobs_this_hour = 0
+            self._analysis_jobs_reset_at = now + 3600
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if self._missions_reset_date != today:
+            self._missions_today = 0
+            self._missions_reset_date = today
+
+    def _can_llm_call(self) -> bool:
+        """Check if an LLM call is within budget and cooldown."""
+        self._refresh_budget_counters()
+        # Cooldown after LLM failure
+        if self._llm_last_fail_at > 0:
+            elapsed = time.monotonic() - self._llm_last_fail_at
+            if elapsed < RESIDENT_LLM_COOLDOWN_AFTER_FAIL_S:
+                return False
+        return self._llm_calls_this_hour < RESIDENT_MAX_LLM_CALLS_PER_HOUR
+
+    def _record_llm_call(self) -> None:
+        self._refresh_budget_counters()
+        self._llm_calls_this_hour += 1
+        try:
+            from app.services.metrics_service import resident_llm_calls_total
+            resident_llm_calls_total.inc()
+        except Exception:
+            pass
+
+    def _record_llm_fail(self) -> None:
+        self._llm_last_fail_at = time.monotonic()
+
+    def _can_create_mission(self) -> bool:
+        self._refresh_budget_counters()
+        return self._missions_today < RESIDENT_MAX_MISSIONS_PER_DAY
+
+    def _record_mission_created(self) -> None:
+        self._refresh_budget_counters()
+        self._missions_today += 1
+        try:
+            from app.services.metrics_service import resident_missions_created_total
+            resident_missions_created_total.inc()
+        except Exception:
+            pass
+
+    def _can_analysis_job(self) -> bool:
+        self._refresh_budget_counters()
+        return self._analysis_jobs_this_hour < RESIDENT_MAX_ANALYSIS_JOBS_PER_HOUR
+
+    def _record_analysis_job(self) -> None:
+        self._refresh_budget_counters()
+        self._analysis_jobs_this_hour += 1
+
+    def get_budget_status(self) -> dict:
+        """Return current budget counters for the API."""
+        self._refresh_budget_counters()
+        return {
+            "llm_calls_this_hour": self._llm_calls_this_hour,
+            "llm_calls_limit": RESIDENT_MAX_LLM_CALLS_PER_HOUR,
+            "missions_today": self._missions_today,
+            "missions_limit": RESIDENT_MAX_MISSIONS_PER_DAY,
+            "analysis_jobs_this_hour": self._analysis_jobs_this_hour,
+            "analysis_jobs_limit": RESIDENT_MAX_ANALYSIS_JOBS_PER_HOUR,
+        }
+
     def get_state(self) -> dict:
         d = self._state.to_dict()
         d["paused"] = self._paused
         d["quiet_hours_active"] = self._is_quiet_hours()
         d["agent_settings"] = self._agent_settings.to_dict()
+        d["budget"] = self.get_budget_status()
         return d
 
     def get_uptime_seconds(self) -> float:
@@ -1041,10 +1137,20 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         if mode == "observer":
             return
 
+        # Budget check: LLM calls per hour
+        if not self._can_llm_call():
+            self._add_log(
+                "WARN", "throttled_llm_hourly_limit",
+                llm_calls=self._llm_calls_this_hour,
+                limit=RESIDENT_MAX_LLM_CALLS_PER_HOUR,
+            )
+            return
+
         try:
             from app.services.resident_reasoner import get_resident_reasoner
 
             reasoner = get_resident_reasoner()
+            self._record_llm_call()
             suggestion = await reasoner.generate_suggestions(mode)
             if suggestion is None:
                 return
@@ -1074,6 +1180,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                 mode,
             )
         except Exception as exc:
+            self._record_llm_fail()
             logger.error("Thought tick failed: %s", exc)
 
     async def _create_jobs_from_suggestions(self, suggestion, mode: str) -> None:
@@ -1082,10 +1189,31 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         In both advisor and autonomous modes, actions with requires_confirmation=False
         are turned into jobs automatically. In advisor mode, jobs are tagged with
         auto_from_suggestion=True for visibility.
+
+        Dedup: skips jobs if a job with the same action_type + title was created
+        in the last 30 minutes.
         """
         from app.services.job_service import get_job_service
 
         job_svc = get_job_service()
+
+        # Build dedup set: recent jobs (last 30 min) by action_type + title
+        recent_dedup_keys: set = set()
+        try:
+            from datetime import timedelta
+            since_30m = (
+                datetime.now(timezone.utc) - timedelta(minutes=30)
+            ).isoformat()
+            recent_jobs = job_svc.list_jobs(
+                type="resident_task", limit=50,
+            )
+            for rj in recent_jobs:
+                if rj.created_at and rj.created_at >= since_30m:
+                    rj_action = rj.payload.get("action_type", "")
+                    rj_title = rj.title
+                    recent_dedup_keys.add(f"{rj_action}:{rj_title}")
+        except Exception:
+            pass
 
         for action in suggestion.actions:
             if action.requires_confirmation:
@@ -1093,10 +1221,19 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
 
             # Map action fields – support both 'action' and 'action_type' from reasoner
             action_type = getattr(action, "action", None) or action.action_type
+            job_title = f"[Auto] {action.title}"
+
+            # Dedup check
+            dedup_key = f"{action_type}:{job_title}"
+            if dedup_key in recent_dedup_keys:
+                logger.info(
+                    "Skipped duplicate suggestion job: %s", action.title,
+                )
+                continue
 
             job = job_svc.create_job(
                 type="resident_task",
-                title=f"[Auto] {action.title}",
+                title=job_title,
                 input_summary=action.description[:300],
                 payload={
                     "action_type": action_type,
@@ -1107,6 +1244,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                 },
                 priority="normal",
             )
+            recent_dedup_keys.add(dedup_key)
             suggestion.executed_action_ids.append(action.id)
             logger.info(
                 "Created job from suggestion (mode=%s): %s (job=%s)",
@@ -1327,6 +1465,24 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
 
             curiosity_svc = get_curiosity_service()
 
+            # Update open items gauge for Prometheus
+            try:
+                from app.services.metrics_service import resident_curiosity_items_open
+                resident_curiosity_items_open.set(
+                    curiosity_svc.count_by_status("open")
+                )
+            except Exception:
+                pass
+
+            # Budget check: analysis jobs per hour
+            if not self._can_analysis_job():
+                self._add_log(
+                    "WARN", "throttled_analysis_hourly_limit",
+                    analysis_jobs=self._analysis_jobs_this_hour,
+                    limit=RESIDENT_MAX_ANALYSIS_JOBS_PER_HOUR,
+                )
+                return
+
             # WIP limit check
             in_progress_count = curiosity_svc.count_by_status("in_progress")
             if in_progress_count >= MAX_CURIOSITY_IN_PROGRESS:
@@ -1390,6 +1546,8 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                 priority="low",
             )
 
+            self._record_analysis_job()
+
             # Mark curiosity item as in_progress
             curiosity_svc.update_item_status(item.id, "in_progress")
 
@@ -1406,7 +1564,11 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             logger.error("Curiosity tick failed: %s", exc)
 
     async def _resolve_curiosity_from_job(self, job) -> None:
-        """Close the originating curiosity item after its analysis job finishes."""
+        """Close the originating curiosity item after its analysis job finishes.
+
+        On success: mark done, write decision memory, optionally create follow-up.
+        On failure: reset to open with high priority, write thought memory.
+        """
         curiosity_id = job.payload.get("curiosity_id")
         if not curiosity_id or job.type != "resident_task":
             return
@@ -1427,11 +1589,30 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                     curiosity_id, "done", resolution_summary=summary,
                 )
                 await mem.add_memory(
-                    text=f"[Thought] Dovyresil jsem curiosity '{item.title}': {summary}"[:200],
-                    tags=["resident", "thought", "curiosity"],
+                    text=(
+                        f"[Decision] Uzavrel jsem curiosity: {item.title}. "
+                        f"Vysledek: {summary[:100]}"
+                    )[:200],
+                    tags=["resident", "decision", "curiosity"],
                     source="resident_agent",
-                    importance=4,
+                    importance=6,
                 )
+                self._add_log(
+                    "INFO", "curiosity_resolved",
+                    curiosity_id=curiosity_id, title=item.title[:60],
+                    status="done",
+                )
+                try:
+                    from app.services.metrics_service import resident_curiosity_items_done_total
+                    resident_curiosity_items_done_total.inc()
+                except Exception:
+                    pass
+
+                # Follow-up: if output is rich, create a new curiosity item
+                self._maybe_create_followup_curiosity(
+                    curiosity_svc, item, summary,
+                )
+
             elif job.status == "failed":
                 curiosity_svc.update_item_status(curiosity_id, "open")
                 item_reloaded = curiosity_svc.get_item(curiosity_id)
@@ -1440,15 +1621,86 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                     curiosity_svc._save(item_reloaded)
                 await mem.add_memory(
                     text=(
-                        f"[Thought] Analyza curiosity '{item.title}' selhala, "
-                        "bude potreba to resit znovu nebo manualne."
+                        f"[Thought] Analyza curiosity '{item.title}' selhala. "
+                        "Bude potreba zkusit jinak nebo rucne."
                     )[:200],
                     tags=["resident", "thought", "curiosity"],
                     source="resident_agent",
-                    importance=5,
+                    importance=7,
+                )
+                self._add_log(
+                    "WARN", "curiosity_analysis_failed",
+                    curiosity_id=curiosity_id, title=item.title[:60],
                 )
         except Exception as exc:
             logger.debug("Failed to resolve curiosity from job: %s", exc)
+
+    @staticmethod
+    def _maybe_create_followup_curiosity(curiosity_svc, item, summary: str) -> None:
+        """Create a follow-up curiosity item if the analysis produced rich results."""
+        followup_keywords = (
+            "problém", "zjistil", "doporučení", "anomálie", "chyba",
+            "problem", "found", "recommend", "error", "warning",
+        )
+        if len(summary) > 100 and any(kw in summary.lower() for kw in followup_keywords):
+            try:
+                curiosity_svc.create_item(
+                    kind="idea",
+                    source="self_reflection",
+                    title=f"Navazující akce: {item.title}"[:120],
+                    detail=f"Na základě analýzy: {summary}"[:500],
+                    priority="medium",
+                    dedup_key=curiosity_svc.make_dedup_key(
+                        "self_reflection", "idea", item.id[:30],
+                    ),
+                )
+                logger.info(
+                    "Created follow-up curiosity from resolved item %s",
+                    item.id,
+                )
+            except Exception as exc:
+                logger.debug("Follow-up curiosity creation failed: %s", exc)
+
+    async def _cleanup_stale_curiosity(self) -> None:
+        """Reset curiosity items stuck in_progress for too long (>2h) back to open."""
+        try:
+            from app.services.resident_curiosity import get_curiosity_service
+            from app.services.job_service import get_job_service
+            from datetime import timedelta
+
+            curiosity_svc = get_curiosity_service()
+            job_svc = get_job_service()
+            stale_cutoff = (
+                datetime.now(timezone.utc) - timedelta(hours=2)
+            ).isoformat()
+
+            in_progress_items = curiosity_svc.list_items(
+                status="in_progress", limit=20,
+            )
+            for item in in_progress_items:
+                if item.updated_at > stale_cutoff:
+                    continue  # Not stale yet
+
+                # Check if related jobs are still running
+                has_running_job = False
+                for jid in item.related_job_ids:
+                    related_job = job_svc.get_job(jid)
+                    if related_job and related_job.status in ("queued", "running"):
+                        has_running_job = True
+                        break
+
+                if not has_running_job:
+                    curiosity_svc.update_item_status(item.id, "open")
+                    self._add_log(
+                        "WARN", "curiosity_stale_reset",
+                        curiosity_id=item.id, title=item.title[:60],
+                    )
+                    logger.warning(
+                        "Curiosity item %s was stale in_progress, reset to open",
+                        item.id,
+                    )
+        except Exception as exc:
+            logger.debug("Stale curiosity cleanup failed: %s", exc)
 
     async def _process_missions(self) -> None:
         """Process active resident_mission jobs – advance current step."""
@@ -2071,6 +2323,9 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         """Každých 5 minut (tick_count % 10 == 0) provede system check."""
         if self._state.tick_count % 10 != 0:
             return
+
+        # Cleanup stale curiosity items (in_progress > 2h without running job)
+        await self._cleanup_stale_curiosity()
 
         try:
             from app.services.resource_monitor import get_resource_monitor

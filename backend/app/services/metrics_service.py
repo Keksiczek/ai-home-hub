@@ -187,6 +187,27 @@ agent_memory_usage_bytes = Gauge(
     "Resident agent approximate in-memory state size in bytes",
 )
 
+# ── Resident budget metrics ──────────────────────────────────
+resident_llm_calls_total = Counter(
+    "resident_llm_calls_total",
+    "Total LLM calls made by resident agent",
+)
+
+resident_missions_created_total = Counter(
+    "resident_missions_created_total",
+    "Total missions created by resident agent",
+)
+
+resident_curiosity_items_open = Gauge(
+    "resident_curiosity_items_open",
+    "Number of open curiosity items",
+)
+
+resident_curiosity_items_done_total = Counter(
+    "resident_curiosity_items_done_total",
+    "Total curiosity items resolved (done)",
+)
+
 concurrent_agent_limit = Gauge(
     "concurrent_agent_limit",
     "Current vs max concurrent agents (label: current|max)",

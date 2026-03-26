@@ -5787,3 +5787,138 @@ details[open].reasoning-cycle-item > .reasoning-cycle-summary::before {
     width: 100%;
   }
 }
+
+/* ── Thought Feed (Deník agenta) ── */
+.resident-thought-feed {
+  max-height: 500px;
+  overflow-y: auto;
+  font-size: 0.88em;
+}
+
+.thought-feed-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  line-height: 1.5;
+}
+
+.thought-feed-item:last-child {
+  border-bottom: none;
+}
+
+.thought-feed-badge {
+  flex-shrink: 0;
+  font-size: 1.1em;
+}
+
+.thought-feed-time {
+  flex-shrink: 0;
+  color: #64748b;
+  font-size: 0.82em;
+  min-width: 60px;
+}
+
+.thought-feed-content {
+  color: #e2e8f0;
+  word-break: break-word;
+  flex: 1;
+}
+
+.thought-feed-importance {
+  flex-shrink: 0;
+  background: #f59e0b33;
+  color: #f59e0b;
+  font-size: 0.72em;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+
+/* ── Curiosity Feed ── */
+.resident-curiosity-feed {
+  max-height: 500px;
+  overflow-y: auto;
+  font-size: 0.88em;
+}
+
+.curiosity-feed-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  line-height: 1.5;
+}
+
+.curiosity-feed-item:last-child {
+  border-bottom: none;
+}
+
+.curiosity-feed-icon {
+  flex-shrink: 0;
+  font-size: 1.1em;
+}
+
+.curiosity-feed-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.curiosity-feed-title {
+  font-weight: 600;
+  color: #e2e8f0;
+  word-break: break-word;
+}
+
+.curiosity-feed-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 4px;
+  font-size: 0.82em;
+  color: #64748b;
+  flex-wrap: wrap;
+}
+
+.curiosity-priority-badge {
+  padding: 1px 7px;
+  border-radius: 8px;
+  font-size: 0.78em;
+  font-weight: 600;
+}
+
+.curiosity-priority-badge--high {
+  background: #ef444433;
+  color: #ef4444;
+}
+
+.curiosity-priority-badge--medium {
+  background: #eab30833;
+  color: #eab308;
+}
+
+.curiosity-status-chip {
+  padding: 1px 7px;
+  border-radius: 8px;
+  font-size: 0.78em;
+  font-weight: 600;
+  background: #334155;
+  color: #94a3b8;
+}
+
+.curiosity-status-chip--open {
+  background: #3b82f633;
+  color: #60a5fa;
+}
+
+.curiosity-status-chip--in_progress {
+  background: #f59e0b33;
+  color: #f59e0b;
+}
+
+.curiosity-status-chip--done {
+  background: #22c55e33;
+  color: #22c55e;
+}
