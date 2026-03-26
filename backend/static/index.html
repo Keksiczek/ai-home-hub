@@ -711,6 +711,68 @@
       <!-- Dashboard content -->
       <div id="resident-dashboard-content">
 
+        <!-- Agent Autonomy Dashboard Widgets -->
+        <div class="resident-autonomy-widgets" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <!-- Last Thought Widget -->
+          <div class="card" id="resident-last-thought-widget" style="margin:0">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <h3 class="card-title" style="font-size:0.95em;margin:0">Posledn&iacute; my&scaron;lenky agenta</h3>
+              <a href="#" onclick="event.preventDefault();showResidentTab('thoughts')" style="font-size:0.8em;color:var(--accent)">Zobrazit v&scaron;e &rarr;</a>
+            </div>
+            <div id="resident-last-thoughts-content" style="margin-top:8px">
+              <p class="empty-state" style="font-size:0.85em">&Zcaron;&aacute;dn&eacute; my&scaron;lenky</p>
+            </div>
+          </div>
+          <!-- Curiosity Backlog Widget -->
+          <div class="card" id="resident-curiosity-widget" style="margin:0">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <h3 class="card-title" style="font-size:0.95em;margin:0">Curiosity backlog</h3>
+              <a href="#" onclick="event.preventDefault();showResidentTab('curiosity')" style="font-size:0.8em;color:var(--accent)">Zobrazit v&scaron;e &rarr;</a>
+            </div>
+            <div id="resident-curiosity-widget-content" style="margin-top:8px">
+              <p class="empty-state" style="font-size:0.85em">&Zcaron;&aacute;dn&eacute; polo&zcaron;ky</p>
+            </div>
+          </div>
+          <!-- Budget Widget -->
+          <div class="card" id="resident-budget-widget" style="margin:0;grid-column:1/-1">
+            <h3 class="card-title" style="font-size:0.95em;margin:0">Budget agenta</h3>
+            <div id="resident-budget-widget-content" style="margin-top:8px;display:flex;gap:16px;flex-wrap:wrap;font-size:0.85em">
+              <span>Na&ccaron;&iacute;t&aacute;m...</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Thought Log + Curiosity Tabs -->
+        <section class="card" id="resident-autonomy-panel">
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <button class="btn btn--small" id="resident-tab-thoughts-btn" onclick="showResidentTab('thoughts')" style="font-weight:600">
+              &#128173; Den&iacute;k agenta
+            </button>
+            <button class="btn btn--ghost btn--small" id="resident-tab-curiosity-btn" onclick="showResidentTab('curiosity')">
+              &#128270; Curiosity backlog
+            </button>
+          </div>
+
+          <!-- Thought Log Tab -->
+          <div id="resident-tab-thoughts" style="margin-top:12px">
+            <div id="resident-thought-feed" class="resident-thought-feed">
+              <p class="empty-state">&Zcaron;&aacute;dn&eacute; z&aacute;znamy</p>
+            </div>
+          </div>
+
+          <!-- Curiosity Tab -->
+          <div id="resident-tab-curiosity" style="margin-top:12px;display:none">
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+              <label style="font-size:0.85em"><input type="checkbox" id="curiosity-filter-open" checked onchange="loadCuriosityList()"> open</label>
+              <label style="font-size:0.85em"><input type="checkbox" id="curiosity-filter-in-progress" checked onchange="loadCuriosityList()"> in_progress</label>
+              <label style="font-size:0.85em"><input type="checkbox" id="curiosity-filter-done" onchange="loadCuriosityList()"> done</label>
+            </div>
+            <div id="resident-curiosity-feed" class="resident-curiosity-feed">
+              <p class="empty-state">&Zcaron;&aacute;dn&eacute; polo&zcaron;ky</p>
+            </div>
+          </div>
+        </section>
+
         <!-- KB warning -->
         <div id="resident-kb-warning" class="hidden" style="background:var(--warning-soft,#7c6a0033);color:var(--warning,#eab308);padding:8px 12px;border-radius:8px;margin-bottom:8px;font-size:0.9em"></div>
 

@@ -6023,6 +6023,13 @@ function renderResidentDashboard(data) {
   updateResidentModeHint(data.resident_mode || 'advisor');
   renderResidentAutoLogbook(data);
 
+  // Agent autonomy panels: thought log, curiosity, budget widgets
+  loadThoughtFeed();
+  loadCuriosityList();
+  renderLastThoughtsWidget();
+  renderCuriosityWidget();
+  renderBudgetWidget();
+
   // Brain orchestrator sections
   renderResidentSuggestions(data);
   renderResidentProposals();
@@ -6036,6 +6043,242 @@ function renderResidentDashboard(data) {
   } else if (data.status === 'stopped' && _residentEventSource) {
     _residentEventSource.close();
     _residentEventSource = null;
+  }
+}
+
+/* ── Agent Autonomy UI: Thought Log + Curiosity List + Widgets ── */
+
+let _thoughtFeedData = [];
+let _curiosityFeedData = [];
+let _thoughtAutoRefreshTimer = null;
+
+function showResidentTab(tab) {
+  const thoughtsTab = document.getElementById('resident-tab-thoughts');
+  const curiosityTab = document.getElementById('resident-tab-curiosity');
+  const thoughtsBtn = document.getElementById('resident-tab-thoughts-btn');
+  const curiosityBtn = document.getElementById('resident-tab-curiosity-btn');
+  if (!thoughtsTab || !curiosityTab) return;
+
+  if (tab === 'thoughts') {
+    thoughtsTab.style.display = '';
+    curiosityTab.style.display = 'none';
+    if (thoughtsBtn) { thoughtsBtn.className = 'btn btn--small'; thoughtsBtn.style.fontWeight = '600'; }
+    if (curiosityBtn) { curiosityBtn.className = 'btn btn--ghost btn--small'; curiosityBtn.style.fontWeight = ''; }
+    loadThoughtFeed();
+  } else {
+    thoughtsTab.style.display = 'none';
+    curiosityTab.style.display = '';
+    if (thoughtsBtn) { thoughtsBtn.className = 'btn btn--ghost btn--small'; thoughtsBtn.style.fontWeight = ''; }
+    if (curiosityBtn) { curiosityBtn.className = 'btn btn--small'; curiosityBtn.style.fontWeight = '600'; }
+    loadCuriosityList();
+  }
+}
+
+async function loadThoughtFeed() {
+  const container = document.getElementById('resident-thought-feed');
+  if (!container) return;
+
+  try {
+    const res = await fetch('/api/resident/thoughts?limit=50');
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    _thoughtFeedData = data.thoughts || [];
+    renderThoughtFeed(container, _thoughtFeedData);
+  } catch (err) {
+    container.innerHTML = `<p class="empty-state">Chyba: ${escHtml(err.message)}</p>`;
+  }
+
+  // Auto-refresh every 30s
+  clearInterval(_thoughtAutoRefreshTimer);
+  _thoughtAutoRefreshTimer = setInterval(() => {
+    const panel = document.getElementById('tab-resident');
+    const tabVisible = panel && !panel.classList.contains('hidden');
+    if (tabVisible && document.visibilityState !== 'hidden') {
+      loadThoughtFeed();
+    } else {
+      clearInterval(_thoughtAutoRefreshTimer);
+    }
+  }, 30000);
+}
+
+function renderThoughtFeed(container, thoughts) {
+  if (!thoughts.length) {
+    container.innerHTML = '<p class="empty-state">\u017d\u00e1dn\u00e9 z\u00e1znamy</p>';
+    return;
+  }
+
+  const categoryBadge = { thought: '\ud83d\udcad', decision: '\u2705', observation: '\ud83d\udc41' };
+  container.innerHTML = thoughts.map(t => {
+    const badge = categoryBadge[t.category] || '\ud83d\udcad';
+    const time = formatRelativeTime(t.timestamp);
+    const absTime = t.timestamp ? new Date(t.timestamp).toLocaleString('cs-CZ') : '';
+    const importance = t.importance > 5 ? `<span class="thought-feed-importance">\u2b50 ${t.importance}</span>` : '';
+    return `<div class="thought-feed-item" title="${escHtml(absTime)}">
+      <span class="thought-feed-badge">${badge}</span>
+      <span class="thought-feed-time">${escHtml(time)}</span>
+      <span class="thought-feed-content">${escHtml(t.content)}</span>
+      ${importance}
+    </div>`;
+  }).join('');
+}
+
+function formatRelativeTime(isoStr) {
+  if (!isoStr) return '';
+  try {
+    const diff = (Date.now() - new Date(isoStr).getTime()) / 1000;
+    if (diff < 60) return 'pr\u00e1v\u011b';
+    if (diff < 3600) return Math.floor(diff / 60) + ' min';
+    if (diff < 86400) return Math.floor(diff / 3600) + ' h';
+    return Math.floor(diff / 86400) + ' d';
+  } catch (e) { return ''; }
+}
+
+async function loadCuriosityList() {
+  const container = document.getElementById('resident-curiosity-feed');
+  if (!container) return;
+
+  const showOpen = document.getElementById('curiosity-filter-open')?.checked;
+  const showInProgress = document.getElementById('curiosity-filter-in-progress')?.checked;
+  const showDone = document.getElementById('curiosity-filter-done')?.checked;
+
+  try {
+    const allItems = [];
+    if (showOpen !== false) {
+      const r = await fetch('/api/resident/curiosity?status=open&limit=50');
+      if (r.ok) { const d = await r.json(); allItems.push(...(d.items || [])); }
+    }
+    if (showInProgress !== false) {
+      const r = await fetch('/api/resident/curiosity?status=in_progress&limit=50');
+      if (r.ok) { const d = await r.json(); allItems.push(...(d.items || [])); }
+    }
+    if (showDone) {
+      const r = await fetch('/api/resident/curiosity?status=done&limit=30');
+      if (r.ok) { const d = await r.json(); allItems.push(...(d.items || [])); }
+    }
+    _curiosityFeedData = allItems;
+    renderCuriosityFeed(container, allItems);
+  } catch (err) {
+    container.innerHTML = `<p class="empty-state">Chyba: ${escHtml(err.message)}</p>`;
+  }
+}
+
+function renderCuriosityFeed(container, items) {
+  if (!items.length) {
+    container.innerHTML = '<p class="empty-state">\u017d\u00e1dn\u00e9 polo\u017eky</p>';
+    return;
+  }
+
+  const kindIcon = { question: '\ud83d\udd0d', idea: '\ud83d\udca1', anomaly: '\u26a1', hypothesis: '\ud83e\udd14' };
+  container.innerHTML = items.map(i => {
+    const icon = kindIcon[i.kind] || '\ud83d\udd0d';
+    const prioClass = i.priority === 'high' ? '--high' : '--medium';
+    const statusClass = '--' + (i.status || 'open');
+    const updatedAt = i.updated_at ? formatRelativeTime(i.updated_at) : '';
+    return `<div class="curiosity-feed-item">
+      <span class="curiosity-feed-icon">${icon}</span>
+      <div class="curiosity-feed-body">
+        <div class="curiosity-feed-title">${escHtml(i.title)}</div>
+        <div class="curiosity-feed-meta">
+          <span class="curiosity-priority-badge curiosity-priority-badge${prioClass}">${escHtml(i.priority)}</span>
+          <span class="curiosity-status-chip curiosity-status-chip${statusClass}">${escHtml(i.status)}</span>
+          ${i.source ? `<span>${escHtml(i.source)}</span>` : ''}
+          ${updatedAt ? `<span>${updatedAt}</span>` : ''}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function renderLastThoughtsWidget() {
+  const container = document.getElementById('resident-last-thoughts-content');
+  if (!container) return;
+
+  try {
+    const res = await fetch('/api/resident/thoughts?limit=3');
+    if (!res.ok) return;
+    const data = await res.json();
+    const thoughts = data.thoughts || [];
+    if (!thoughts.length) {
+      container.innerHTML = '<p class="empty-state" style="font-size:0.85em">\u017d\u00e1dn\u00e9 my\u0161lenky</p>';
+      return;
+    }
+    const categoryBadge = { thought: '\ud83d\udcad', decision: '\u2705', observation: '\ud83d\udc41' };
+    container.innerHTML = thoughts.map(t => {
+      const badge = categoryBadge[t.category] || '\ud83d\udcad';
+      const time = formatRelativeTime(t.timestamp);
+      return `<div style="display:flex;gap:6px;align-items:flex-start;padding:3px 0;font-size:0.85em;border-bottom:1px solid rgba(255,255,255,0.04)">
+        <span>${badge}</span>
+        <span style="color:#64748b;flex-shrink:0">${escHtml(time)}</span>
+        <span style="color:#e2e8f0;word-break:break-word">${escHtml(t.content).substring(0, 120)}</span>
+      </div>`;
+    }).join('');
+  } catch (err) {
+    container.innerHTML = '<p class="empty-state" style="font-size:0.85em">Chyba</p>';
+  }
+}
+
+async function renderCuriosityWidget() {
+  const container = document.getElementById('resident-curiosity-widget-content');
+  if (!container) return;
+
+  try {
+    const [openRes, ipRes] = await Promise.all([
+      fetch('/api/resident/curiosity?status=open&limit=5'),
+      fetch('/api/resident/curiosity?status=in_progress&limit=5'),
+    ]);
+    const openData = openRes.ok ? await openRes.json() : { items: [], count: 0 };
+    const ipData = ipRes.ok ? await ipRes.json() : { items: [], count: 0 };
+    const openCount = openData.count || 0;
+    const ipCount = ipData.count || 0;
+
+    if (openCount === 0 && ipCount === 0) {
+      container.innerHTML = '<p class="empty-state" style="font-size:0.85em">\u017d\u00e1dn\u00e9 polo\u017eky</p>';
+      return;
+    }
+
+    const kindIcon = { question: '\ud83d\udd0d', idea: '\ud83d\udca1', anomaly: '\u26a1', hypothesis: '\ud83e\udd14' };
+    // Find top high-priority item
+    const allItems = [...(openData.items || []), ...(ipData.items || [])];
+    const topItem = allItems.find(i => i.priority === 'high') || allItems[0];
+
+    let html = `<div style="font-size:0.85em;display:flex;gap:12px;flex-wrap:wrap">
+      <span><strong>${openCount}</strong> open</span>
+      <span><strong>${ipCount}</strong> in progress</span>
+    </div>`;
+    if (topItem) {
+      const icon = kindIcon[topItem.kind] || '\ud83d\udd0d';
+      html += `<div style="margin-top:6px;font-size:0.83em;padding:4px 8px;background:rgba(255,255,255,0.03);border-radius:6px">
+        ${icon} <strong>${escHtml(topItem.title).substring(0, 80)}</strong>
+        <span class="curiosity-priority-badge curiosity-priority-badge--${topItem.priority === 'high' ? 'high' : 'medium'}" style="margin-left:6px">${escHtml(topItem.priority)}</span>
+      </div>`;
+    }
+    container.innerHTML = html;
+  } catch (err) {
+    container.innerHTML = '<p class="empty-state" style="font-size:0.85em">Chyba</p>';
+  }
+}
+
+async function renderBudgetWidget() {
+  const container = document.getElementById('resident-budget-widget-content');
+  if (!container) return;
+
+  try {
+    const res = await fetch('/api/resident/status');
+    if (!res.ok) return;
+    const data = await res.json();
+    const budget = data.budget;
+    if (!budget) {
+      container.innerHTML = '<span style="font-size:0.85em;color:#64748b">Budget data nen\u00ed k dispozici</span>';
+      return;
+    }
+
+    container.innerHTML = `
+      <span>LLM: <strong>${budget.llm_calls_this_hour}</strong>/${budget.llm_calls_limit}/h</span>
+      <span>Mise: <strong>${budget.missions_today}</strong>/${budget.missions_limit}/den</span>
+      <span>Analysis: <strong>${budget.analysis_jobs_this_hour}</strong>/${budget.analysis_jobs_limit}/h</span>
+    `;
+  } catch (err) {
+    container.innerHTML = '<span style="font-size:0.85em;color:#64748b">Chyba</span>';
   }
 }
 

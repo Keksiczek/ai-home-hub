@@ -49,36 +49,44 @@ REASONER_SAFE_ACTIONS = frozenset({
 REASONER_SYSTEM_PROMPT = """Jsi autonomní Resident Agent – zvědavý, proaktivní a systematický správce domácího AI hubu.
 
 TVOJE ROLE:
-- Pravidelně kontroluješ stav systému, git repozitářů a job queue
-- Píšeš krátké "thought" záznamy o tom, co sis všiml a co chceš prozkoumat
-- Sám si zadáváš jednoduché úkoly, pokud vidíš problém nebo příležitost
-- Když je vše OK, zapiš reflexi typu "Systém běží hladce, další krok by mohl být X…"
-- Když vidíš více failů jobů, navrhni analýzu nebo create_mission
-- git_status a system_health můžeš používat často, ale neopakuj stejnou akci dva ticky po sobě
-- Pokud vidíš položky v "Curiosity backlog", jsou to věci, které tě dlouhodobě zajímají
-- Když nic nehoří, můžeš navrhnout akce, které pomáhají tyto curiosity položky prozkoumat
-- Můžeš zapsat write_memory thought k některé curiosity položce ("Co jsem o tom zjistil")
+- Pravidelně kontroluješ stav systému, git repozitářů a job queue.
+- Píšeš krátké "thought" záznamy o tom, co sis všiml a co chceš prozkoumat.
+- Sám si zadáváš jednoduché úkoly, pokud vidíš problém nebo příležitost.
+- Když vidíš více failů jobů, navrhni analýzu nebo create_mission.
+
+ANTI-REPETICE:
+- Nekopíruj přesně to, co jsi dělal v minulém tiku.
+- Pokud jsi právě dělal system_health, příště udělej něco jiného.
+- Pokud je curiosity backlog neprázdný, vždy navrhni aspoň jednu akci, která se k některému itemu vztahuje.
+- Pokud je vše OK a backlog je prázdný, zapiš thought nebo navrhni novou otázku (write_memory s kind="question").
+
+CURIOSITY BACKLOG (tvůj seznam věcí k prozkoumání):
+{curiosity_summary}
+
+Pravidla pro práci s curiosity:
+- Pokud vidíš open item s priority=high → navrhni action k němu jako první.
+- Pokud jsou jen medium items a nic nehoří → vyber jeden a navrhni analysis.
+- Pokud je backlog prázdný → vygeneruj nový curiosity item přes write_memory s category="question".
+
+THOUGHT:
+- Ke každé akci přidej thought: 1-2 věty, proč to děláš, co tě na tom zajímá.
+- Thought musí být konkrétní: ne "Chci zkontrolovat systém." ale "RAM byla včera nad 80%, chci vidět trend."
+- Thought nesmí být stejný jako v minulém tiku (viz last_action v kontextu).
 
 POVOLENÉ AKCE (action):
 system_health, git_status, lean_metrics, kb_search, write_memory, memory_store,
 memory_search, create_mission, system_status, no_op, web_search, send_notification
 
 PRAVIDLA:
-- Odpověz POUZE JSON polem akcí, žádný markdown, žádný text kolem
-- Každá akce musí mít: action, title, requires_confirmation
-- Volitelně: params (dict), thought (1-2 věty proč), priority (low/medium/high)
-- Safe akce (system_health, git_status, lean_metrics, kb_search, memory_search, system_status, no_op, write_memory) → requires_confirmation: false
-- Destruktivní akce (kb_maintenance, job_cleanup) → requires_confirmation: true VŽDY
-- Max 3 akce najednou
+- Max 3 akce najednou.
+- Každá akce musí mít: action, title, requires_confirmation.
+- Volitelně: params (dict), thought (1-2 věty proč), priority (low/medium/high).
+- Safe akce (system_health, git_status, lean_metrics, kb_search, memory_search, system_status, no_op, write_memory) → requires_confirmation: false.
+- Destruktivní akce (kb_maintenance, job_cleanup) → requires_confirmation: true VŽDY.
 
-PŘÍKLADY VÝSTUPU:
-[
-  {"action": "system_health", "params": {}, "requires_confirmation": false, "title": "Ranní health check", "thought": "Dlouho jsem nekontroloval systém.", "priority": "medium"},
-  {"action": "git_status", "params": {"path": "/home/user/projects/ai-home-hub"}, "requires_confirmation": false, "title": "Zkontroluj repozitář", "thought": "Probíhaly změny v kódu.", "priority": "medium"},
-  {"action": "lean_metrics", "params": {}, "requires_confirmation": false, "title": "Shrnutí výkonnosti job queue", "priority": "low"},
-  {"action": "write_memory", "params": {"content": "Systém stabilní, CPU nízké.", "importance": 3}, "requires_confirmation": false, "title": "Zápis reflexe", "thought": "Chci si poznamenat aktuální stav."},
-  {"action": "create_mission", "params": {"goal": "Analyzovat opakované selhání jobů"}, "requires_confirmation": true, "title": "Mise: analýza selhání", "thought": "Vidím 5+ failed jobů za 24h."}
-]
+VÝSTUP:
+- POUZE JSON pole. Žádný markdown. Žádný text před nebo po JSON.
+- Pokud vrátíš nevalidní JSON, použij fallback: [{{"action":"system_health","params":{{}},"requires_confirmation":false,"title":"Fallback check","thought":"Vracím fallback akci.","priority":"low"}}]
 """
 
 
@@ -96,10 +104,15 @@ class ResidentReasoner:
 
         context = await self._collect_context()
         context_summary = self._build_context_summary(context)
+        curiosity_summary = self._build_curiosity_summary(context)
 
-        # Keep context short: max ~300 chars
+        # Build system prompt with curiosity backlog injected
+        system_prompt = REASONER_SYSTEM_PROMPT.replace(
+            "{curiosity_summary}", curiosity_summary,
+        )
+
         user_message = (
-            f"STAV:\n{context_summary[:400]}\n\n"
+            f"STAV:\n{context_summary[:500]}\n\n"
             "Navrhni 1–3 akce. Odpověz POUZE JSON polem."
         )
 
@@ -109,7 +122,7 @@ class ResidentReasoner:
                 message=user_message,
                 mode="resident_reasoner",
                 profile="general",
-                history=[{"role": "system", "content": REASONER_SYSTEM_PROMPT}],
+                history=[{"role": "system", "content": system_prompt}],
             )
 
             if meta.get("status") == "llm_unavailable":
@@ -376,42 +389,83 @@ class ResidentReasoner:
         except Exception as exc:
             logger.debug("Context: resource monitor failed: %s", exc)
 
+        # Last action from agent state
+        try:
+            from app.services.resident_agent import get_resident_agent
+
+            agent = get_resident_agent()
+            state = agent.get_state()
+            ctx["last_action"] = state.get("last_action", "")
+            ctx["tick_count"] = state.get("tick_count", 0)
+            ctx["budget"] = agent.get_budget_status()
+        except Exception as exc:
+            logger.debug("Context: agent state failed: %s", exc)
+
         return ctx
 
     def _build_context_summary(self, ctx: Dict[str, Any]) -> str:
-        """Build a human-readable context summary for the LLM prompt."""
+        """Build a human-readable context summary for the LLM prompt.
+
+        Keeps total length under ~700 tokens: job stats 1 line, KB 1 line,
+        system 1 line, last action, budget, curiosity top 3.
+        """
         lines = []
 
+        # Job stats (1 line)
         job_stats = ctx.get("job_stats_24h", {})
         lines.append(
-            f"Joby (24h): celkem={job_stats.get('tasks_total', 0)}, "
-            f"úspěšnost={job_stats.get('success_rate', 0):.0%}, "
-            f"prům. doba={job_stats.get('avg_task_duration_s', 0):.1f}s"
+            f"Joby(24h): {job_stats.get('tasks_total', 0)} celkem, "
+            f"{job_stats.get('success_rate', 0):.0%} úsp., "
+            f"{ctx.get('failed_jobs_24h', 0)} selhalo, "
+            f"{ctx.get('queued_jobs', 0)} ve frontě"
         )
-        lines.append(f"Ve frontě: {ctx.get('queued_jobs', 0)} jobů")
-        lines.append(f"Selhalo (24h): {ctx.get('failed_jobs_24h', 0)} jobů")
 
+        # KB (1 line)
         kb = ctx.get("kb_stats", {})
         lines.append(
-            f"KB: {kb.get('total_chunks', 0)} chunků, {kb.get('total_collections', 0)} kolekcí"
+            f"KB: {kb.get('total_chunks', 0)} chunků"
         )
 
+        # System resources (1 line)
         res = ctx.get("resources", {})
         lines.append(
             f"Systém: RAM {res.get('ram_percent', '?')}%, "
-            f"CPU {res.get('cpu_percent', '?')}%, "
-            f"throttled={res.get('throttled', False)}, blocked={res.get('blocked', False)}"
+            f"CPU {res.get('cpu_percent', '?')}%"
         )
 
-        # Curiosity backlog summary (top 3 open items)
-        curiosity_items = ctx.get("curiosity_items", [])
-        if curiosity_items:
-            parts = []
-            for ci in curiosity_items[:3]:
-                parts.append(f"[{ci.get('priority', '?')}] {ci.get('title', '?')}")
-            lines.append(f"Curiosity backlog: {'; '.join(parts)}")
+        # Last action + tick count
+        last_action = ctx.get("last_action", "")
+        tick_count = ctx.get("tick_count", 0)
+        if last_action:
+            lines.append(f"Poslední akce: {last_action} (tick #{tick_count})")
+        elif tick_count:
+            lines.append(f"Tick #{tick_count}, žádná předchozí akce")
+
+        # Budget status
+        budget = ctx.get("budget", {})
+        if budget:
+            lines.append(
+                f"Budget: LLM {budget.get('llm_calls_this_hour', 0)}/{budget.get('llm_calls_limit', 20)}/h, "
+                f"mise {budget.get('missions_today', 0)}/{budget.get('missions_limit', 5)}/den, "
+                f"analysis {budget.get('analysis_jobs_this_hour', 0)}/{budget.get('analysis_jobs_limit', 10)}/h"
+            )
 
         return "\n".join(lines)
+
+    def _build_curiosity_summary(self, ctx: Dict[str, Any]) -> str:
+        """Build curiosity backlog summary for the prompt template."""
+        curiosity_items = ctx.get("curiosity_items", [])
+        if not curiosity_items:
+            return "(prázdný – vygeneruj novou otázku přes write_memory)"
+
+        kind_icon = {"question": "🔍", "idea": "💡", "anomaly": "⚡", "hypothesis": "🤔"}
+        parts = []
+        for ci in curiosity_items[:3]:
+            icon = kind_icon.get(ci.get("kind", ""), "🔍")
+            parts.append(
+                f"- {icon} [{ci.get('priority', 'medium')}] {ci.get('title', '?')}"
+            )
+        return "\n".join(parts)
 
     # ── Parsing ─────────────────────────────────────────────────
 
