@@ -248,8 +248,10 @@ class JobWorker(BackgroundService):
             progress: float, meta: Optional[Dict[str, Any]] = None
         ):
             job.progress = min(max(progress, 0.0), 100.0)
-            if meta:
+            if isinstance(meta, dict):
                 job.meta.update(meta)
+            elif meta is not None:
+                job.meta["message"] = str(meta)
             self._job_service.update_job(job)
             await self._broadcast_job_update(job)
 

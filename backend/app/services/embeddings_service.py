@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from app.services.settings_service import get_settings_service
+from app.utils.constants import LLM_TIMEOUT_EMBEDDING
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,8 @@ class EmbeddingsService:
 
     DEFAULT_MODEL = "nomic-embed-text"
     FALLBACK_MODEL = "llama3.2"
+    # Ollama ≥0.4 uses /api/embed, older versions use /api/embeddings
+    EMBED_ENDPOINT_PATHS = ["/api/embed", "/api/embeddings"]
 
     def __init__(self) -> None:
         self._cache: Dict[str, tuple] = {}  # {text_hash: (embedding, timestamp)}
@@ -28,9 +31,17 @@ class EmbeddingsService:
         self._active_model: Optional[str] = None  # tracks which model is in use
         self._status: str = "unknown"  # "ok", "degraded", "unavailable"
         self._embedding_dim: Optional[int] = None  # detected dimension
+        self._enabled: bool = True  # disabled when embed endpoint/model unavailable
+        self._resolved_endpoint: Optional[str] = None  # cached working endpoint path
+
+    @property
+    def enabled(self) -> bool:
+        return self._enabled
 
     async def get_embedding(self, text: str) -> Optional[List[float]]:
-        """Get embedding with cache support. Falls back to generate_embedding on miss."""
+        """Get embedding with cache support. Returns None when service is disabled."""
+        if not self._enabled:
+            return None
         if not text.strip():
             return None
 
@@ -66,6 +77,11 @@ class EmbeddingsService:
         Auto-detects embedding dimension on first successful call and triggers
         a Chroma collection reset when the detected dimension differs from the
         one the collection was built with.
+
+        Tries multiple endpoint paths (/api/embed, /api/embeddings) to cope
+        with different Ollama versions.  When no endpoint/model works, the
+        service is disabled so callers get a fast ``None`` instead of repeated
+        HTTP errors.
         """
         settings = get_settings_service().load()
         ollama_url = (
@@ -82,60 +98,102 @@ class EmbeddingsService:
         if self.FALLBACK_MODEL not in primary_model:
             models_to_try.append(self.FALLBACK_MODEL)
 
+        # Determine which endpoint paths to try (prefer cached resolved one)
+        if self._resolved_endpoint:
+            endpoint_paths = [self._resolved_endpoint]
+        else:
+            endpoint_paths = list(self.EMBED_ENDPOINT_PATHS)
+
         last_error = None
         for model in models_to_try:
-            try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    resp = await client.post(
-                        f"{ollama_url}/api/embed",
-                        json={"model": model, "input": text},
-                    )
-                    resp.raise_for_status()
-                    data = resp.json()
-                    embedding = data.get("embeddings", [None])[0] or data.get(
-                        "embedding"
-                    )
-                    if embedding:
-                        new_dim = len(embedding)
-
-                        # Auto-detect dimension and handle Chroma mismatch
-                        if self._embedding_dim is None:
-                            self._embedding_dim = new_dim
-                            logger.info(
-                                "Embedding dim auto-detected: %d (model=%s)", new_dim, model
+            for ep_path in endpoint_paths:
+                try:
+                    async with httpx.AsyncClient(timeout=LLM_TIMEOUT_EMBEDDING) as client:
+                        resp = await client.post(
+                            f"{ollama_url}{ep_path}",
+                            json={"model": model, "input": text},
+                        )
+                        if resp.status_code == 404:
+                            logger.debug(
+                                "Embed endpoint %s returned 404, trying next",
+                                ep_path,
                             )
-                        elif self._embedding_dim != new_dim:
-                            logger.warning(
-                                "Embedding dim changed: %d → %d (model=%s). "
-                                "Resetting Chroma collection.",
-                                self._embedding_dim,
-                                new_dim,
-                                model,
-                            )
-                            self._embedding_dim = new_dim
-                            await self._reset_chroma_collection(new_dim)
+                            continue
+                        resp.raise_for_status()
+                        data = resp.json()
+                        embedding = data.get("embeddings", [None])[0] or data.get(
+                            "embedding"
+                        )
+                        if embedding:
+                            new_dim = len(embedding)
 
-                        if self._active_model != model:
-                            self._active_model = model
-                            if model != primary_model:
-                                logger.warning(
-                                    "Embeddings: primary model '%s' unavailable, using fallback '%s'",
-                                    primary_model,
+                            # Cache the working endpoint path
+                            if self._resolved_endpoint is None:
+                                self._resolved_endpoint = ep_path
+                                logger.info(
+                                    "Embedding endpoint resolved: %s%s",
+                                    ollama_url,
+                                    ep_path,
+                                )
+
+                            # Auto-detect dimension and handle Chroma mismatch
+                            if self._embedding_dim is None:
+                                self._embedding_dim = new_dim
+                                logger.info(
+                                    "Embedding dim auto-detected: %d (model=%s)",
+                                    new_dim,
                                     model,
                                 )
-                                self._status = f"degraded: using fallback {model}"
-                            else:
-                                self._status = "ok"
-                        return embedding
-            except Exception as exc:
-                last_error = exc
-                logger.warning("Embedding model '%s' failed: %s", model, exc)
-                continue
+                            elif self._embedding_dim != new_dim:
+                                logger.warning(
+                                    "Embedding dim changed: %d → %d (model=%s). "
+                                    "Resetting Chroma collection.",
+                                    self._embedding_dim,
+                                    new_dim,
+                                    model,
+                                )
+                                self._embedding_dim = new_dim
+                                await self._reset_chroma_collection(new_dim)
+
+                            if self._active_model != model:
+                                self._active_model = model
+                                if model != primary_model:
+                                    logger.warning(
+                                        "Embeddings: primary model '%s' unavailable, "
+                                        "using fallback '%s'",
+                                        primary_model,
+                                        model,
+                                    )
+                                    self._status = f"degraded: using fallback {model}"
+                                else:
+                                    self._status = "ok"
+                            return embedding
+                except httpx.HTTPStatusError as exc:
+                    last_error = exc
+                    logger.warning(
+                        "Embedding model '%s' on %s failed: %s", model, ep_path, exc
+                    )
+                    continue
+                except (httpx.TimeoutException, httpx.ConnectError) as exc:
+                    last_error = exc
+                    logger.warning(
+                        "Embedding model '%s' on %s failed: %s", model, ep_path, exc
+                    )
+                    continue
+                except Exception as exc:
+                    last_error = exc
+                    logger.warning(
+                        "Embedding model '%s' on %s failed: %s", model, ep_path, exc
+                    )
+                    continue
 
         logger.error(
-            "All embedding models failed. Last error: %s", last_error, exc_info=True
+            "All embedding models/endpoints failed – embeddings DISABLED. "
+            "Last error: %s",
+            last_error,
         )
         self._status = "unavailable"
+        self._enabled = False
         return None
 
     async def _reset_chroma_collection(self, new_dim: int) -> None:
@@ -181,6 +239,9 @@ class EmbeddingsService:
         self, texts: List[str], concurrency: int = 8
     ) -> List[Optional[List[float]]]:
         """Generate embeddings for multiple texts in parallel with caching."""
+        if not self._enabled:
+            return [None] * len(texts)
+
         semaphore = asyncio.Semaphore(concurrency)
 
         async def _limited(text: str) -> Optional[List[float]]:
@@ -188,6 +249,48 @@ class EmbeddingsService:
                 return await self.get_embedding(text)
 
         return list(await asyncio.gather(*[_limited(t) for t in texts]))
+
+    async def check_health(self) -> bool:
+        """Probe embedding endpoint availability and update enabled flag.
+
+        Called during startup to eagerly detect whether embeddings work.
+        If the probe succeeds the service is enabled; otherwise it is disabled
+        with a clear log message.  Also detects and resolves Chroma dimension
+        mismatches (drop + recreate).
+        """
+        result = await self._fetch_embedding_from_ollama("health probe")
+        if result is not None:
+            self._enabled = True
+            # Verify Chroma collection dimension compatibility
+            await self._verify_chroma_dim()
+            return True
+        # _fetch_embedding_from_ollama already sets _enabled = False
+        logger.warning(
+            "Embedding health check failed – embeddings DISABLED. "
+            "Install an embedding model (e.g. `ollama pull %s`) and restart.",
+            self.DEFAULT_MODEL,
+        )
+        return False
+
+    async def _verify_chroma_dim(self) -> None:
+        """Check that the existing Chroma collection dimension matches the model."""
+        if self._embedding_dim is None:
+            return
+        try:
+            from app.services.vector_store_service import get_vector_store_service
+
+            vs = get_vector_store_service()
+            col_meta = vs.collection.metadata or {}
+            stored_dim = col_meta.get("embedding_dim")
+            if stored_dim is not None and int(stored_dim) != self._embedding_dim:
+                logger.warning(
+                    "Chroma collection dim %s != model dim %d – dropping and recreating.",
+                    stored_dim,
+                    self._embedding_dim,
+                )
+                await self._reset_chroma_collection(self._embedding_dim)
+        except Exception as exc:
+            logger.warning("Chroma dimension verification failed: %s", exc)
 
     def get_cache_stats(self) -> Dict[str, Any]:
         """Return cache statistics."""

@@ -134,32 +134,52 @@ class ToolsMixin:
             return {"action": "git_log", "log": log}
 
         elif action == "kb_search":
-            from app.services.vector_store_service import get_vector_store_service
-            from app.services.embeddings_service import get_embeddings_service
+            try:
+                from app.services.vector_store_service import get_vector_store_service
+                from app.services.embeddings_service import get_embeddings_service
 
-            vs = get_vector_store_service()
-            emb_svc = get_embeddings_service()
-            query = params.get("query", "")
-            embedding = await emb_svc.generate_embedding(query)
-            if not embedding:
+                emb_svc = get_embeddings_service()
+                if not emb_svc.enabled:
+                    logger.warning("kb_search skipped – embedding service disabled")
+                    return {
+                        "action": "kb_search",
+                        "results": [],
+                        "warning": "embedding_service_disabled",
+                    }
+
+                vs = get_vector_store_service()
+                query = params.get("query", "")
+                embedding = await emb_svc.generate_embedding(query)
+                if not embedding:
+                    return {
+                        "action": "kb_search",
+                        "results": [],
+                        "error": "embedding_failed",
+                    }
+                results = vs.search(
+                    query_embedding=embedding, top_k=params.get("top_k", 5)
+                )
+                # Format results
+                formatted = []
+                for doc, meta in zip(
+                    results.get("documents", []), results.get("metadatas", [])
+                ):
+                    formatted.append(
+                        {
+                            "text": doc[:300],
+                            "file_name": meta.get("file_name", ""),
+                        }
+                    )
+                return {"action": "kb_search", "results": formatted}
+            except Exception as exc:
+                logger.warning(
+                    "kb_search failed (continuing without vector search): %s", exc
+                )
                 return {
                     "action": "kb_search",
                     "results": [],
-                    "error": "embedding_failed",
+                    "error": str(exc),
                 }
-            results = vs.search(query_embedding=embedding, top_k=params.get("top_k", 5))
-            # Format results
-            formatted = []
-            for doc, meta in zip(
-                results.get("documents", []), results.get("metadatas", [])
-            ):
-                formatted.append(
-                    {
-                        "text": doc[:300],
-                        "file_name": meta.get("file_name", ""),
-                    }
-                )
-            return {"action": "kb_search", "results": formatted}
 
         elif action == "memory_store":
             from app.services.memory_service import get_memory_service
@@ -174,16 +194,26 @@ class ToolsMixin:
             return {"action": "memory_store", "memory_id": memory_id}
 
         elif action == "memory_search":
-            from app.services.memory_service import get_memory_service
+            try:
+                from app.services.memory_service import get_memory_service
 
-            mem = get_memory_service()
-            records = await mem.search_memory(
-                params.get("query", ""), top_k=params.get("top_k", 5)
-            )
-            return {
-                "action": "memory_search",
-                "results": [r.to_dict() for r in records],
-            }
+                mem = get_memory_service()
+                records = await mem.search_memory(
+                    params.get("query", ""), top_k=params.get("top_k", 5)
+                )
+                return {
+                    "action": "memory_search",
+                    "results": [r.to_dict() for r in records],
+                }
+            except Exception as exc:
+                logger.warning(
+                    "memory_search failed (continuing without memory): %s", exc
+                )
+                return {
+                    "action": "memory_search",
+                    "results": [],
+                    "error": str(exc),
+                }
 
         elif action == "send_notification":
             from app.services.notification_service import get_notification_service
