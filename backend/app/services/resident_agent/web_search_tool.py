@@ -21,10 +21,20 @@ _search_timestamps: deque = deque()
 
 # ── Sensitive query patterns ──────────────────────────────────────────────────
 
-_SENSITIVE_WORDS = frozenset({
-    "password", "heslo", "secret", "token", "api_key", "apikey",
-    "private_key", "ssh_key", "credentials", "tajné",
-})
+_SENSITIVE_WORDS = frozenset(
+    {
+        "password",
+        "heslo",
+        "secret",
+        "token",
+        "api_key",
+        "apikey",
+        "private_key",
+        "ssh_key",
+        "credentials",
+        "tajné",
+    }
+)
 
 
 def _is_sensitive_query(query: str) -> bool:
@@ -89,11 +99,13 @@ async def tool_web_search(query: str, max_results: int = 3) -> Dict[str, Any]:
         results: List[Dict[str, str]] = []
         with DDGS() as ddgs:
             for r in ddgs.text(query, max_results=max_results):
-                results.append({
-                    "title": r.get("title", ""),
-                    "url": r.get("href", r.get("link", "")),
-                    "snippet": r.get("body", r.get("snippet", "")),
-                })
+                results.append(
+                    {
+                        "title": r.get("title", ""),
+                        "url": r.get("href", r.get("link", "")),
+                        "snippet": r.get("body", r.get("snippet", "")),
+                    }
+                )
 
         _record_search()
         logger.info("web_search OK: query='%s', results=%d", query[:50], len(results))

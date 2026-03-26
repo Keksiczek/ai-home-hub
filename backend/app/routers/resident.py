@@ -45,6 +45,7 @@ class MissionChatRequest(BaseModel):
 
 class ResidentActionRequest(BaseModel):
     """Request body for POST /resident/action – manual action trigger."""
+
     action: str = Field(..., min_length=1, max_length=100)
     params: Dict[str, Any] = Field(default_factory=dict)
 
@@ -687,7 +688,9 @@ async def create_plan(req: PlanCreateRequest) -> dict:
     reasoner = get_resident_reasoner()
     plan_svc = get_resident_plan_service()
 
-    result = await reasoner.generate_plan(req.goal, req.context if req.context else None)
+    result = await reasoner.generate_plan(
+        req.goal, req.context if req.context else None
+    )
     if result is None:
         raise HTTPException(
             500,
@@ -1072,7 +1075,9 @@ async def get_mode_history(limit: int = Query(default=20, ge=1, le=50)) -> dict:
 
 @router.get("/curiosity")
 async def get_curiosity_items(
-    status: Optional[str] = Query(default=None, description="Filter by status: open, in_progress, done, dropped"),
+    status: Optional[str] = Query(
+        default=None, description="Filter by status: open, in_progress, done, dropped"
+    ),
     limit: int = Query(default=50, ge=1, le=200),
 ) -> dict:
     """List curiosity backlog items for debugging."""
@@ -1138,7 +1143,11 @@ async def get_thought_log(
                 "id": e.get("id", ""),
                 "timestamp": e.get("timestamp", e.get("created_at", "")),
                 "category": next(
-                    (t for t in e.get("tags", []) if t in ("thought", "decision", "observation")),
+                    (
+                        t
+                        for t in e.get("tags", [])
+                        if t in ("thought", "decision", "observation")
+                    ),
                     "thought",
                 ),
                 "content": str(e.get("text", e.get("content", "")))[:300],

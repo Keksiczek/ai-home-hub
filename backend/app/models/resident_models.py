@@ -209,7 +209,9 @@ class CuriosityItem(BaseModel):
 
     id: str = Field(default_factory=lambda: f"cur-{uuid.uuid4().hex[:8]}")
     kind: Literal["question", "hypothesis", "anomaly", "idea"] = "question"
-    source: str = ""  # e.g. "job_failure", "lean_metrics", "kb_stats", "manual", "reasoner"
+    source: str = (
+        ""  # e.g. "job_failure", "lean_metrics", "kb_stats", "manual", "reasoner"
+    )
     title: str = Field(..., max_length=120)
     detail: str = ""  # max ~500 chars
     dedup_key: str = ""  # e.g. "job_failure:anomaly:resident_task" for deduplication

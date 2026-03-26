@@ -18,10 +18,10 @@ from app.services.metrics_service import ollama_memory_bytes
 logger = logging.getLogger(__name__)
 
 # Thresholds
-RAM_WARN_PERCENT = 75   # % system RAM used → warn
+RAM_WARN_PERCENT = 75  # % system RAM used → warn
 RAM_BLOCK_PERCENT = 88  # % system RAM used → block new agents/jobs
 RAM_BG_PAUSE_PERCENT = 85  # % system RAM used → pause background jobs
-CPU_WARN_PERCENT = 70   # % CPU (1s sample) → warn
+CPU_WARN_PERCENT = 70  # % CPU (1s sample) → warn
 OLLAMA_PROCESS_NAMES = {"ollama", "ollama_llama_server"}
 
 
@@ -117,8 +117,12 @@ class ResourceMonitor:
                 # Enrich with async Ollama model RAM data
                 try:
                     cfg = get_settings_service().get_llm_config()
-                    ollama_url = cfg.get("ollama_url", "http://localhost:11434").rstrip("/")
-                    snap.ollama_model_ram_mb = await self._fetch_ollama_model_ram(ollama_url)
+                    ollama_url = cfg.get("ollama_url", "http://localhost:11434").rstrip(
+                        "/"
+                    )
+                    snap.ollama_model_ram_mb = await self._fetch_ollama_model_ram(
+                        ollama_url
+                    )
                 except Exception:
                     pass
 

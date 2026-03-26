@@ -243,9 +243,7 @@ class ToolsMixin:
             from datetime import datetime, timedelta, timezone
 
             job_svc = get_job_service()
-            since_24h = (
-                datetime.now(timezone.utc) - timedelta(hours=24)
-            ).isoformat()
+            since_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
             stats = job_svc.get_stats_since(since_24h)
             failed = job_svc.count_jobs(status="failed", since=since_24h)
             queued = len(job_svc.list_jobs(status="queued", limit=100))
@@ -274,7 +272,8 @@ class ToolsMixin:
             # Budget check: missions per day
             if not self._can_create_mission():
                 self._add_log(
-                    "WARN", "throttled_missions_daily_limit",
+                    "WARN",
+                    "throttled_missions_daily_limit",
                     missions_today=self._missions_today,
                 )
                 return {
@@ -330,7 +329,10 @@ class ToolsMixin:
                 query = params.get("query", payload.get("goal", ""))
                 max_results = min(params.get("max_results", 3), 5)
                 if not query:
-                    return {"action": "web_search", "error": "web_search requires params.query"}
+                    return {
+                        "action": "web_search",
+                        "error": "web_search requires params.query",
+                    }
 
                 result = await tool_web_search(query, max_results=max_results)
 

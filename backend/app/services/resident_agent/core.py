@@ -172,18 +172,20 @@ CURIOSITY_TICK_INTERVAL = 10  # curiosity backlog every 10th tick (~5 min)
 MAX_CURIOSITY_IN_PROGRESS = 3  # WIP limit for concurrent curiosity items
 
 # Actions that can be dispatched directly without LLM
-DIRECT_DISPATCH_ACTIONS = frozenset({
-    "system_health",
-    "git_status",
-    "lean_metrics",
-    "kb_search",
-    "memory_store",
-    "memory_search",
-    "write_memory",
-    "create_mission",
-    "system_status",
-    "no_op",
-})
+DIRECT_DISPATCH_ACTIONS = frozenset(
+    {
+        "system_health",
+        "git_status",
+        "lean_metrics",
+        "kb_search",
+        "memory_store",
+        "memory_search",
+        "write_memory",
+        "create_mission",
+        "system_status",
+        "no_op",
+    }
+)
 MAX_SUGGESTIONS_HISTORY = 20
 MAX_REFLECTIONS_HISTORY = 50
 MAX_CYCLE_HISTORY = 200
@@ -674,6 +676,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         self._llm_calls_this_hour += 1
         try:
             from app.services.metrics_service import resident_llm_calls_total
+
             resident_llm_calls_total.inc()
         except Exception:
             pass
@@ -690,6 +693,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         self._missions_today += 1
         try:
             from app.services.metrics_service import resident_missions_created_total
+
             resident_missions_created_total.inc()
         except Exception:
             pass
@@ -1140,7 +1144,8 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         # Budget check: LLM calls per hour
         if not self._can_llm_call():
             self._add_log(
-                "WARN", "throttled_llm_hourly_limit",
+                "WARN",
+                "throttled_llm_hourly_limit",
                 llm_calls=self._llm_calls_this_hour,
                 limit=RESIDENT_MAX_LLM_CALLS_PER_HOUR,
             )
@@ -1201,11 +1206,11 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         recent_dedup_keys: set = set()
         try:
             from datetime import timedelta
-            since_30m = (
-                datetime.now(timezone.utc) - timedelta(minutes=30)
-            ).isoformat()
+
+            since_30m = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
             recent_jobs = job_svc.list_jobs(
-                type="resident_task", limit=50,
+                type="resident_task",
+                limit=50,
             )
             for rj in recent_jobs:
                 if rj.created_at and rj.created_at >= since_30m:
@@ -1227,7 +1232,8 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             dedup_key = f"{action_type}:{job_title}"
             if dedup_key in recent_dedup_keys:
                 logger.info(
-                    "Skipped duplicate suggestion job: %s", action.title,
+                    "Skipped duplicate suggestion job: %s",
+                    action.title,
                 )
                 continue
 
@@ -1369,9 +1375,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
 
             settings = get_settings_service().load()
             projects = (
-                settings.get("integrations", {})
-                .get("vscode", {})
-                .get("projects", {})
+                settings.get("integrations", {}).get("vscode", {}).get("projects", {})
             )
             if not projects:
                 return "Git status – no projects configured"
@@ -1380,11 +1384,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
 
             git_svc = GitService()
             for name, project in projects.items():
-                path = (
-                    project
-                    if isinstance(project, str)
-                    else project.get("path", "")
-                )
+                path = project if isinstance(project, str) else project.get("path", "")
                 if not path:
                     continue
                 try:
@@ -1422,9 +1422,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             from datetime import timedelta
 
             job_svc = get_job_service()
-            since_24h = (
-                datetime.now(timezone.utc) - timedelta(hours=24)
-            ).isoformat()
+            since_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
             stats = job_svc.get_stats_since(since_24h)
             total = stats.get("tasks_total", 0)
             success_rate = stats.get("success_rate", 0)
@@ -1435,6 +1433,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             try:
                 if total > 0 and success_rate < 0.80:
                     from app.services.resident_curiosity import get_curiosity_service
+
                     get_curiosity_service().hook_low_success_rate(success_rate, failed)
             except Exception:
                 pass
@@ -1468,16 +1467,16 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             # Update open items gauge for Prometheus
             try:
                 from app.services.metrics_service import resident_curiosity_items_open
-                resident_curiosity_items_open.set(
-                    curiosity_svc.count_by_status("open")
-                )
+
+                resident_curiosity_items_open.set(curiosity_svc.count_by_status("open"))
             except Exception:
                 pass
 
             # Budget check: analysis jobs per hour
             if not self._can_analysis_job():
                 self._add_log(
-                    "WARN", "throttled_analysis_hourly_limit",
+                    "WARN",
+                    "throttled_analysis_hourly_limit",
                     analysis_jobs=self._analysis_jobs_this_hour,
                     limit=RESIDENT_MAX_ANALYSIS_JOBS_PER_HOUR,
                 )
@@ -1488,6 +1487,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             if in_progress_count >= MAX_CURIOSITY_IN_PROGRESS:
                 try:
                     from app.services.memory_service import get_memory_service
+
                     mem = get_memory_service()
                     await mem.add_memory(
                         text=(
@@ -1507,9 +1507,12 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             if item is None:
                 try:
                     from app.services.memory_service import get_memory_service
+
                     mem = get_memory_service()
                     await mem.add_memory(
-                        text="[Thought] Nemam aktualne zadne otazky k prozkoumani."[:200],
+                        text="[Thought] Nemam aktualne zadne otazky k prozkoumani."[
+                            :200
+                        ],
                         tags=["resident", "thought", "curiosity"],
                         source="resident_agent",
                         importance=2,
@@ -1521,6 +1524,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             # Write concise thought to memory (max 200 chars)
             try:
                 from app.services.memory_service import get_memory_service
+
                 mem = get_memory_service()
                 await mem.add_memory(
                     text=f"[Thought] Chci prozkoumat: {item.title}."[:200],
@@ -1533,6 +1537,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
 
             # Create safe analysis job – ONLY action_type="analysis" allowed
             from app.services.job_service import get_job_service
+
             job_svc = get_job_service()
             job = job_svc.create_job(
                 type="resident_task",
@@ -1557,7 +1562,9 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
 
             logger.info(
                 "Curiosity tick: picked %s -> job %s (%s)",
-                item.id, job.id, item.title[:40],
+                item.id,
+                job.id,
+                item.title[:40],
             )
 
         except Exception as exc:
@@ -1586,7 +1593,9 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             if job.status == "succeeded":
                 summary = str(job.meta.get("result", ""))[:200]
                 curiosity_svc.resolve_item(
-                    curiosity_id, "done", resolution_summary=summary,
+                    curiosity_id,
+                    "done",
+                    resolution_summary=summary,
                 )
                 await mem.add_memory(
                     text=(
@@ -1598,19 +1607,26 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                     importance=6,
                 )
                 self._add_log(
-                    "INFO", "curiosity_resolved",
-                    curiosity_id=curiosity_id, title=item.title[:60],
+                    "INFO",
+                    "curiosity_resolved",
+                    curiosity_id=curiosity_id,
+                    title=item.title[:60],
                     status="done",
                 )
                 try:
-                    from app.services.metrics_service import resident_curiosity_items_done_total
+                    from app.services.metrics_service import (
+                        resident_curiosity_items_done_total,
+                    )
+
                     resident_curiosity_items_done_total.inc()
                 except Exception:
                     pass
 
                 # Follow-up: if output is rich, create a new curiosity item
                 self._maybe_create_followup_curiosity(
-                    curiosity_svc, item, summary,
+                    curiosity_svc,
+                    item,
+                    summary,
                 )
 
             elif job.status == "failed":
@@ -1629,8 +1645,10 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                     importance=7,
                 )
                 self._add_log(
-                    "WARN", "curiosity_analysis_failed",
-                    curiosity_id=curiosity_id, title=item.title[:60],
+                    "WARN",
+                    "curiosity_analysis_failed",
+                    curiosity_id=curiosity_id,
+                    title=item.title[:60],
                 )
         except Exception as exc:
             logger.debug("Failed to resolve curiosity from job: %s", exc)
@@ -1639,10 +1657,20 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
     def _maybe_create_followup_curiosity(curiosity_svc, item, summary: str) -> None:
         """Create a follow-up curiosity item if the analysis produced rich results."""
         followup_keywords = (
-            "problém", "zjistil", "doporučení", "anomálie", "chyba",
-            "problem", "found", "recommend", "error", "warning",
+            "problém",
+            "zjistil",
+            "doporučení",
+            "anomálie",
+            "chyba",
+            "problem",
+            "found",
+            "recommend",
+            "error",
+            "warning",
         )
-        if len(summary) > 100 and any(kw in summary.lower() for kw in followup_keywords):
+        if len(summary) > 100 and any(
+            kw in summary.lower() for kw in followup_keywords
+        ):
             try:
                 curiosity_svc.create_item(
                     kind="idea",
@@ -1651,7 +1679,9 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                     detail=f"Na základě analýzy: {summary}"[:500],
                     priority="medium",
                     dedup_key=curiosity_svc.make_dedup_key(
-                        "self_reflection", "idea", item.id[:30],
+                        "self_reflection",
+                        "idea",
+                        item.id[:30],
                     ),
                 )
                 logger.info(
@@ -1670,12 +1700,11 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
 
             curiosity_svc = get_curiosity_service()
             job_svc = get_job_service()
-            stale_cutoff = (
-                datetime.now(timezone.utc) - timedelta(hours=2)
-            ).isoformat()
+            stale_cutoff = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
 
             in_progress_items = curiosity_svc.list_items(
-                status="in_progress", limit=20,
+                status="in_progress",
+                limit=20,
             )
             for item in in_progress_items:
                 if item.updated_at > stale_cutoff:
@@ -1692,8 +1721,10 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                 if not has_running_job:
                     curiosity_svc.update_item_status(item.id, "open")
                     self._add_log(
-                        "WARN", "curiosity_stale_reset",
-                        curiosity_id=item.id, title=item.title[:60],
+                        "WARN",
+                        "curiosity_stale_reset",
+                        curiosity_id=item.id,
+                        title=item.title[:60],
                     )
                     logger.warning(
                         "Curiosity item %s was stale in_progress, reset to open",
@@ -1892,6 +1923,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             if total_chunks < 50:
                 try:
                     from app.services.resident_curiosity import get_curiosity_service
+
                     get_curiosity_service().hook_kb_gap(
                         f"Pouze {total_chunks} chunků v KB – zvážit doplnění dokumentace"
                     )
@@ -2275,10 +2307,12 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                     # Direct dispatch for known action types (no LLM needed)
                     action_type = job.payload.get("action_type")
                     if action_type and action_type in DIRECT_DISPATCH_ACTIONS:
-                        result = await self._dispatch_action({
-                            "action": action_type,
-                            "params": job.payload.get("params", {}),
-                        })
+                        result = await self._dispatch_action(
+                            {
+                                "action": action_type,
+                                "params": job.payload.get("params", {}),
+                            }
+                        )
                     else:
                         result = await self._execute_with_llm(task)
                     job.status = "succeeded"
@@ -2299,7 +2333,10 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                     await self.emit_thought("error", content=f"Ukol selhal: {exc}")
                     # Curiosity hook: track job failure
                     try:
-                        from app.services.resident_curiosity import get_curiosity_service
+                        from app.services.resident_curiosity import (
+                            get_curiosity_service,
+                        )
+
                         get_curiosity_service().hook_job_failure(
                             job_id=job.id, job_type=job.type, error=str(exc)
                         )

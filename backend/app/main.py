@@ -64,7 +64,14 @@ async def lifespan(app: FastAPI):
     from pathlib import Path
 
     base = Path(__file__).parent.parent / "data"
-    for subdir in ("sessions", "artifacts", "uploads", "uploads/media", "jobs", "resident_plans"):
+    for subdir in (
+        "sessions",
+        "artifacts",
+        "uploads",
+        "uploads/media",
+        "jobs",
+        "resident_plans",
+    ):
         (base / subdir).mkdir(parents=True, exist_ok=True)
 
     # Log actionable first-time-setup warnings
@@ -624,7 +631,9 @@ async def health() -> dict:
     # ── Embeddings (extended) ────────────────────────────────
     embeddings_info: dict = {"status": "ok" if embeddings_svc.enabled else "disabled"}
     try:
-        embeddings_info["model"] = getattr(embeddings_svc, "model_name", "nomic-embed-text")
+        embeddings_info["model"] = getattr(
+            embeddings_svc, "model_name", "nomic-embed-text"
+        )
         embeddings_info["dimension"] = getattr(embeddings_svc, "detected_dim", 768)
     except Exception:
         pass

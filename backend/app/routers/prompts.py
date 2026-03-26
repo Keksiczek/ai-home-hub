@@ -30,6 +30,7 @@ async def update_system_prompts(body: dict):
     svc.save(s)
     return {"status": "ok"}
 
+
 _TASK_DESCRIPTIONS = {
     "chat": "konverzaci / dotazu na AI asistenta",
     "kb_search": "sémantickém vyhledávání v Knowledge Base",

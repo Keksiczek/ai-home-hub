@@ -108,7 +108,9 @@ class EmbeddingsService:
         for model in models_to_try:
             for ep_path in endpoint_paths:
                 try:
-                    async with httpx.AsyncClient(timeout=LLM_TIMEOUT_EMBEDDING) as client:
+                    async with httpx.AsyncClient(
+                        timeout=LLM_TIMEOUT_EMBEDDING
+                    ) as client:
                         resp = await client.post(
                             f"{ollama_url}{ep_path}",
                             json={"model": model, "input": text},

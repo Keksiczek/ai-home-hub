@@ -58,6 +58,7 @@ class LLMOverloadedError(Exception):
             f"(max_concurrent={LLM_MAX_CONCURRENT_REQUESTS})"
         )
 
+
 _DAYS_CS = ["pondělí", "úterý", "středa", "čtvrtek", "pátek", "sobota", "neděle"]
 _MONTHS_CS = [
     "ledna",
@@ -84,8 +85,8 @@ class LLMResponse:
     and is ``None`` until that is wired up.
     """
 
-    text: str       # full response text (Markdown syntax, Unicode emoji)
-    markdown: str   # same content, explicitly tagged as Markdown
+    text: str  # full response text (Markdown syntax, Unicode emoji)
+    markdown: str  # same content, explicitly tagged as Markdown
     html: str | None = None  # rendered HTML – populated when a renderer is wired in
 
     def as_dict(self) -> Dict[str, Any]:
@@ -249,7 +250,12 @@ class LLMService:
                 raise LLMOverloadedError(LLM_SEMAPHORE_TIMEOUT)
             try:
                 reply, meta = await self._generate_ollama(
-                    message, mode, history or [], cfg, keep_alive=keep_alive, profile=profile
+                    message,
+                    mode,
+                    history or [],
+                    cfg,
+                    keep_alive=keep_alive,
+                    profile=profile,
                 )
             finally:
                 _llm_semaphore.release()
@@ -440,7 +446,9 @@ class LLMService:
 
         # Determine API path based on backend type
         backend = os.environ.get("LLM_BACKEND", "ollama").lower()
-        api_path = "/v1/chat/completions" if backend == "openai_compatible" else "/api/chat"
+        api_path = (
+            "/v1/chat/completions" if backend == "openai_compatible" else "/api/chat"
+        )
 
         try:
             async with asyncio.timeout(timeout):
@@ -453,7 +461,9 @@ class LLMService:
                 completion_tokens = resp_data.get("eval_count")
                 total_duration = resp_data.get("total_duration")
                 if prompt_tokens is not None or completion_tokens is not None:
-                    duration_ms = int(total_duration / 1_000_000) if total_duration else 0
+                    duration_ms = (
+                        int(total_duration / 1_000_000) if total_duration else 0
+                    )
                     logger.debug(
                         "LLM %s: %sp + %sc tokens, %dms",
                         model,
@@ -589,7 +599,9 @@ class LLMService:
             }
 
     @staticmethod
-    def _add_structured_hints(system_prompt: str, message: str, mode: str = "general") -> str:
+    def _add_structured_hints(
+        system_prompt: str, message: str, mode: str = "general"
+    ) -> str:
         """Add formatting hints to system prompt based on message keywords."""
         if mode not in ("code", "research", "powerbi"):
             return system_prompt
@@ -743,9 +755,12 @@ class LLMService:
             connect=10.0, read=chat_stream_timeout, write=10.0, pool=5.0
         )
         # Hard outer cap: background jobs may stream for longer
-        outer_timeout = get_timeout_for_request(
-            "background_job" if for_overnight else "chat_stream", model
-        ) * 4  # 4× the per-request timeout as a generous wall-clock cap
+        outer_timeout = (
+            get_timeout_for_request(
+                "background_job" if for_overnight else "chat_stream", model
+            )
+            * 4
+        )  # 4× the per-request timeout as a generous wall-clock cap
 
         # Acquire the global LLM semaphore before streaming
         try:
@@ -781,14 +796,18 @@ class LLMService:
             await cb.record_failure()
             await model_cb.record_failure(model)
             logger.warning(
-                "Ollama stream hard-timeout for model %s (%.0fs cap)", model, outer_timeout
+                "Ollama stream hard-timeout for model %s (%.0fs cap)",
+                model,
+                outer_timeout,
             )
             yield "⏱ Model odpovídá pomalu. Zkus kratší dotaz nebo přepni na menší model v nastavení."
         except httpx.TimeoutException as exc:
             # Covers ReadTimeout (stalled chunk) and ConnectTimeout
             await cb.record_failure()
             await model_cb.record_failure(model)
-            logger.warning("Ollama HTTP timeout during streaming for model %s: %s", model, exc)
+            logger.warning(
+                "Ollama HTTP timeout during streaming for model %s: %s", model, exc
+            )
             yield "⏱ Model odpovídá pomalu. Zkus kratší dotaz nebo přepni na menší model v nastavení."
         except httpx.ConnectError:
             await cb.record_failure()

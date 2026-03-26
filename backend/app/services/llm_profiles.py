@@ -120,7 +120,9 @@ class LLMProfileRegistry:
     def get(self, profile_name: str) -> LLMProfile:
         """Get a profile by name, falling back to 'general'."""
         if profile_name not in self._profiles:
-            return self._profiles.get("general", _resolve_profile("general", _DEFAULT_PROFILES["general"]))
+            return self._profiles.get(
+                "general", _resolve_profile("general", _DEFAULT_PROFILES["general"])
+            )
         return self._profiles[profile_name]
 
     def list_all(self) -> Dict[str, LLMProfile]:
@@ -135,7 +137,9 @@ class LLMProfileRegistry:
         """Apply user overrides from settings and rebuild profiles."""
         self._user_overrides = overrides
         self._reload()
-        logger.info("LLM profiles reloaded with user overrides for: %s", list(overrides.keys()))
+        logger.info(
+            "LLM profiles reloaded with user overrides for: %s", list(overrides.keys())
+        )
 
     def get_profile_names(self) -> list:
         """Return list of profile names."""

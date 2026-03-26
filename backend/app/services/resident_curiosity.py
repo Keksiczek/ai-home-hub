@@ -71,13 +71,14 @@ class CuriosityService:
                 if priority == "high" and existing.priority != "high":
                     existing.priority = "high"
                 # Append new related job IDs
-                for jid in (related_job_ids or []):
+                for jid in related_job_ids or []:
                     if jid not in existing.related_job_ids:
                         existing.related_job_ids.append(jid)
                 self._save(existing)
                 logger.info(
                     "Curiosity dedup: updated existing %s (key=%s)",
-                    existing.id, dedup_key,
+                    existing.id,
+                    dedup_key,
                 )
                 return existing
 
@@ -205,9 +206,9 @@ class CuriosityService:
             try:
                 with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                if (
-                    data.get("dedup_key") == dedup_key
-                    and data.get("status") in ("open", "in_progress")
+                if data.get("dedup_key") == dedup_key and data.get("status") in (
+                    "open",
+                    "in_progress",
                 ):
                     return CuriosityItem(**data)
             except Exception:
@@ -231,7 +232,9 @@ class CuriosityService:
 
     # ── Hook helpers (deterministic, no LLM) ────────────────────
 
-    def hook_job_failure(self, job_id: str, job_type: str, error: str) -> Optional[CuriosityItem]:
+    def hook_job_failure(
+        self, job_id: str, job_type: str, error: str
+    ) -> Optional[CuriosityItem]:
         """Create a curiosity item when a resident job fails."""
         dedup_key = self.make_dedup_key("job_failure", "anomaly", job_type)
         return self.create_item(
@@ -244,7 +247,9 @@ class CuriosityService:
             related_job_ids=[job_id],
         )
 
-    def hook_low_success_rate(self, success_rate: float, failed_count: int) -> Optional[CuriosityItem]:
+    def hook_low_success_rate(
+        self, success_rate: float, failed_count: int
+    ) -> Optional[CuriosityItem]:
         """Create a curiosity item when job success rate drops below threshold."""
         dedup_key = self.make_dedup_key("lean_metrics", "hypothesis", "success_rate")
         return self.create_item(
