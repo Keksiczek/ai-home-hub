@@ -11,14 +11,15 @@ import pytest
 
 from app.models.resident_models import CuriosityItem
 
-
 # ── Helper: isolated CuriosityService with temp dir ──────────────────
+
 
 @pytest.fixture
 def curiosity_svc(tmp_path):
     """CuriosityService that writes to a temp directory."""
     with patch("app.services.resident_curiosity.CURIOSITY_DIR", tmp_path):
         from app.services.resident_curiosity import CuriosityService
+
         svc = CuriosityService()
         yield svc
 
@@ -65,14 +66,20 @@ class TestDedupAndPriority:
         """If existing item is medium and new event is high, escalate."""
         key = "test:hypothesis:bar"
         item = curiosity_svc.create_item(
-            title="Check it", kind="hypothesis", source="test",
-            dedup_key=key, priority="medium",
+            title="Check it",
+            kind="hypothesis",
+            source="test",
+            dedup_key=key,
+            priority="medium",
         )
         assert item.priority == "medium"
 
         updated = curiosity_svc.create_item(
-            title="Check it again", kind="hypothesis", source="test",
-            dedup_key=key, priority="high",
+            title="Check it again",
+            kind="hypothesis",
+            source="test",
+            dedup_key=key,
+            priority="high",
         )
         assert updated.priority == "high"
         assert updated.id == item.id
@@ -80,17 +87,20 @@ class TestDedupAndPriority:
     def test_low_priority_clamped_to_medium(self, curiosity_svc):
         """Priority 'low' should be clamped to 'medium'."""
         item = curiosity_svc.create_item(
-            title="Low prio test", priority="low",
+            title="Low prio test",
+            priority="low",
         )
         assert item.priority == "medium"
 
     def test_different_dedup_keys_create_separate_items(self, curiosity_svc):
         """Different dedup keys should create distinct items."""
         curiosity_svc.create_item(
-            title="A", dedup_key="src:kind:a",
+            title="A",
+            dedup_key="src:kind:a",
         )
         curiosity_svc.create_item(
-            title="B", dedup_key="src:kind:b",
+            title="B",
+            dedup_key="src:kind:b",
         )
         assert len(curiosity_svc.list_items(limit=200)) == 2
 
@@ -120,12 +130,19 @@ class TestWIPLimit:
         mock_mem = AsyncMock()
         mock_mem.add_memory = AsyncMock()
 
-        with patch("app.services.resident_curiosity.get_curiosity_service", return_value=curiosity_svc), \
-             patch("app.services.memory_service.get_memory_service", return_value=mock_mem), \
-             patch("app.services.resident_agent.core.CURIOSITY_TICK_INTERVAL", 1), \
-             patch("app.services.resident_agent.core.MAX_CURIOSITY_IN_PROGRESS", 3):
+        with patch(
+            "app.services.resident_curiosity.get_curiosity_service",
+            return_value=curiosity_svc,
+        ), patch(
+            "app.services.memory_service.get_memory_service", return_value=mock_mem
+        ), patch(
+            "app.services.resident_agent.core.CURIOSITY_TICK_INTERVAL", 1
+        ), patch(
+            "app.services.resident_agent.core.MAX_CURIOSITY_IN_PROGRESS", 3
+        ):
 
             from app.services.resident_agent.core import ResidentAgent
+
             core = ResidentAgent.__new__(ResidentAgent)
             core._state = MagicMock()
             core._state.tick_count = 1  # divisible by 1
@@ -215,13 +232,21 @@ class TestCuriositySafety:
 
         mock_job_svc.create_job = fake_create_job
 
-        with patch("app.services.resident_curiosity.get_curiosity_service", return_value=curiosity_svc), \
-             patch("app.services.memory_service.get_memory_service", return_value=mock_mem), \
-             patch("app.services.job_service.get_job_service", return_value=mock_job_svc), \
-             patch("app.services.resident_agent.core.CURIOSITY_TICK_INTERVAL", 1), \
-             patch("app.services.resident_agent.core.MAX_CURIOSITY_IN_PROGRESS", 3):
+        with patch(
+            "app.services.resident_curiosity.get_curiosity_service",
+            return_value=curiosity_svc,
+        ), patch(
+            "app.services.memory_service.get_memory_service", return_value=mock_mem
+        ), patch(
+            "app.services.job_service.get_job_service", return_value=mock_job_svc
+        ), patch(
+            "app.services.resident_agent.core.CURIOSITY_TICK_INTERVAL", 1
+        ), patch(
+            "app.services.resident_agent.core.MAX_CURIOSITY_IN_PROGRESS", 3
+        ):
 
             from app.services.resident_agent.core import ResidentAgent
+
             core = ResidentAgent.__new__(ResidentAgent)
             core._state = MagicMock()
             core._state.tick_count = 1
@@ -258,17 +283,23 @@ class TestThoughtLimits:
         mock_mem.add_memory = capture_memory
 
         mock_job_svc = MagicMock()
-        mock_job_svc.create_job = MagicMock(
-            return_value=MagicMock(id="j1")
-        )
+        mock_job_svc.create_job = MagicMock(return_value=MagicMock(id="j1"))
 
-        with patch("app.services.resident_curiosity.get_curiosity_service", return_value=curiosity_svc), \
-             patch("app.services.memory_service.get_memory_service", return_value=mock_mem), \
-             patch("app.services.job_service.get_job_service", return_value=mock_job_svc), \
-             patch("app.services.resident_agent.core.CURIOSITY_TICK_INTERVAL", 1), \
-             patch("app.services.resident_agent.core.MAX_CURIOSITY_IN_PROGRESS", 3):
+        with patch(
+            "app.services.resident_curiosity.get_curiosity_service",
+            return_value=curiosity_svc,
+        ), patch(
+            "app.services.memory_service.get_memory_service", return_value=mock_mem
+        ), patch(
+            "app.services.job_service.get_job_service", return_value=mock_job_svc
+        ), patch(
+            "app.services.resident_agent.core.CURIOSITY_TICK_INTERVAL", 1
+        ), patch(
+            "app.services.resident_agent.core.MAX_CURIOSITY_IN_PROGRESS", 3
+        ):
 
             from app.services.resident_agent.core import ResidentAgent
+
             core = ResidentAgent.__new__(ResidentAgent)
             core._state = MagicMock()
             core._state.tick_count = 1
@@ -277,7 +308,9 @@ class TestThoughtLimits:
 
         # All stored thoughts should be <= 200 chars
         for text in stored_texts:
-            assert len(text) <= 200, f"Thought too long ({len(text)} chars): {text[:50]}..."
+            assert (
+                len(text) <= 200
+            ), f"Thought too long ({len(text)} chars): {text[:50]}..."
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -290,7 +323,10 @@ class TestCuriosityAPI:
 
     def test_curiosity_endpoint_returns_items(self, client, curiosity_svc):
         """GET /api/resident/curiosity returns curiosity items."""
-        with patch("app.services.resident_curiosity.get_curiosity_service", return_value=curiosity_svc):
+        with patch(
+            "app.services.resident_curiosity.get_curiosity_service",
+            return_value=curiosity_svc,
+        ):
             curiosity_svc.create_item(title="Test item", source="test", kind="question")
 
             resp = client.get("/api/resident/curiosity")
@@ -301,7 +337,10 @@ class TestCuriosityAPI:
 
     def test_curiosity_endpoint_status_filter(self, client, curiosity_svc):
         """GET /api/resident/curiosity?status=open filters correctly."""
-        with patch("app.services.resident_curiosity.get_curiosity_service", return_value=curiosity_svc):
+        with patch(
+            "app.services.resident_curiosity.get_curiosity_service",
+            return_value=curiosity_svc,
+        ):
             item = curiosity_svc.create_item(title="Open item")
             done = curiosity_svc.create_item(title="Done item")
             curiosity_svc.resolve_item(done.id, "done")

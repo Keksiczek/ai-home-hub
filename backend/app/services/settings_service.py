@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict
 
@@ -17,8 +18,8 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         "default_model": "llama3.2:latest",
         "temperature": 0.3,
         "timeout_seconds": 180,
-        "ollama_url": "http://localhost:11434",
-        "base_url": "http://localhost:11434",
+        "ollama_url": os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"),
+        "base_url": os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"),
         "embeddings_model": "nomic-embed-text",
         "default_params": {
             "temperature": 0.3,

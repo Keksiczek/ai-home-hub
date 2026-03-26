@@ -243,9 +243,7 @@ class ToolsMixin:
             from datetime import datetime, timedelta, timezone
 
             job_svc = get_job_service()
-            since_24h = (
-                datetime.now(timezone.utc) - timedelta(hours=24)
-            ).isoformat()
+            since_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
             stats = job_svc.get_stats_since(since_24h)
             failed = job_svc.count_jobs(status="failed", since=since_24h)
             queued = len(job_svc.list_jobs(status="queued", limit=100))
@@ -274,7 +272,8 @@ class ToolsMixin:
             # Budget check: missions per day
             if not self._can_create_mission():
                 self._add_log(
-                    "WARN", "throttled_missions_daily_limit",
+                    "WARN",
+                    "throttled_missions_daily_limit",
                     missions_today=self._missions_today,
                 )
                 return {
@@ -325,15 +324,37 @@ class ToolsMixin:
 
         elif action == "web_search":
             try:
-                from app.services.skills_runtime_service import WebSearchSkill
+                from .web_search_tool import tool_web_search
 
-                skill = WebSearchSkill()
                 query = params.get("query", payload.get("goal", ""))
-                max_results = params.get("max_results", 5)
-                results = await skill.run(query=query, max_results=max_results)
-                return {"action": "web_search", "query": query, "results": results}
+                max_results = min(params.get("max_results", 3), 5)
+                if not query:
+                    return {
+                        "action": "web_search",
+                        "error": "web_search requires params.query",
+                    }
+
+                result = await tool_web_search(query, max_results=max_results)
+
+                # Save first result snippet to memory (observation, not KB)
+                if result.get("results"):
+                    snippet = result["results"][0].get("snippet", "")[:200]
+                    try:
+                        from app.services.memory_service import get_memory_service
+
+                        mem = get_memory_service()
+                        await mem.add_memory(
+                            text=f"Web search '{query}': {snippet}",
+                            tags=["resident", "web_search", "observation"],
+                            source="resident_agent",
+                            importance=4,
+                        )
+                    except Exception as mem_exc:
+                        logger.debug("Failed to save web_search to memory: %s", mem_exc)
+
+                return {"action": "web_search", **result}
             except Exception as exc:
-                logger.error("web_search skill failed: %s", exc)
+                logger.error("web_search failed: %s", exc)
                 return {"action": "web_search", "error": str(exc), "results": []}
 
         else:

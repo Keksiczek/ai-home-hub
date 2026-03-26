@@ -62,7 +62,12 @@ async def run_resident_plan_execute(
 
     # Guardrail: cap steps
     if len(steps_to_run) > _MAX_STEPS:
-        logger.warning("Plan %s has %d steps, capping at %d", plan_id, len(steps_to_run), _MAX_STEPS)
+        logger.warning(
+            "Plan %s has %d steps, capping at %d",
+            plan_id,
+            len(steps_to_run),
+            _MAX_STEPS,
+        )
         steps_to_run = steps_to_run[:_MAX_STEPS]
 
     # Mark plan as running
@@ -86,8 +91,7 @@ async def run_resident_plan_execute(
             "job_id": job.id,
             "status": status,
             "steps": [
-                {"id": s.id, "title": s.title, "status": s.status}
-                for s in plan.steps
+                {"id": s.id, "title": s.title, "status": s.status} for s in plan.steps
             ],
         }
         if current_step:
@@ -230,7 +234,9 @@ async def _execute_agent_step(step: PlanStep, plan: ResidentPlan) -> Dict[str, A
         if agent_record.get("status") in ("completed", "failed", "interrupted"):
             break
     else:
-        raise TimeoutError(f"Agent {agent_id} did not complete within {_STEP_TIMEOUT_S}s")
+        raise TimeoutError(
+            f"Agent {agent_id} did not complete within {_STEP_TIMEOUT_S}s"
+        )
 
     if agent_record and agent_record.get("status") == "failed":
         raise RuntimeError(

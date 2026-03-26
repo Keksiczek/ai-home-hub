@@ -600,9 +600,7 @@ async def execute_plan_steps(plan_id: str) -> Dict[str, Any]:
                 # Execute KB action
                 action = step.params.get("action", "search")
                 if action == "search":
-                    result = await _kb_search(
-                        step.params.get("query", step.title)
-                    )
+                    result = await _kb_search(step.params.get("query", step.title))
                 elif action == "store":
                     result = await _kb_store(
                         step.params.get("content", step.description),

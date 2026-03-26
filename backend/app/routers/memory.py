@@ -13,6 +13,7 @@ from app.models.schemas import (
     SummarizeSessionRequest,
 )
 from app.services.memory_service import get_memory_service
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()

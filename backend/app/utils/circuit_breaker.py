@@ -176,11 +176,11 @@ class ModelCircuitBreakerRegistry:
                 "failures": failures,
                 "disabled": failures >= self._failure_threshold
                 and elapsed < self._disable_ttl,
-                "seconds_until_recovery": max(
-                    0.0, self._disable_ttl - elapsed
-                )
-                if failures >= self._failure_threshold
-                else 0.0,
+                "seconds_until_recovery": (
+                    max(0.0, self._disable_ttl - elapsed)
+                    if failures >= self._failure_threshold
+                    else 0.0
+                ),
             }
         return result
 

@@ -8,6 +8,7 @@ Phase 2 addition: tool-augmented reasoning via ``reason_with_tools()``.
 
 import json
 import logging
+import os
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
@@ -24,6 +25,11 @@ from app.services.llm_service import get_llm_service
 
 logger = logging.getLogger(__name__)
 
+# ── Prompt truncation constants ───────────────────────────────
+MAX_REASONER_PROMPT_TOKENS: int = int(
+    os.environ.get("MAX_REASONER_PROMPT_TOKENS", "700")
+)
+
 # Whitelist of action types the reasoner may suggest
 ALLOWED_ACTION_TYPES = frozenset(
     {"kb_maintenance", "job_cleanup", "health_check", "analysis", "other"}
@@ -33,17 +39,36 @@ ALLOWED_ACTION_TYPES = frozenset(
 DESTRUCTIVE_ACTION_TYPES = frozenset({"kb_maintenance", "job_cleanup"})
 
 # Actions the reasoner can suggest for direct dispatch
-REASONER_ALLOWED_ACTIONS = frozenset({
-    "system_health", "git_status", "lean_metrics", "kb_search",
-    "write_memory", "memory_store", "memory_search", "create_mission",
-    "system_status", "no_op", "web_search", "send_notification",
-})
+REASONER_ALLOWED_ACTIONS = frozenset(
+    {
+        "system_health",
+        "git_status",
+        "lean_metrics",
+        "kb_search",
+        "write_memory",
+        "memory_store",
+        "memory_search",
+        "create_mission",
+        "system_status",
+        "no_op",
+        "web_search",
+        "send_notification",
+    }
+)
 
 # Safe actions that never require confirmation
-REASONER_SAFE_ACTIONS = frozenset({
-    "system_health", "git_status", "lean_metrics", "kb_search",
-    "memory_search", "system_status", "no_op", "write_memory",
-})
+REASONER_SAFE_ACTIONS = frozenset(
+    {
+        "system_health",
+        "git_status",
+        "lean_metrics",
+        "kb_search",
+        "memory_search",
+        "system_status",
+        "no_op",
+        "write_memory",
+    }
+)
 
 # ── Autonomous reasoner system prompt ──────────────────────────
 REASONER_SYSTEM_PROMPT = """Jsi autonomní Resident Agent – zvědavý, proaktivní a systematický správce domácího AI hubu.
@@ -77,6 +102,11 @@ POVOLENÉ AKCE (action):
 system_health, git_status, lean_metrics, kb_search, write_memory, memory_store,
 memory_search, create_mission, system_status, no_op, web_search, send_notification
 
+- web_search   → vyhledej na webu (params: {"query": "...", "max_results": 3})
+                 Použij pokud: KB nemá odpověď, curiosity item vyžaduje vnější informace,
+                 nebo chceš zjistit aktuální informace mimo KB.
+                 NIKDY nepoužívej pro osobní data nebo interní systémy.
+
 PRAVIDLA:
 - Max 3 akce najednou.
 - Každá akce musí mít: action, title, requires_confirmation.
@@ -108,13 +138,41 @@ class ResidentReasoner:
 
         # Build system prompt with curiosity backlog injected
         system_prompt = REASONER_SYSTEM_PROMPT.replace(
-            "{curiosity_summary}", curiosity_summary,
+            "{curiosity_summary}",
+            curiosity_summary,
         )
 
         user_message = (
             f"STAV:\n{context_summary[:500]}\n\n"
             "Navrhni 1–3 akce. Odpověz POUZE JSON polem."
         )
+
+        # ── Prompt truncation (KROK 2.1) ──────────────────────────
+        full_prompt = system_prompt + "\n" + user_message
+        estimated_tokens = len(full_prompt) // 4
+        if estimated_tokens > MAX_REASONER_PROMPT_TOKENS:
+            original_tokens = estimated_tokens
+            # Truncate curiosity to top 2
+            curiosity_items = context.get("curiosity_items", [])
+            truncated_curiosity = self._build_curiosity_summary(
+                {"curiosity_items": curiosity_items[:2]}
+            )
+            # Truncate context summary (job stats 1 line only)
+            context_summary = context_summary[:250]
+            system_prompt = REASONER_SYSTEM_PROMPT.replace(
+                "{curiosity_summary}",
+                truncated_curiosity,
+            )
+            user_message = (
+                f"STAV:\n{context_summary}\n\n"
+                "Navrhni 1–3 akce. Odpověz POUZE JSON polem."
+            )
+            new_tokens = len((system_prompt + "\n" + user_message)) // 4
+            logger.debug(
+                "prompt truncated from %d to %d tokens",
+                original_tokens,
+                new_tokens,
+            )
 
         try:
             llm = get_llm_service()
@@ -140,10 +198,14 @@ class ResidentReasoner:
                 context_summary=context_summary[:500],
             )
         except Exception as exc:
-            logger.error("Reasoner suggestion generation failed: %s, using fallback", exc)
+            logger.error(
+                "Reasoner suggestion generation failed: %s, using fallback", exc
+            )
             return self._fallback_suggestion(mode, context_summary[:500])
 
-    def _fallback_suggestion(self, mode: str, context_summary: str = "") -> ResidentSuggestion:
+    def _fallback_suggestion(
+        self, mode: str, context_summary: str = ""
+    ) -> ResidentSuggestion:
         """Return a deterministic safe fallback suggestion when LLM fails."""
         fallback_action = SuggestedAction(
             title="System check (fallback)",
@@ -259,7 +321,11 @@ class ResidentReasoner:
                         "title": str(s.get("title", f"Krok {i+1}"))[:200],
                         "description": str(s.get("description", ""))[:500],
                         "tool": tool,
-                        "params": s.get("params", {}) if isinstance(s.get("params"), dict) else {},
+                        "params": (
+                            s.get("params", {})
+                            if isinstance(s.get("params"), dict)
+                            else {}
+                        ),
                         "depends_on": (
                             [str(d) for d in s.get("depends_on", [])]
                             if isinstance(s.get("depends_on"), list)
@@ -422,9 +488,7 @@ class ResidentReasoner:
 
         # KB (1 line)
         kb = ctx.get("kb_stats", {})
-        lines.append(
-            f"KB: {kb.get('total_chunks', 0)} chunků"
-        )
+        lines.append(f"KB: {kb.get('total_chunks', 0)} chunků")
 
         # System resources (1 line)
         res = ctx.get("resources", {})
@@ -458,7 +522,12 @@ class ResidentReasoner:
         if not curiosity_items:
             return "(prázdný – vygeneruj novou otázku přes write_memory)"
 
-        kind_icon = {"question": "🔍", "idea": "💡", "anomaly": "⚡", "hypothesis": "🤔"}
+        kind_icon = {
+            "question": "🔍",
+            "idea": "💡",
+            "anomaly": "⚡",
+            "hypothesis": "🤔",
+        }
         parts = []
         for ci in curiosity_items[:3]:
             icon = kind_icon.get(ci.get("kind", ""), "🔍")
@@ -501,7 +570,11 @@ class ResidentReasoner:
                 if direct_action in ("system_health", "lean_metrics"):
                     action_type = "health_check"
                 elif direct_action in ("kb_search", "kb_maintenance"):
-                    action_type = "kb_maintenance" if "maintenance" in direct_action else "analysis"
+                    action_type = (
+                        "kb_maintenance"
+                        if "maintenance" in direct_action
+                        else "analysis"
+                    )
                 elif direct_action in ("git_status",):
                     action_type = "analysis"
                 elif direct_action in ("write_memory", "memory_store"):
@@ -537,7 +610,11 @@ class ResidentReasoner:
                         estimated_cost=str(item.get("estimated_cost", ""))[:200],
                         steps=[str(s)[:200] for s in item.get("steps", [])[:10]],
                         thought=str(item.get("thought", ""))[:300],
-                        params=item.get("params", {}) if isinstance(item.get("params"), dict) else {},
+                        params=(
+                            item.get("params", {})
+                            if isinstance(item.get("params"), dict)
+                            else {}
+                        ),
                     )
                 )
             except Exception as exc:

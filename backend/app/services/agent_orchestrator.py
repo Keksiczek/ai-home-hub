@@ -62,6 +62,7 @@ class AgentStep(BaseModel):
     tool_params: Optional[Dict[str, Any]] = None
     message: str = ""
 
+
 # System prompts per agent type
 AGENT_TYPE_PROMPTS = {
     "general": (
@@ -423,9 +424,7 @@ class AgentOrchestrator:
                     i,
                     phase_name,
                 )
-                raise RuntimeError(
-                    f"ABORTED_LOOPING: exceeded {AGENT_MAX_STEPS} steps"
-                )
+                raise RuntimeError(f"ABORTED_LOOPING: exceeded {AGENT_MAX_STEPS} steps")
 
             if record.guardrails:
                 ok, reason = record.guardrails.check_and_increment()

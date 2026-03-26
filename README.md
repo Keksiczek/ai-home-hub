@@ -105,12 +105,47 @@ backend/
 
 ### LLM Model routing
 
-| Profil | Model | keep_alive |
-|--------|-------|-----------|
-| chat | llama3.2:3b | 60s |
-| code | qwen2.5-coder:3b | 120s |
-| vision | llava:7b | 0 (unload) |
-| agent | dolphin-llama3:8b | 30s |
+| Profil | Model (default) | num_ctx | temperature | timeout_s |
+|--------|----------------|---------|-------------|-----------|
+| chat | qwen2.5:7b-instruct-q4_K_M | 4096 | 0.7 | 90 |
+| resident_reasoner | qwen2.5:7b-instruct-q4_K_M | 3072 | 0.4 | 90 |
+| resident_reflection | llama3.2:3b-instruct | 2048 | 0.3 | 60 |
+| resident_mission_planner | qwen2.5:7b-instruct-q4_K_M | 4096 | 0.5 | 90 |
+| background_job | llama3.2:3b-instruct | 2048 | 0.3 | 60 |
+| general | qwen2.5:7b-instruct-q4_K_M | 4096 | 0.7 | 90 |
+
+Všechny hodnoty přepsatelné přes env vars:
+
+```bash
+LLM_MODEL_CHAT=llama3.1:8b
+LLM_CTX_CHAT=4096
+LLM_TEMP_CHAT=0.5
+LLM_TIMEOUT_RESIDENT_REASONER=120
+```
+
+API endpointy:
+- `GET /api/settings/llm-profiles` – aktuální konfigurace profilů
+- `POST /api/settings/llm-profiles` – uložit override per profil
+
+### Použití s llama.cpp / llama-server
+
+AI Home Hub podporuje i OpenAI-compatible backendy (llama-server, LM Studio, Jan):
+
+```bash
+# Homebrew
+brew install llama.cpp
+
+# Spustit server (OpenAI-compatible, port 11434)
+llama-server \
+  --model ~/.ollama/models/blobs/<sha256> \
+  --threads 4 \
+  --ctx-size 4096 \
+  --port 11434
+
+# AI Home Hub config
+LLM_BACKEND=openai_compatible
+OLLAMA_BASE_URL=http://localhost:11434
+```
 
 ---
 

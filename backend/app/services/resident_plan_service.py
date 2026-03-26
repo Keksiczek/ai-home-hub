@@ -114,7 +114,9 @@ class ResidentPlanService:
             plan.meta["rejection_reason"] = reason
         return self.save_plan(plan)
 
-    def mark_executed(self, plan_id: str, result_summary: str = "") -> Optional[ResidentPlan]:
+    def mark_executed(
+        self, plan_id: str, result_summary: str = ""
+    ) -> Optional[ResidentPlan]:
         """Mark an approved/running plan as executed (completed)."""
         plan = self.get_plan(plan_id)
         if not plan:

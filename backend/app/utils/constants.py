@@ -77,9 +77,8 @@ LLM_NUM_PREDICT: int = int(__import__("os").environ.get("LLM_NUM_PREDICT", "512"
 _cpu_backend_env = __import__("os").environ.get("LLM_CPU_BACKEND", "").lower()
 _cuda_visible = __import__("os").environ.get("CUDA_VISIBLE_DEVICES", "")
 _ollama_num_gpu = __import__("os").environ.get("OLLAMA_NUM_GPU", "")
-LLM_CPU_BACKEND: bool = (
-    _cpu_backend_env == "true"
-    or (_cpu_backend_env != "false" and not _cuda_visible and not _ollama_num_gpu)
+LLM_CPU_BACKEND: bool = _cpu_backend_env == "true" or (
+    _cpu_backend_env != "false" and not _cuda_visible and not _ollama_num_gpu
 )
 
 # ── Per-model circuit breaker / fallback ─────────────────────────────────────

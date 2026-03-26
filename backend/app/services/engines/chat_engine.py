@@ -49,7 +49,9 @@ from app.services.engines.coding_engine import ProgressCallback
 logger = logging.getLogger(__name__)
 
 
-async def run_chat_task(job: Job, progress_callback: ProgressCallback) -> Dict[str, Any]:
+async def run_chat_task(
+    job: Job, progress_callback: ProgressCallback
+) -> Dict[str, Any]:
     """Process a chat_task job: call LLM, persist session, broadcast result via WS.
 
     All heavy imports are done inside the function to avoid import-time circular
