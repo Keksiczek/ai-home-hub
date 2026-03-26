@@ -166,6 +166,8 @@ async def enrich_message(
         if isinstance(result, Exception):
             logger.warning("Context fetch '%s' failed: %s", key, result)
             result_map[key] = None
+            if key == "kb":
+                meta["kb_warning"] = "⚠️ Vektorové vyhledávání nedostupné – odpovídám bez KB kontextu."
         else:
             result_map[key] = result
 

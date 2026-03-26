@@ -233,6 +233,49 @@ async def list_ollama_models() -> Dict[str, Any]:
     return {"models": chat_models, "embedding_models": embedding_models}
 
 
+## ── LLM Profiles ──────────────────────────────────────────────
+
+
+@router.get("/settings/llm-profiles", tags=["settings"])
+async def get_llm_profiles() -> Dict[str, Any]:
+    """Return all LLM profile configurations (per-profile model, ctx, temperature, timeout)."""
+    from app.services.llm_profiles import get_llm_profile_registry
+
+    registry = get_llm_profile_registry()
+    return {"profiles": registry.list_all_dicts()}
+
+
+@router.post("/settings/llm-profiles", tags=["settings"])
+async def update_llm_profiles(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Save user overrides for LLM profiles.
+
+    Body::
+
+        {
+          "profiles": {
+            "chat": {"model": "llama3.1:8b", "num_ctx": 4096},
+            "resident_reasoner": {"temperature": 0.3}
+          }
+        }
+    """
+    from app.services.llm_profiles import get_llm_profile_registry
+
+    overrides = body.get("profiles", {})
+    if not isinstance(overrides, dict):
+        raise HTTPException(400, "profiles must be a dict of profile_name → overrides")
+
+    # Persist to settings.json
+    svc = get_settings_service()
+    svc.update({"llm_profiles": overrides})
+
+    # Apply to in-memory registry
+    registry = get_llm_profile_registry()
+    registry.update_user_overrides(overrides)
+
+    logger.info("LLM profiles updated: %s", list(overrides.keys()))
+    return {"profiles": registry.list_all_dicts()}
+
+
 ## ── Quick Actions CRUD ──────────────────────────────────────
 
 

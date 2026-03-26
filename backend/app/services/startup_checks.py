@@ -5,6 +5,7 @@ raising on non-critical failures (e.g. Ollama unavailable).
 """
 
 import logging
+import os
 from typing import Any, Dict, List
 
 import httpx
@@ -265,6 +266,19 @@ async def run_startup_checks(ollama_url: str) -> Dict[str, Any]:
             logger.warning("Embeddings service disabled after health check")
     except Exception as exc:
         logger.warning("Embeddings health check failed: %s", exc)
+
+    # 1b. Ollama performance hints (KROK 3.1)
+    perf_hints: List[str] = []
+    if not os.environ.get("OLLAMA_FLASH_ATTENTION"):
+        perf_hints.append("OLLAMA_FLASH_ATTENTION not set")
+    if not os.environ.get("OLLAMA_KEEP_ALIVE"):
+        perf_hints.append("OLLAMA_KEEP_ALIVE not set")
+    if perf_hints:
+        logger.warning(
+            "Ollama performance tip: set OLLAMA_FLASH_ATTENTION=1 and "
+            "OLLAMA_KEEP_ALIVE=30m for better performance"
+        )
+    result["ollama_perf_hints"] = perf_hints
 
     # 2. ChromaDB / KB
     logger.info("startup_check", extra={"check": "chromadb_write_test"})

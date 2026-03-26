@@ -8,6 +8,7 @@ Phase 2 addition: tool-augmented reasoning via ``reason_with_tools()``.
 
 import json
 import logging
+import os
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
@@ -23,6 +24,11 @@ from app.models.resident_models import (
 from app.services.llm_service import get_llm_service
 
 logger = logging.getLogger(__name__)
+
+# ── Prompt truncation constants ───────────────────────────────
+MAX_REASONER_PROMPT_TOKENS: int = int(
+    os.environ.get("MAX_REASONER_PROMPT_TOKENS", "700")
+)
 
 # Whitelist of action types the reasoner may suggest
 ALLOWED_ACTION_TYPES = frozenset(
@@ -77,6 +83,11 @@ POVOLENÉ AKCE (action):
 system_health, git_status, lean_metrics, kb_search, write_memory, memory_store,
 memory_search, create_mission, system_status, no_op, web_search, send_notification
 
+- web_search   → vyhledej na webu (params: {"query": "...", "max_results": 3})
+                 Použij pokud: KB nemá odpověď, curiosity item vyžaduje vnější informace,
+                 nebo chceš zjistit aktuální informace mimo KB.
+                 NIKDY nepoužívej pro osobní data nebo interní systémy.
+
 PRAVIDLA:
 - Max 3 akce najednou.
 - Každá akce musí mít: action, title, requires_confirmation.
@@ -115,6 +126,32 @@ class ResidentReasoner:
             f"STAV:\n{context_summary[:500]}\n\n"
             "Navrhni 1–3 akce. Odpověz POUZE JSON polem."
         )
+
+        # ── Prompt truncation (KROK 2.1) ──────────────────────────
+        full_prompt = system_prompt + "\n" + user_message
+        estimated_tokens = len(full_prompt) // 4
+        if estimated_tokens > MAX_REASONER_PROMPT_TOKENS:
+            original_tokens = estimated_tokens
+            # Truncate curiosity to top 2
+            curiosity_items = context.get("curiosity_items", [])
+            truncated_curiosity = self._build_curiosity_summary(
+                {"curiosity_items": curiosity_items[:2]}
+            )
+            # Truncate context summary (job stats 1 line only)
+            context_summary = context_summary[:250]
+            system_prompt = REASONER_SYSTEM_PROMPT.replace(
+                "{curiosity_summary}", truncated_curiosity,
+            )
+            user_message = (
+                f"STAV:\n{context_summary}\n\n"
+                "Navrhni 1–3 akce. Odpověz POUZE JSON polem."
+            )
+            new_tokens = len((system_prompt + "\n" + user_message)) // 4
+            logger.debug(
+                "prompt truncated from %d to %d tokens",
+                original_tokens,
+                new_tokens,
+            )
 
         try:
             llm = get_llm_service()

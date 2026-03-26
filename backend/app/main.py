@@ -310,6 +310,78 @@ from app.middleware.rate_limit import setup_rate_limiting
 setup_rate_limiting(app)
 
 
+@app.get("/api/resident/badge", tags=["resident"])
+async def resident_badge() -> dict:
+    """Compact resident agent status badge for the navigation bar.
+
+    Returns::
+
+        {
+            "badge": "active" | "slow" | "stopped",
+            "open_curiosity": 3,
+            "last_thought": "RAM was high..."
+        }
+    """
+    from datetime import datetime, timezone
+    from app.services.resident_agent import get_resident_agent
+
+    agent = get_resident_agent()
+    state = agent.get_state()
+
+    is_running = state.get("is_running", False)
+    last_heartbeat = state.get("last_heartbeat")
+
+    badge = "stopped"
+    if is_running and last_heartbeat:
+        try:
+            if isinstance(last_heartbeat, str):
+                last_dt = datetime.fromisoformat(last_heartbeat.replace("Z", "+00:00"))
+            else:
+                last_dt = last_heartbeat
+            age_s = (datetime.now(timezone.utc) - last_dt).total_seconds()
+            if age_s < 60:
+                badge = "active"
+            elif age_s < 120:
+                badge = "slow"
+            else:
+                badge = "stopped"
+        except Exception:
+            badge = "active" if is_running else "stopped"
+    elif is_running:
+        badge = "active"
+
+    # Open curiosity items count
+    open_curiosity = 0
+    try:
+        from app.services.resident_curiosity import get_curiosity_service
+
+        curiosity_svc = get_curiosity_service()
+        open_items = curiosity_svc.list_items(status="open", limit=100)
+        open_curiosity = len(open_items)
+    except Exception:
+        pass
+
+    # Last thought from cycle history
+    last_thought = ""
+    try:
+        history = agent.get_cycle_history(limit=1)
+        if history:
+            last_cycle = history[0]
+            last_thought = (
+                last_cycle.get("thought", "")
+                or last_cycle.get("reasoning_summary", "")
+                or ""
+            )[:120]
+    except Exception:
+        pass
+
+    return {
+        "badge": badge,
+        "open_curiosity": open_curiosity,
+        "last_thought": last_thought,
+    }
+
+
 @app.get("/api/agent/status", tags=["agent"])
 async def agent_status() -> dict:
     """Top-level agent status endpoint combining resident agent and job worker health."""
@@ -515,7 +587,7 @@ async def setup_check() -> dict:
 
 @app.get("/api/health", tags=["health"])
 async def health() -> dict:
-    """Health-check endpoint."""
+    """Health-check endpoint with extended component info."""
     from datetime import datetime, timezone
 
     from app.services.embeddings_service import get_embeddings_service
@@ -526,10 +598,39 @@ async def health() -> dict:
     # Build component statuses
     components: dict = {}
 
-    # Ollama
-    components["ollama"] = {"status": "ok"}
+    # ── Ollama (extended) ────────────────────────────────────
+    ollama_info: dict = {"status": "ok"}
+    try:
+        from app.services.llm_service import get_llm_service
 
-    # ChromaDB
+        llm_svc = get_llm_service()
+        ollama_health = await llm_svc.check_ollama_health()
+        if ollama_health.get("status") == "ok":
+            ollama_info["status"] = "ok"
+            models = ollama_health.get("models", [])
+            ollama_info["model_loaded"] = models[0] if models else None
+        else:
+            ollama_info["status"] = "unavailable"
+
+        # Perf hints from startup checks
+        startup_health = get_settings_service().global_health
+        perf_hints = startup_health.get("ollama_perf_hints", [])
+        if perf_hints:
+            ollama_info["perf_hints"] = perf_hints
+    except Exception:
+        ollama_info["status"] = "unavailable"
+    components["ollama"] = ollama_info
+
+    # ── Embeddings (extended) ────────────────────────────────
+    embeddings_info: dict = {"status": "ok" if embeddings_svc.enabled else "disabled"}
+    try:
+        embeddings_info["model"] = getattr(embeddings_svc, "model_name", "nomic-embed-text")
+        embeddings_info["dimension"] = getattr(embeddings_svc, "detected_dim", 768)
+    except Exception:
+        pass
+    components["embeddings"] = embeddings_info
+
+    # ── ChromaDB ─────────────────────────────────────────────
     try:
         from app.services.vector_store_service import get_vector_store_service
 
@@ -542,6 +643,36 @@ async def health() -> dict:
     # Filesystem
     components["filesystem"] = {"status": "ok"}
 
+    # ── Resident Agent (extended) ────────────────────────────
+    resident_info: dict = {"status": "stopped"}
+    try:
+        from app.services.resident_agent import get_resident_agent
+
+        agent = get_resident_agent()
+        state = agent.get_state()
+        is_running = state.get("is_running", False)
+        last_heartbeat = state.get("last_heartbeat")
+
+        if is_running:
+            resident_info["status"] = "running"
+        elif state.get("paused"):
+            resident_info["status"] = "idle"
+        resident_info["last_tick_at"] = last_heartbeat
+        resident_info["tick_count"] = state.get("tick_count", 0)
+
+        # Open curiosity items count
+        try:
+            from app.services.resident_curiosity import get_curiosity_service
+
+            curiosity_svc = get_curiosity_service()
+            open_items = curiosity_svc.list_items(status="open", limit=100)
+            resident_info["open_curiosity_items"] = len(open_items)
+        except Exception:
+            resident_info["open_curiosity_items"] = 0
+    except Exception:
+        pass
+    components["resident_agent"] = resident_info
+
     bg_tasks = _supervisor.status()
 
     # Tailscale Funnel health
@@ -550,7 +681,11 @@ async def health() -> dict:
     tailscale_health = get_tailscale_service().get_health()
 
     overall = "ok"
-    if any(c.get("status") != "ok" for c in components.values()):
+    if any(
+        c.get("status") not in ("ok", "running", "disabled")
+        for c in components.values()
+        if isinstance(c, dict)
+    ):
         overall = "degraded"
     if any(
         (s.get("status") if isinstance(s, dict) else s) == "error"
