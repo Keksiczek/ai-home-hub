@@ -140,7 +140,7 @@ class ResourceMonitor:
                 elif snap.throttle:
                     logger.warning("RESOURCE WARN: RAM %s%%", snap.ram_used_percent)
 
-                # Broadcast resource update every 60s (every 4th tick)
+                # Broadcast resource update every ~120s (every 4th tick at 30s interval)
                 if self._tick_count % 4 == 0 and self._broadcast_fn:
                     try:
                         await self._broadcast_fn(
@@ -150,7 +150,7 @@ class ResourceMonitor:
                         logger.debug("Resource broadcast failed: %s", exc)
             except Exception as exc:
                 logger.debug("ResourceMonitor error: %s", exc)
-            await asyncio.sleep(15)  # check every 15s
+            await asyncio.sleep(30)  # check every 30s (was 15s – reduces overhead)
 
     def _take_snapshot(self) -> ResourceSnapshot:
         # interval=None returns the value computed since the last call (non-blocking).

@@ -164,10 +164,12 @@ def get_keep_alive_for_model(
         return 0
     if "qwen2.5-coder" in name or "coder" in name:
         return "120s"
+    if "llama3.2" in name or "llama3" in name:
+        return os.environ.get("OLLAMA_KEEP_ALIVE", "5m")  # uvolní po 5 min neaktivity
     if config_default is not None:
         return config_default
-    # Fall back to OLLAMA_KEEP_ALIVE env var, then 30 minutes
-    return os.environ.get("OLLAMA_KEEP_ALIVE", "30m")
+    # Fall back to OLLAMA_KEEP_ALIVE env var, then 5 minutes (was 30m)
+    return os.environ.get("OLLAMA_KEEP_ALIVE", "5m")
 
 
 def _llm_unavailable_response(
@@ -503,7 +505,12 @@ class LLMService:
                 meta_base["language_detected"] = "cs"
                 meta_base["auto_translated"] = False
                 settings = self._settings.load()
-                auto_translate = settings.get("auto_translate_to_czech", True)
+                auto_translate = settings.get("auto_translate_to_czech", False)
+                if auto_translate:
+                    logger.warning(
+                        "auto_translate_to_czech=True: každá anglická odpověď vyvolá DRUHÝ LLM request. "
+                        "Doporučeno False na strojích s <16 GB RAM."
+                    )
 
                 if auto_translate and self._looks_english(reply):
                     meta_base["language_detected"] = "en"

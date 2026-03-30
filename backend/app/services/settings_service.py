@@ -418,7 +418,8 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
             },
         },
         "resident": {
-            "interval_seconds": 900,
+            "interval_seconds": 120,
+            "low_memory_mode": False,
             "quiet_hours": ["22:00-07:00"],
             "max_cycles_per_day": 96,
             "autonomy_level": "advisor",
