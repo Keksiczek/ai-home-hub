@@ -70,6 +70,7 @@ async def run_chat_task(
     profile: str | None = payload.get("profile")
     session_id: str | None = payload.get("session_id")
     model_override: str | None = payload.get("model_override")
+    allow_uncensored: bool = payload.get("allow_uncensored", False)
     context_file_ids: list = payload.get("context_file_ids", [])
 
     llm_svc = get_llm_service()
@@ -103,6 +104,7 @@ async def run_chat_task(
             context_file_ids=context_file_ids,
             history=history,
             model_override=model_override,
+            allow_uncensored=allow_uncensored,
         )
     except Exception as exc:
         duration_ms = int((time.monotonic() - start_mono) * 1000)

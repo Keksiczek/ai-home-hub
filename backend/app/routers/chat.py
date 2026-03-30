@@ -12,7 +12,7 @@ from fastapi import APIRouter, File, Form, UploadFile, WebSocket, WebSocketDisco
 from fastapi.responses import JSONResponse
 
 from app.models.schemas import ChatRequest, ChatResponse
-from app.services.llm_service import get_llm_service
+from app.services.llm_service import get_llm_service, is_abliterated_model
 from app.services.metrics_service import chat_latency_seconds, chat_requests_total
 from app.services.session_service import get_session_service
 from app.utils.context_helpers import enrich_message
@@ -53,11 +53,29 @@ async def chat_stream_ws(websocket: WebSocket) -> None:
     profile = data.get("profile")
     session_id = data.get("session_id")
     model_override = data.get("model")
+    allow_uncensored = bool(data.get("allow_uncensored", False))
 
     if not message.strip():
         await websocket.send_json({"type": "error", "message": "Empty message"})
         await websocket.close()
         return
+
+    # Abliterated/uncensored model gate for streaming chat
+    if model_override and is_abliterated_model(model_override):
+        if not allow_uncensored:
+            await websocket.send_json({
+                "type": "error",
+                "message": (
+                    "Model je abliterated/uncensored. "
+                    "Pokud ho chceš použít vědomě, pošli allow_uncensored: true"
+                ),
+            })
+            await websocket.close()
+            return
+        logger.warning(
+            "WARNING: Uživatel vědomě zvolil abliterated model %s pro chat stream",
+            model_override,
+        )
 
     # Session management
     if not session_id or not session_svc.session_exists(session_id):
@@ -160,6 +178,24 @@ async def chat(request: ChatRequest) -> JSONResponse:
     if not model_override:
         model_override = session_svc.get_model_override(session_id)
 
+    # Abliterated/uncensored model gate for chat
+    if model_override and is_abliterated_model(model_override):
+        if not request.allow_uncensored:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": (
+                        "Model je abliterated/uncensored. "
+                        "Pokud ho chceš použít vědomě, pošli allow_uncensored: true"
+                    ),
+                    "model": model_override,
+                },
+            )
+        logger.warning(
+            "WARNING: Uživatel vědomě zvolil abliterated model %s pro chat session",
+            model_override,
+        )
+
     # Enqueue the chat job (high priority so it runs before background jobs)
     job = job_svc.create_job(
         type="chat_task",
@@ -171,6 +207,7 @@ async def chat(request: ChatRequest) -> JSONResponse:
             "profile": request.profile,
             "session_id": session_id,
             "model_override": model_override,
+            "allow_uncensored": request.allow_uncensored,
             "context_file_ids": request.context_file_ids,
         },
         priority="high",

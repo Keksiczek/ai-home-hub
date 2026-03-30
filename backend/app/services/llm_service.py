@@ -136,17 +136,24 @@ def is_abliterated_model(model_name: str) -> bool:
     return any(tag in name_lower for tag in ABLITERATED_MODEL_TAGS)
 
 
-def resolve_model(profile: str, settings_override: str | None = None) -> str:
+def resolve_model(
+    profile: str,
+    settings_override: str | None = None,
+    *,
+    allow_uncensored: bool = False,
+) -> str:
     """
     Resolve which Ollama model to use for a given profile.
     Priority: settings_override > MODEL_ROUTING[profile] > default llama3.2
 
     If the resolved model is abliterated/uncensored, it is rejected for
     reasoning profiles and the fallback model is used instead.
+    When *allow_uncensored* is True (user opt-in for chat), the blacklist
+    is bypassed.
     """
     model = settings_override if settings_override else MODEL_ROUTING.get(profile, "llama3.2")
 
-    if is_abliterated_model(model):
+    if is_abliterated_model(model) and not allow_uncensored:
         logger.warning(
             "Model '%s' je abliterated/uncensored — nevhodný pro structured reasoning, "
             "přepínám na fallback '%s'",
@@ -244,6 +251,7 @@ class LLMService:
         history: Optional[List[Dict[str, str]]] = None,
         model_override: Optional[str] = None,
         for_overnight: bool = False,
+        allow_uncensored: bool = False,
     ) -> Tuple[str, Dict[str, Any]]:
         """
         Generate a response using Ollama or fall back to stub.
@@ -253,12 +261,15 @@ class LLMService:
         *model_override* overrides the model from profile/settings for this request.
         *for_overnight* signals batch/overnight context → keep_alive=0 so the
         model is unloaded from RAM immediately after the call.
+        *allow_uncensored* bypasses the abliterated model blacklist (user opt-in for chat).
 
         Returns (reply_text, meta_dict).
         """
         cfg = self._settings.get_llm_config(profile=profile)
         cfg["model"] = resolve_model(
-            profile or "general", model_override or cfg.get("model")
+            profile or "general",
+            model_override or cfg.get("model"),
+            allow_uncensored=allow_uncensored,
         )
         provider = cfg.get("provider", "ollama")
         start = time.monotonic()
@@ -282,6 +293,7 @@ class LLMService:
                     cfg,
                     keep_alive=keep_alive,
                     profile=profile,
+                    allow_uncensored=allow_uncensored,
                 )
             finally:
                 _llm_semaphore.release()
@@ -312,6 +324,7 @@ class LLMService:
         history: Optional[List[Dict[str, str]]] = None,
         model_override: Optional[str] = None,
         for_overnight: bool = False,
+        allow_uncensored: bool = False,
     ) -> Tuple["LLMResponse", Dict[str, Any]]:
         """Like :meth:`generate` but returns an :class:`LLMResponse` instead of a plain string.
 
@@ -329,6 +342,7 @@ class LLMService:
             history=history,
             model_override=model_override,
             for_overnight=for_overnight,
+            allow_uncensored=allow_uncensored,
         )
         return LLMResponse(text=text, markdown=text, html=None), meta
 
@@ -341,6 +355,7 @@ class LLMService:
         keep_alive: int | str | None = None,
         profile: Optional[str] = None,
         request_type: str = "agent_step",
+        allow_uncensored: bool = False,
     ) -> Tuple[str, Dict[str, Any]]:
         ollama_url = cfg.get("ollama_url", "http://localhost:11434").rstrip("/")
         model = cfg.get("model", "llama3.2")
@@ -348,7 +363,8 @@ class LLMService:
         model_cb = get_model_circuit_breaker_registry()
 
         # Abliterated model blacklist: never use as primary reasoner
-        if is_abliterated_model(model):
+        # Bypass only when user explicitly opted in via allow_uncensored (chat only)
+        if is_abliterated_model(model) and not allow_uncensored:
             logger.warning(
                 "Model '%s' je abliterated/uncensored — nevhodný pro structured reasoning, "
                 "přepínám na fallback '%s'",

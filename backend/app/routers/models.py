@@ -23,10 +23,19 @@ router = APIRouter()
 
 @router.get("/models/installed", tags=["models"])
 async def list_installed_models() -> Dict[str, Any]:
-    """List all locally installed Ollama models."""
+    """List all locally installed Ollama models.
+
+    Each model dict includes an ``is_uncensored`` flag (True when the model
+    name contains abliterated/uncensored tags) so frontends can display a
+    warning badge.
+    """
+    from app.services.llm_service import is_abliterated_model
+
     svc = get_model_manager_service()
     try:
         models = await svc.list_installed()
+        for m in models:
+            m["is_uncensored"] = is_abliterated_model(m.get("name", ""))
         return {"models": models, "count": len(models)}
     except Exception as exc:
         logger.error("Failed to list installed models: %s", exc)
