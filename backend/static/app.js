@@ -269,7 +269,7 @@ function switchTab(tabName) {
   if (tabName === 'resident') loadResidentDashboard();
   if (tabName === 'control-room') loadControlRoom();
   if (tabName === 'overnight') { loadOvernightStatus(); loadNightlyReport(); }
-  if (tabName === 'knowledge') { loadKbOverview(); loadKBFiles(); loadRetentionConfig(); loadKBManagerCollections(); }
+  if (tabName === 'knowledge') { loadKBDashboard(); loadKbOverview(); loadKBFiles(); loadRetentionConfig(); loadKBManagerCollections(); }
   if (tabName === 'models') loadModelsTab();
   if (tabName === 'llm-settings') loadLLMSettingsTab();
 }
@@ -599,6 +599,18 @@ function updateModelBadge() {
 
   if (badge) badge.textContent = modelName;
   if (metaName) metaName.textContent = modelName;
+
+  // Update chat model indicator (Sekce 2b)
+  const indicator = document.getElementById('chat-model-indicator-text');
+  if (indicator) {
+    indicator.textContent = `\uD83D\uDCAC ${modelName} \u00B7 Ollama`;
+  }
+  // Uncensored warning
+  const uncensoredWarn = document.getElementById('uncensored-warning');
+  if (uncensoredWarn) {
+    const isUncensored = /uncensored|abliterated|dolphin/i.test(modelName);
+    uncensoredWarn.classList.toggle('hidden', !isUncensored);
+  }
 }
 
 function populateChatModelSelect() {
@@ -646,12 +658,41 @@ function bindChatEvents() {
   bindProfilePills();
 
   document.getElementById('send-btn').addEventListener('click', sendMessage);
-  document.getElementById('chat-input').addEventListener('keydown', (e) => {
+  const chatInput = document.getElementById('chat-input');
+  chatInput.addEventListener('keydown', (e) => {
     // Enter alone = send; Shift+Enter = new line; Ctrl/Meta+Enter also sends
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); sendMessage(); }
     if (e.key === 'Escape' && _isStreaming) stopStreaming();
   });
+
+  // Auto-resize textarea (Sekce 2d)
+  chatInput.addEventListener('input', () => {
+    chatInput.style.height = 'auto';
+    chatInput.style.height = Math.min(chatInput.scrollHeight, 150) + 'px';
+  });
+
+  // Disable input while streaming
+  const origSend = sendMessage;
+
+  // Inline model picker (Sekce 2b)
+  const modelIndicator = document.getElementById('chat-model-indicator');
+  const modelPickerInline = document.getElementById('model-picker-inline');
+  if (modelIndicator && modelPickerInline) {
+    modelIndicator.addEventListener('click', () => {
+      if (modelPickerInline.classList.contains('hidden')) {
+        _renderInlineModelPicker();
+        modelPickerInline.classList.remove('hidden');
+      } else {
+        modelPickerInline.classList.add('hidden');
+      }
+    });
+    document.addEventListener('click', (e) => {
+      if (!modelIndicator.contains(e.target) && !modelPickerInline.contains(e.target)) {
+        modelPickerInline.classList.add('hidden');
+      }
+    });
+  }
   document.getElementById('summarize-session-btn').addEventListener('click', toggleChatMemoryPanel);
   document.getElementById('chat-memory-panel-close').addEventListener('click', closeChatMemoryPanel);
   document.getElementById('memory-save-session-btn').addEventListener('click', summarizeSessionFromPanel);
@@ -660,7 +701,7 @@ function bindChatEvents() {
   document.getElementById('new-chat-btn').addEventListener('click', () => {
     currentSessionId = null;
     localStorage.removeItem('aih_session_id');
-    document.getElementById('chat-history').innerHTML = '';
+    document.getElementById('chat-history').innerHTML = _chatEmptyState();
     document.getElementById('session-label').textContent = t('new_session');
     document.querySelectorAll('.session-item').forEach(el => el.classList.remove('active'));
     showToast(t('new_chat'), 'info');
@@ -1170,6 +1211,14 @@ async function sendMessageStreaming(body, sendBtn, chatSpinner) {
     }
   }, 20000);
 
+  // Slow response indicator (Sekce 2c) – show after 5s if no first token
+  const slowTimer = setTimeout(() => {
+    if (!fullText && loadingEl.parentNode) {
+      loadingEl.querySelector('.loading-phase-text').textContent = '\u23F1 Model odpovídá pomalu...';
+      loadingEl.querySelector('.loading-phase-icon').textContent = '\u23F1';
+    }
+  }, 5000);
+
   return new Promise((resolve) => {
     streamWs.onopen = () => {
       streamWs.send(JSON.stringify(body));
@@ -1183,6 +1232,7 @@ async function sendMessageStreaming(body, sendBtn, chatSpinner) {
           // On first token, hide loading and show bubble
           if (!fullText) {
             clearInterval(phaseTimer);
+            clearTimeout(slowTimer);
             loadingEl.remove();
             bubble.style.display = '';
           }
@@ -1354,7 +1404,15 @@ function appendBubble(role, text, meta, images) {
   bubble.className = `bubble bubble--${role}`;
   bubble.style.position = 'relative';
 
-  let inner = `<p class="bubble__text">${escHtml(text)}</p>`;
+  // Use markdown for AI responses, plain text for user
+  const renderedText = role === 'ai' ? renderMarkdown(text) : escHtml(text);
+  let inner = `<p class="bubble__text">${renderedText}</p>`;
+
+  // Timestamp (Sekce 2c)
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' });
+  const fullTimeStr = now.toLocaleString('cs-CZ');
+  inner = `<span class="bubble__timestamp" title="${fullTimeStr}">${timeStr}</span>` + inner;
 
   // Show images in bubble if provided
   if (images && images.length > 0) {
@@ -1488,7 +1546,7 @@ async function loadSessions() {
 
     const list = document.getElementById('sessions-list');
     if (!data.sessions || data.sessions.length === 0) {
-      list.innerHTML = '<div class="empty-state">Zatim zadne konverzace</div>';
+      list.innerHTML = renderEmptyState('\uD83D\uDCAC', 'Žádné konverzace', 'Začni psát zprávu pro vytvoření nového chatu.');
       return;
     }
 
@@ -2430,6 +2488,17 @@ async function loadVSCodeProjects() {
    SETTINGS
    ============================================================ */
 function bindSettingsEvents() {
+  // Settings tabs (Sekce 4a)
+  document.getElementById('settings-tabs')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.settings-tab-btn');
+    if (!btn) return;
+    const tab = btn.dataset.settingsTab;
+    document.querySelectorAll('.settings-tab-btn').forEach(b => b.classList.toggle('settings-tab-btn--active', b === btn));
+    document.querySelectorAll('.settings-section-panel').forEach(p => {
+      p.classList.toggle('settings-section-panel--active', p.dataset.settingsPanel === tab);
+    });
+  });
+
   document.getElementById('save-settings-btn').addEventListener('click', saveSettings);
   document.getElementById('reload-settings-btn').addEventListener('click', () => {
     loadSettings();
@@ -4311,12 +4380,59 @@ async function quickIndexKB(btn) {
 /* ============================================================
    TOAST
    ============================================================ */
-function showToast(message, type = 'info', duration = 4000) {
-  clearTimeout(toastTimer);
-  toast.textContent = message;
-  toast.className = `toast toast--${type}`;
-  toast.classList.remove('hidden');
-  toastTimer = setTimeout(() => toast.classList.add('hidden'), duration);
+/* ============================================================
+   TOAST MANAGER (5a) – stacking, auto-dismiss, max 3
+   ============================================================ */
+const ToastManager = (() => {
+  const MAX_TOASTS = 3;
+  const ICONS = { success: '\u2705', error: '\u274C', warning: '\u26A0\uFE0F', info: '\u2139\uFE0F' };
+  const DURATIONS = { success: 3000, error: 5000, warning: 4000, info: 3000 };
+  let container = null;
+
+  function getContainer() {
+    if (!container) container = document.getElementById('toast-container');
+    return container;
+  }
+
+  function show(message, type = 'info', duration) {
+    const c = getContainer();
+    if (!c) return;
+    const dur = duration ?? DURATIONS[type] ?? 3000;
+
+    // Enforce max toasts
+    while (c.children.length >= MAX_TOASTS) {
+      c.removeChild(c.firstChild);
+    }
+
+    const el = document.createElement('div');
+    el.className = `toast-item toast-item--${type}`;
+    el.innerHTML = `<span class="toast-item__icon">${ICONS[type] || ''}</span><span>${escHtml(message)}</span><button class="toast-item__close" aria-label="Zavřít">\u2715</button><div class="toast-item__progress" style="width:100%;transition-duration:${dur}ms"></div>`;
+
+    el.querySelector('.toast-item__close').addEventListener('click', () => dismiss(el));
+    c.appendChild(el);
+
+    // Start progress bar
+    requestAnimationFrame(() => {
+      const prog = el.querySelector('.toast-item__progress');
+      if (prog) prog.style.width = '0%';
+    });
+
+    const timer = setTimeout(() => dismiss(el), dur);
+    el._toastTimer = timer;
+  }
+
+  function dismiss(el) {
+    if (!el || !el.parentNode) return;
+    clearTimeout(el._toastTimer);
+    el.classList.add('toast-item--exiting');
+    setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 200);
+  }
+
+  return { show };
+})();
+
+function showToast(message, type = 'info', duration) {
+  ToastManager.show(message, type, duration);
 }
 
 /* ============================================================
@@ -5750,6 +5866,66 @@ function renderKBUploadResults(data, mode) {
   show(resultsEl);
 }
 
+
+/* ============================================================
+   KB DASHBOARD & TEST (Sekce 3)
+   ============================================================ */
+async function loadKBDashboard() {
+  const meta = document.getElementById('kb-dashboard-meta');
+  try {
+    const resp = await fetch('/api/knowledge/stats?detailed=true');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    const chunks = data.total_chunks || 0;
+    const docs = data.total_documents || data.total_files || 0;
+    const embedModel = data.embedding_model || 'nomic-embed-text';
+    const lastUpdate = data.last_updated ? new Date(data.last_updated).toLocaleString('cs-CZ') : 'neznámý';
+    if (meta) meta.textContent = `${chunks} chunků · ${docs} dokumentů · ${embedModel} · Poslední update: ${lastUpdate}`;
+    // Update badge
+    const badge = document.getElementById('kb-doc-count-badge');
+    if (badge) badge.textContent = `${docs} dok.`;
+  } catch (e) {
+    if (meta) meta.textContent = 'Chyba načítání statistik';
+  }
+}
+
+async function testKBSearch() {
+  const query = document.getElementById('kb-test-query')?.value.trim();
+  if (!query) { showToast('Zadej dotaz', 'warning'); return; }
+  const resultsEl = document.getElementById('kb-test-results');
+  if (resultsEl) resultsEl.innerHTML = '<div class="skeleton skeleton-row"></div><div class="skeleton skeleton-row"></div>';
+  try {
+    const resp = await fetch('/api/kb/search?q=' + encodeURIComponent(query) + '&limit=5');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    const results = data.results || [];
+    if (!results.length) {
+      resultsEl.innerHTML = '<p class="empty-state">Žádné výsledky pro "' + escHtml(query) + '"</p>';
+      return;
+    }
+    resultsEl.innerHTML = results.map(r => `<div class="kb-test-result">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span class="kb-test-result__source">${escHtml(r.source || r.metadata?.source || 'neznámý')}</span>
+        <span class="kb-test-result__score">${(r.score || r.distance || 0).toFixed(3)}</span>
+      </div>
+      <div class="kb-test-result__text">${escHtml((r.text || r.content || '').substring(0, 200))}${(r.text || r.content || '').length > 200 ? '...' : ''}</div>
+    </div>`).join('');
+  } catch (e) {
+    resultsEl.innerHTML = '<p class="empty-state">Chyba: ' + escHtml(e.message) + '</p>';
+  }
+}
+
+async function rebuildKB() {
+  showToast('Rebuild KB spuštěn...', 'info');
+  try {
+    const resp = await fetch('/api/kb/rebuild', { method: 'POST' });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    showToast('Rebuild KB dokončen', 'success');
+    loadKBDashboard();
+  } catch (e) {
+    showToast('Chyba rebuild: ' + e.message, 'error');
+  }
+}
 
 async function loadKBOverview() {
   const docsEl = document.getElementById('kb-total-docs');
@@ -9514,34 +9690,399 @@ async function loadModelsTab() {
 }
 
 async function loadInstalledModels() {
+  // Show skeleton loading
+  document.getElementById('installed-models-list').innerHTML = renderSkeletonCards(4);
   try {
     const resp = await fetch('/api/models/installed');
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const data = await resp.json();
-    renderInstalledModels(data.models || []);
+    const models = data.models || [];
+    if (!models.length) {
+      document.getElementById('installed-models-list').innerHTML = renderEmptyState('\uD83E\uDDE0', 'Žádné modely', 'Stáhni model z Ollama Library nebo HuggingFace.', '<button class="btn btn--primary btn--small" onclick="switchModelsSubtab(\'ollama\')">Hledat modely</button>');
+      return;
+    }
+    renderInstalledModels(models);
   } catch (err) {
     document.getElementById('installed-models-list').innerHTML =
       '<p class="empty-state">Chyba: ' + escHtml(err.message) + '</p>';
   }
 }
 
+/* ============================================================
+   MODEL CARDS (Sekce 1) – Card rendering, search, filters
+   ============================================================ */
+let _installedModelsRaw = [];
+let _modelSearchQuery = '';
+let _modelActiveFilter = 'all';
+
+function _detectModelTags(model) {
+  const name = (model.name || '').toLowerCase();
+  const tags = [];
+  // Type tags
+  if (name.includes('instruct') || name.includes('chat') || (!name.includes('code') && !name.includes('embed') && !name.includes('vision') && !name.includes('llava') && !name.includes('vl'))) {
+    tags.push('instruct');
+  }
+  if (name.includes('code') || name.includes('coder') || name.includes('starcoder')) tags.push('coder');
+  if (name.includes('vision') || name.includes('llava') || name.includes('vl') || name.includes('moondream')) tags.push('vision');
+  if (name.includes('embed') || name.includes('nomic') || name.includes('minilm') || name.includes('mxbai')) tags.push('embedding');
+  if (model.is_uncensored || name.includes('uncensored') || name.includes('dolphin')) tags.push('uncensored');
+  if (name.includes('abliterated')) tags.push('abliterated');
+  return tags;
+}
+
+function _estimateRAM(sizeBytes) {
+  const gb = sizeBytes / (1024*1024*1024);
+  if (gb < 1.5) return '~2GB';
+  if (gb < 3) return '~4GB';
+  if (gb < 5) return '~6GB';
+  if (gb < 8) return '~8GB';
+  return '~' + Math.ceil(gb * 1.2) + 'GB';
+}
+
+function _extractParamSize(name) {
+  const m = name.match(/(\d+\.?\d*)[bB]/);
+  if (m) return m[1] + 'B';
+  return null;
+}
+
+function _extractQuant(name) {
+  const m = name.match(/(Q\d+_K_[MSLT]|Q\d+_\d|fp16|fp32|f16|f32)/i);
+  return m ? m[1].toUpperCase() : null;
+}
+
+function _extractFamily(name) {
+  const lower = name.toLowerCase();
+  if (lower.startsWith('llama')) return 'Meta Llama';
+  if (lower.startsWith('mistral') || lower.startsWith('mixtral')) return 'Mistral AI';
+  if (lower.startsWith('qwen')) return 'Alibaba Qwen';
+  if (lower.startsWith('phi')) return 'Microsoft Phi';
+  if (lower.startsWith('gemma')) return 'Google Gemma';
+  if (lower.startsWith('tinyllama')) return 'TinyLlama';
+  if (lower.startsWith('codellama')) return 'Meta CodeLlama';
+  if (lower.startsWith('deepseek')) return 'DeepSeek';
+  if (lower.startsWith('nomic')) return 'Nomic AI';
+  if (lower.startsWith('llava')) return 'LLaVA';
+  if (lower.startsWith('dolphin')) return 'Dolphin';
+  if (lower.startsWith('starcoder')) return 'StarCoder';
+  if (lower.startsWith('solar')) return 'Upstage Solar';
+  return null;
+}
+
 function renderInstalledModels(models) {
+  _installedModelsRaw = models;
+  _applyModelFilters();
+
+  // Setup search & filter if not yet bound
+  if (!window._modelFiltersInit) {
+    window._modelFiltersInit = true;
+    let searchTimeout;
+    const searchInput = document.getElementById('model-search-input');
+    const clearBtn = document.getElementById('model-search-clear');
+    if (searchInput) {
+      searchInput.addEventListener('input', () => {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => {
+          _modelSearchQuery = searchInput.value.trim().toLowerCase();
+          clearBtn.classList.toggle('model-search-clear--visible', !!_modelSearchQuery);
+          _applyModelFilters();
+        }, 200);
+      });
+    }
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        if (searchInput) searchInput.value = '';
+        _modelSearchQuery = '';
+        clearBtn.classList.remove('model-search-clear--visible');
+        _applyModelFilters();
+      });
+    }
+    document.getElementById('model-filter-bar')?.addEventListener('click', (e) => {
+      const btn = e.target.closest('.model-filter-btn');
+      if (!btn) return;
+      document.querySelectorAll('#model-filter-bar .model-filter-btn').forEach(b => b.classList.remove('model-filter-btn--active'));
+      btn.classList.add('model-filter-btn--active');
+      _modelActiveFilter = btn.dataset.filter;
+      _applyModelFilters();
+    });
+    document.getElementById('model-reset-filter-btn')?.addEventListener('click', () => {
+      const searchInput = document.getElementById('model-search-input');
+      if (searchInput) searchInput.value = '';
+      _modelSearchQuery = '';
+      _modelActiveFilter = 'all';
+      document.querySelectorAll('#model-filter-bar .model-filter-btn').forEach(b => {
+        b.classList.toggle('model-filter-btn--active', b.dataset.filter === 'all');
+      });
+      document.getElementById('model-search-clear')?.classList.remove('model-search-clear--visible');
+      _applyModelFilters();
+    });
+  }
+
+  // Update filter counters
+  _updateModelFilterCounts(models);
+}
+
+function _updateModelFilterCounts(models) {
+  const counts = { all: models.length, instruct: 0, coder: 0, vision: 0, uncensored: 0, embedding: 0 };
+  models.forEach(m => {
+    const tags = _detectModelTags(m);
+    if (tags.includes('instruct')) counts.instruct++;
+    if (tags.includes('coder')) counts.coder++;
+    if (tags.includes('vision')) counts.vision++;
+    if (tags.includes('uncensored') || tags.includes('abliterated')) counts.uncensored++;
+    if (tags.includes('embedding')) counts.embedding++;
+  });
+  document.querySelectorAll('#model-filter-bar .model-filter-btn').forEach(btn => {
+    const f = btn.dataset.filter;
+    const c = counts[f];
+    if (c !== undefined) {
+      const countEl = btn.querySelector('.model-filter-count');
+      if (countEl) countEl.textContent = `(${c})`;
+      else btn.innerHTML = btn.textContent.replace(/\s*\(\d+\)/, '') + ` <span class="model-filter-count">(${c})</span>`;
+    }
+  });
+}
+
+function _applyModelFilters() {
+  const models = _installedModelsRaw;
+  let filtered = models;
+
+  // Active model from settings
+  const activeModel = _currentSettings?.llm?.model || '';
+
+  // Filter by category
+  if (_modelActiveFilter !== 'all') {
+    filtered = filtered.filter(m => {
+      const tags = _detectModelTags(m);
+      if (_modelActiveFilter === 'uncensored') return tags.includes('uncensored') || tags.includes('abliterated');
+      return tags.includes(_modelActiveFilter);
+    });
+  }
+
+  // Filter by search query
+  if (_modelSearchQuery) {
+    filtered = filtered.filter(m => {
+      const name = m.name.toLowerCase();
+      const tags = _detectModelTags(m).join(' ');
+      const family = (_extractFamily(m.name) || '').toLowerCase();
+      return name.includes(_modelSearchQuery) || tags.includes(_modelSearchQuery) || family.includes(_modelSearchQuery);
+    });
+  }
+
   const el = document.getElementById('installed-models-list');
-  if (!models.length) {
-    el.innerHTML = '<p class="empty-state">Žádné nainstalované modely</p>';
+  const noResults = document.getElementById('model-no-results');
+
+  if (!filtered.length) {
+    el.innerHTML = '';
+    if (noResults) {
+      noResults.classList.remove('hidden');
+      const q = document.getElementById('model-no-results-query');
+      if (q) q.textContent = _modelSearchQuery || _modelActiveFilter;
+    }
     return;
   }
-  el.innerHTML = models.map(m => {
+
+  if (noResults) noResults.classList.add('hidden');
+
+  el.innerHTML = filtered.map(m => {
     const sizeGB = (m.size / (1024*1024*1024)).toFixed(1);
-    const typeIcon = m.type === 'vision' ? '\u{1F441}' : m.type === 'code' ? '\u{1F4BB}' : '\u{1F4AC}';
-    return `<div class="model-row">
-      <span class="model-row-icon">${typeIcon}</span>
-      <span class="model-row-name">${escHtml(m.name)}</span>
-      <span class="model-row-size">${sizeGB} GB</span>
-      <span class="model-badge model-badge--${m.type}">${m.type}</span>
-      <button class="btn btn--ghost btn--sm model-delete-btn" onclick="deleteOllamaModel('${escHtml(m.name)}')" title="Smazat">\u{1F5D1}</button>
+    const tags = _detectModelTags(m);
+    const paramSize = _extractParamSize(m.name);
+    const quant = _extractQuant(m.name);
+    const family = _extractFamily(m.name);
+    const ramEst = _estimateRAM(m.size);
+    const isActive = activeModel && m.name === activeModel;
+
+    let tagHtml = '';
+    tags.forEach(tag => {
+      if (tag === 'uncensored') tagHtml += `<span class="model-tag model-tag--uncensored">\u26A0\uFE0F uncensored</span>`;
+      else if (tag === 'abliterated') tagHtml += `<span class="model-tag model-tag--abliterated">\u26A0\uFE0F abliterated</span>`;
+      else tagHtml += `<span class="model-tag model-tag--${tag}">${tag}</span>`;
+    });
+    if (paramSize) tagHtml += `<span class="model-tag model-tag--size">${paramSize}</span>`;
+    tagHtml += `<span class="model-tag model-tag--ram">${ramEst} RAM</span>`;
+
+    const infoLine = [family, quant, `${sizeGB} GB`].filter(Boolean).join(' \u00B7 ');
+
+    return `<div class="model-card${isActive ? ' model-card--active' : ''}" data-model="${escHtml(m.name)}">
+      <div class="model-card__header">
+        <span class="model-card__name" title="${escHtml(m.name)}">${escHtml(m.name)}</span>
+        ${isActive ? '<span class="model-card__active-badge">\u25CF Aktivní</span>' : ''}
+      </div>
+      <div class="model-card__tags">${tagHtml}</div>
+      <div class="model-card__info">${escHtml(infoLine)}</div>
+      <div class="model-card__actions">
+        <button class="btn btn--primary btn--small" onclick="event.stopPropagation();setDefaultModel('${escHtml(m.name)}')" title="Nastavit jako výchozí">\u2B50 Výchozí</button>
+        <button class="btn btn--ghost btn--small" onclick="event.stopPropagation();deleteOllamaModel('${escHtml(m.name)}')" title="Smazat">\u{1F5D1} Smazat</button>
+      </div>
     </div>`;
   }).join('');
+}
+
+function setDefaultModel(name) {
+  fetch('/api/llm/settings', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: name })
+  }).then(r => {
+    if (r.ok) {
+      showToast('Výchozí model: ' + name, 'success');
+      if (_currentSettings && _currentSettings.llm) _currentSettings.llm.model = name;
+      _applyModelFilters();
+      updateModelBadge();
+    } else {
+      showToast('Chyba nastavení modelu', 'error');
+    }
+  }).catch(e => showToast('Chyba: ' + e.message, 'error'));
+}
+
+/* ============================================================
+   INLINE MODEL PICKER (Sekce 2b)
+   ============================================================ */
+function _renderInlineModelPicker() {
+  const picker = document.getElementById('model-picker-inline');
+  if (!picker || !_ollamaModels.length) {
+    if (picker) picker.innerHTML = '<p class="empty-state">Žádné modely k dispozici</p>';
+    return;
+  }
+  picker.innerHTML = _ollamaModels.map(m => {
+    const isActive = m.name === (document.getElementById('chat-model-select')?.value || _currentSettings?.llm?.model || '');
+    return `<div class="model-card${isActive ? ' model-card--active' : ''}" style="padding:0.6rem 0.8rem;margin-bottom:0.35rem;cursor:pointer" onclick="_selectChatModel('${escHtml(m.name)}')">
+      <div class="model-card__header">
+        <span class="model-card__name">${escHtml(m.name)}</span>
+        ${isActive ? '<span class="model-card__active-badge">\u25CF</span>' : ''}
+      </div>
+      <div style="font-size:0.75rem;color:var(--text-dim)">${m.size_gb} GB \u00B7 ${m.profile}</div>
+    </div>`;
+  }).join('');
+}
+
+function _selectChatModel(name) {
+  const select = document.getElementById('chat-model-select');
+  if (select) {
+    select.value = name;
+    select.dispatchEvent(new Event('change'));
+  }
+  document.getElementById('model-picker-inline')?.classList.add('hidden');
+  updateModelBadge();
+  showToast('Chat model: ' + name, 'info');
+}
+
+/* ============================================================
+   SIMPLE MARKDOWN RENDERER (Sekce 2c)
+   ============================================================ */
+function renderMarkdown(text) {
+  if (!text) return '';
+  let html = escHtml(text);
+
+  // Code blocks: ```lang\n...\n```
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+    return `<div class="code-block-wrap"><pre><code class="language-${lang || 'text'}">${code.trim()}</code></pre><button class="code-block-copy" onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent).then(()=>showToast('Kód zkopírován','success'))">\uD83D\uDCCB Kopírovat</button></div>`;
+  });
+
+  // Inline code: `code`
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+  // Bold: **text**
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+
+  // Italic: *text*
+  html = html.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>');
+
+  // Unordered lists: lines starting with - or *
+  html = html.replace(/^[\-\*] (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+
+  // Ordered lists: lines starting with 1. 2. etc
+  html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+
+  // Line breaks
+  html = html.replace(/\n/g, '<br>');
+
+  return html;
+}
+
+/* ============================================================
+   SKELETON GENERATORS (5b)
+   ============================================================ */
+function renderSkeletonCards(count = 3) {
+  return Array.from({ length: count }, () => '<div class="skeleton skeleton-card"></div>').join('');
+}
+
+function renderSkeletonRows(count = 5) {
+  return Array.from({ length: count }, () => '<div class="skeleton skeleton-row"></div>').join('');
+}
+
+/* ============================================================
+   EMPTY STATES (5c)
+   ============================================================ */
+function renderEmptyState(icon, title, desc, actionHtml) {
+  return `<div class="empty-state-fancy">
+    <span class="empty-state-fancy__icon">${icon}</span>
+    <span class="empty-state-fancy__title">${title}</span>
+    <span class="empty-state-fancy__desc">${desc}</span>
+    ${actionHtml || ''}
+  </div>`;
+}
+
+function _chatEmptyState() {
+  return `<div class="empty-state-fancy" id="chat-empty-state">
+    <span class="empty-state-fancy__icon">\uD83D\uDCAC</span>
+    <span class="empty-state-fancy__title">Začni psát zprávu...</span>
+    <span class="empty-state-fancy__desc">Napiš otázku nebo zvol jednu z nabídek</span>
+    <div class="empty-state-chips">
+      <button class="empty-state-chip" onclick="document.getElementById('chat-input').value='Jaké je aktuální počasí?';document.getElementById('chat-input').focus()">🌤️ Počasí</button>
+      <button class="empty-state-chip" onclick="document.getElementById('chat-input').value='Shrň dnešní úkoly';document.getElementById('chat-input').focus()">📋 Dnešní úkoly</button>
+      <button class="empty-state-chip" onclick="document.getElementById('chat-input').value='Vysvětli mi koncept RAG';document.getElementById('chat-input').focus()">💡 Vysvětli RAG</button>
+      <button class="empty-state-chip" onclick="document.getElementById('chat-input').value='Zkontroluj stav systému';document.getElementById('chat-input').focus()">💻 Stav systému</button>
+    </div>
+  </div>`;
+}
+
+/* ============================================================
+   KEYBOARD SHORTCUTS (5e)
+   ============================================================ */
+function initKeyboardShortcuts() {
+  document.addEventListener('keydown', (e) => {
+    // Ctrl+K → focus model search
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+      e.preventDefault();
+      const searchInput = document.getElementById('model-search-input');
+      if (searchInput) {
+        // Switch to models tab
+        const modelsTab = document.querySelector('[data-tab="models"]');
+        if (modelsTab) modelsTab.click();
+        setTimeout(() => searchInput.focus(), 100);
+      }
+    }
+    // Ctrl+N → new chat
+    if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+      e.preventDefault();
+      document.getElementById('new-chat-btn')?.click();
+    }
+    // Esc → close modals / inline picker
+    if (e.key === 'Escape') {
+      document.getElementById('model-picker-inline')?.classList.add('hidden');
+      document.querySelector('.shortcuts-panel')?.classList.remove('shortcuts-panel--visible');
+    }
+  });
+}
+
+function initShortcutsHint() {
+  const hint = document.createElement('div');
+  hint.className = 'shortcuts-hint';
+  hint.innerHTML = `<button class="shortcuts-btn" id="shortcuts-toggle-btn" title="Keyboard shortcuts">?</button>
+    <div class="shortcuts-panel" id="shortcuts-panel">
+      <div class="shortcuts-panel__title">Klávesové zkratky</div>
+      <div class="shortcut-row"><span class="shortcut-row__label">Hledat model</span><span class="shortcut-row__key"><kbd>Ctrl</kbd>+<kbd>K</kbd></span></div>
+      <div class="shortcut-row"><span class="shortcut-row__label">Nový chat</span><span class="shortcut-row__key"><kbd>Ctrl</kbd>+<kbd>N</kbd></span></div>
+      <div class="shortcut-row"><span class="shortcut-row__label">Zavřít modal</span><span class="shortcut-row__key"><kbd>Esc</kbd></span></div>
+      <div class="shortcut-row"><span class="shortcut-row__label">Odeslat zprávu</span><span class="shortcut-row__key"><kbd>Enter</kbd></span></div>
+      <div class="shortcut-row"><span class="shortcut-row__label">Nový řádek</span><span class="shortcut-row__key"><kbd>Shift</kbd>+<kbd>Enter</kbd></span></div>
+    </div>`;
+  document.body.appendChild(hint);
+  document.getElementById('shortcuts-toggle-btn')?.addEventListener('click', () => {
+    document.getElementById('shortcuts-panel')?.classList.toggle('shortcuts-panel--visible');
+  });
 }
 
 async function loadModelsDiskUsage() {
@@ -11550,3 +12091,11 @@ async function saveCorsSettings() {
     if (btn) btn.disabled = false;
   }
 }
+
+/* ============================================================
+   INIT: Keyboard Shortcuts + Shortcuts Hint
+   ============================================================ */
+document.addEventListener('DOMContentLoaded', () => {
+  initKeyboardShortcuts();
+  initShortcutsHint();
+});
