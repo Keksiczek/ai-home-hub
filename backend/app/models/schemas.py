@@ -28,6 +28,7 @@ class ChatRequest(BaseModel):
     mode: str = "general"
     profile: Optional[str] = None  # LLM profile: chat | powerbi | lean | vision
     model: Optional[str] = None  # Override model for this request
+    allow_uncensored: bool = False  # Opt-in for abliterated/uncensored models in chat
     context_file_ids: List[str] = []
     session_id: Optional[str] = None
 
