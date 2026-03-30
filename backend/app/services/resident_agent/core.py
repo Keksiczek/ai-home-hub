@@ -1138,13 +1138,21 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         if self._state.tick_count % THOUGHT_TICK_INTERVAL != 0:
             return
 
-        # Resource-aware skip: don't call LLM when RAM is under pressure
+        # Resource-aware skip: don't call LLM when system is under pressure
         monitor = get_resource_monitor()
         if monitor.is_blocked() or monitor.is_background_paused():
             logger.info(
                 "Skipping LLM thought cycle – RAM pressure (blocked=%s, bg_paused=%s)",
                 monitor.is_blocked(),
                 monitor.is_background_paused(),
+            )
+            return
+
+        # Throttled skip: proactive LLM calls are non-critical, skip entirely
+        if monitor.is_throttled():
+            logger.info(
+                "Skipping LLM thought cycle – system throttled (RAM/CPU high), "
+                "will retry next tick"
             )
             return
 
@@ -1324,13 +1332,20 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         if self._state.tick_count % PROACTIVE_TICK_INTERVAL != 0:
             return
 
-        # Resource-aware skip: don't run proactive actions when RAM is under pressure
+        # Resource-aware skip: don't run proactive actions when system is under pressure
         monitor = get_resource_monitor()
         if monitor.is_blocked() or monitor.is_background_paused():
             logger.info(
                 "Skipping proactive cycle – RAM pressure (blocked=%s, bg_paused=%s)",
                 monitor.is_blocked(),
                 monitor.is_background_paused(),
+            )
+            return
+
+        # Throttled skip: proactive checks are non-critical, can wait
+        if monitor.is_throttled():
+            logger.info(
+                "Skipping proactive cycle – system throttled, will retry next tick"
             )
             return
 

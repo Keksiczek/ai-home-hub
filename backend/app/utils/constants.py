@@ -126,6 +126,24 @@ AGENT_MAX_STEPS: int = 10
 #: before marking the task as FAILED_INVALID_OUTPUT.
 AGENT_MAX_PARSE_RETRIES: int = 3
 
+# ── Abliterated / uncensored model blacklist ────────────────────────────────
+#: Substrings in model names that indicate the model is abliterated or
+#: uncensored.  These models are unsuitable for structured reasoning (they
+#: tend to timeout or produce unreliable JSON) and are automatically skipped
+#: when selecting a primary reasoner model.
+ABLITERATED_MODEL_TAGS: tuple[str, ...] = (
+    "abliterated",
+    "abliterate",
+    "uncensored",
+)
+
+# ── Proactive check throttled timeout ────────────────────────────────────────
+#: Reduced LLM timeout (seconds) used for non-critical requests (e.g.
+#: proactive checks, thought ticks) when ResourceMonitor reports throttled.
+LLM_TIMEOUT_THROTTLED: float = float(
+    __import__("os").environ.get("LLM_TIMEOUT_THROTTLED", "15")
+)
+
 # ── Text chunking ────────────────────────────────────────────────────────────
 
 #: Default target chunk size (in characters) used when splitting documents

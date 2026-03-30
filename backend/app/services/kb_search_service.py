@@ -25,10 +25,23 @@ async def search_kb(query: str, top_k: int = 5) -> Dict[str, Any]:
         model = embeddings_svc._active_model or embeddings_svc.DEFAULT_MODEL
         return {"error": f"Embedding model unavailable: {model}", "results": []}
 
-    search_results = vector_store.search(
-        query_embedding=query_embedding,
-        top_k=top_k,
-    )
+    try:
+        search_results = vector_store.search(
+            query_embedding=query_embedding,
+            top_k=top_k,
+        )
+    except Exception as exc:
+        from app.services.vector_store_service import KBDimensionMismatchError
+
+        if isinstance(exc, KBDimensionMismatchError):
+            return {
+                "error": str(exc),
+                "results": [],
+                "dimension_mismatch": True,
+                "old_dim": exc.old_dim,
+                "new_dim": exc.new_dim,
+            }
+        raise
 
     results = []
     for doc, metadata, distance in zip(
@@ -114,6 +127,16 @@ async def search_kb_with_filters(
     try:
         raw = await asyncio.to_thread(col_obj.query, **kwargs)
     except Exception as exc:
+        exc_str = str(exc)
+        if "dimension" in exc_str.lower() and "does not match" in exc_str.lower():
+            from app.services.vector_store_service import KBDimensionMismatchError
+
+            logger.error("KB search dimension mismatch: %s", exc)
+            return {
+                "error": f"Embedding dimension mismatch – přebuildi KB: POST /api/kb/rebuild. {exc}",
+                "results": [],
+                "dimension_mismatch": True,
+            }
         logger.warning(
             "KB search query failed (collection=%s, count=%d): %s",
             col_name, col_count, exc,

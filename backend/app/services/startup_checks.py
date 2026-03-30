@@ -178,10 +178,40 @@ async def _check_embedding_dim(
             chroma_match = f"NO (stored={stored_dim}, detected={detected_dim})"
             logger.warning(
                 "Embedding dim mismatch at startup: Chroma has %s, model produces %d. "
-                "Collection will be reset on first embed call.",
+                "Auto-rebuilding KB collection now.",
                 stored_dim,
                 detected_dim,
             )
+            # Auto-rebuild: drop and recreate collection with correct dimension
+            try:
+                col_name = vs.COLLECTION_NAME
+                import asyncio
+
+                await asyncio.to_thread(vs.client.delete_collection, col_name)
+                vs.collection = await asyncio.to_thread(
+                    vs.client.get_or_create_collection,
+                    col_name,
+                    metadata={
+                        "hnsw:space": "cosine",
+                        "embedding_dim": detected_dim,
+                    },
+                )
+                logger.warning(
+                    "KB collection '%s' auto-rebuilt at startup: "
+                    "old_dim=%s → new_dim=%d",
+                    col_name,
+                    stored_dim,
+                    detected_dim,
+                )
+                result["kb_auto_rebuilt"] = True
+                result["kb_old_dim"] = int(stored_dim)
+                result["kb_new_dim"] = detected_dim
+                chroma_match = f"REBUILT ({stored_dim} → {detected_dim})"
+            except Exception as rebuild_exc:
+                logger.error(
+                    "Auto-rebuild of KB collection failed: %s", rebuild_exc
+                )
+                result["kb_auto_rebuild_error"] = str(rebuild_exc)
     except Exception as exc:
         logger.warning("Could not check Chroma collection dim: %s", exc)
         chroma_match = "unknown"
@@ -221,6 +251,22 @@ async def run_startup_checks(ollama_url: str) -> Dict[str, Any]:
         validate_models(available_models)
         result["ollama"] = "ok"
         result["ollama_models"] = available_models
+
+        # Warn about abliterated/uncensored models
+        from app.utils.constants import ABLITERATED_MODEL_TAGS
+
+        abliterated_models = [
+            m
+            for m in available_models
+            if any(tag in m.lower() for tag in ABLITERATED_MODEL_TAGS)
+        ]
+        if abliterated_models:
+            logger.warning(
+                "Abliterated/uncensored modely nalezeny: %s — tyto modely nebudou "
+                "použity jako reasoner/primary model (automaticky přeskočeny na fallback)",
+                abliterated_models,
+            )
+            result["abliterated_models"] = abliterated_models
     else:
         result["ollama"] = "unavailable"
         result["ollama_models"] = []

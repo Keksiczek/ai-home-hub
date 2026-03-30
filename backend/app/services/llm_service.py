@@ -27,7 +27,9 @@ from app.utils.circuit_breaker import (
     get_timeout_for_request,
 )
 from app.utils.constants import (
+    ABLITERATED_MODEL_TAGS,
     LLM_CPU_BACKEND,
+    LLM_FALLBACK_MODEL,
     LLM_MAX_CONCURRENT_REQUESTS,
     LLM_NUM_PREDICT,
     LLM_NUM_THREADS,
@@ -128,14 +130,32 @@ MODEL_ROUTING: dict[str, str] = {
 }
 
 
+def is_abliterated_model(model_name: str) -> bool:
+    """Check if a model name contains abliterated/uncensored tags."""
+    name_lower = model_name.lower()
+    return any(tag in name_lower for tag in ABLITERATED_MODEL_TAGS)
+
+
 def resolve_model(profile: str, settings_override: str | None = None) -> str:
     """
     Resolve which Ollama model to use for a given profile.
     Priority: settings_override > MODEL_ROUTING[profile] > default llama3.2
+
+    If the resolved model is abliterated/uncensored, it is rejected for
+    reasoning profiles and the fallback model is used instead.
     """
-    if settings_override:
-        return settings_override
-    return MODEL_ROUTING.get(profile, "llama3.2")
+    model = settings_override if settings_override else MODEL_ROUTING.get(profile, "llama3.2")
+
+    if is_abliterated_model(model):
+        logger.warning(
+            "Model '%s' je abliterated/uncensored — nevhodný pro structured reasoning, "
+            "přepínám na fallback '%s'",
+            model,
+            LLM_FALLBACK_MODEL,
+        )
+        return LLM_FALLBACK_MODEL
+
+    return model
 
 
 def get_keep_alive_for_model(
@@ -326,6 +346,18 @@ class LLMService:
         model = cfg.get("model", "llama3.2")
         cb = get_ollama_circuit_breaker()
         model_cb = get_model_circuit_breaker_registry()
+
+        # Abliterated model blacklist: never use as primary reasoner
+        if is_abliterated_model(model):
+            logger.warning(
+                "Model '%s' je abliterated/uncensored — nevhodný pro structured reasoning, "
+                "přepínám na fallback '%s'",
+                model,
+                LLM_FALLBACK_MODEL,
+            )
+            cfg = dict(cfg)
+            cfg["model"] = LLM_FALLBACK_MODEL
+            model = LLM_FALLBACK_MODEL
 
         # Per-model circuit breaker: redirect to fallback if model is disabled
         if model_cb.is_disabled(model):
@@ -700,6 +732,15 @@ class LLMService:
         system_prompt = self._add_structured_hints(system_prompt, message, mode=mode)
         cb = get_ollama_circuit_breaker()
         model_cb = get_model_circuit_breaker_registry()
+
+        # Abliterated model blacklist: never use as primary reasoner
+        if is_abliterated_model(model):
+            logger.warning(
+                "Stream: model '%s' je abliterated/uncensored — přepínám na fallback '%s'",
+                model,
+                LLM_FALLBACK_MODEL,
+            )
+            model = LLM_FALLBACK_MODEL
 
         # Per-model circuit breaker: redirect to fallback if model is disabled
         if model_cb.is_disabled(model):
