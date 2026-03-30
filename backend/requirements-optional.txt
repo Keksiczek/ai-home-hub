@@ -1,0 +1,6 @@
+# Optional heavyweight dependencies – install only when needed
+#
+# Browser automation (Playwright):
+#   pip install playwright && playwright install chromium
+#   Required for: sandbox browser_open capability
+playwright>=1.40

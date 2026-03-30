@@ -204,6 +204,57 @@ class ResidentReasoningCycle(BaseModel):
 # ── Curiosity Backlog ───────────────────────────────────────
 
 
+# ── Router Request / Response models ────────────────────────
+
+
+class ResidentTaskRequest(BaseModel):
+    title: str
+    description: str = ""
+    payload: Dict[str, Any] = {}
+
+
+class ResidentModeRequest(BaseModel):
+    mode: str = Field(..., pattern=r"^(observer|advisor|autonomous)$")
+
+
+class MissionChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=2000)
+
+
+class ResidentActionRequest(BaseModel):
+    """Request body for POST /resident/action – manual action trigger."""
+
+    action: str = Field(..., min_length=1, max_length=100)
+    params: Dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentSettingsPatch(BaseModel):
+    interval_seconds: Optional[int] = Field(None, ge=5, le=3600)
+    model: Optional[str] = None
+    max_cycles_per_day: Optional[int] = Field(None, ge=1, le=10000)
+    quiet_hours_start: Optional[str] = None
+    quiet_hours_end: Optional[str] = None
+    quiet_hours_enabled: Optional[bool] = None
+    proposal_interval_minutes: Optional[int] = Field(None, ge=15, le=1440)
+    max_proposals: Optional[int] = Field(None, ge=1, le=5)
+    interest_topics: Optional[str] = None
+
+
+class PlanRejectRequest(BaseModel):
+    """Request body for POST /resident/plan/{plan_id}/reject."""
+
+    reason: str = ""
+
+
+class MissionTemplateRequest(BaseModel):
+    """Optional metadata for template runs."""
+
+    context: str = ""
+
+
+# ── Curiosity Backlog ───────────────────────────────────────
+
+
 class CuriosityItem(BaseModel):
     """A single item in the resident agent's curiosity backlog."""
 

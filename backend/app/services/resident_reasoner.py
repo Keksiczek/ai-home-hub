@@ -883,6 +883,394 @@ FINAL_REASONING_PROMPT = """Máš tool results a systémový kontext. Navrhni ma
 """
 
 
+# ── Chat prompt helpers (extracted from router) ─────────────
+
+
+def build_task_chat_context(job) -> str:
+    """Build system prompt for task-level chat.
+
+    *job* is a job_service job object with .title, .input_summary, .status,
+    .meta, .last_error attributes.
+    """
+    from app.services.llm_service import get_date_context
+
+    task_output = ""
+    if job.meta and job.meta.get("result"):
+        task_output = str(job.meta["result"])[:2000]
+
+    return (
+        f"{get_date_context()}\n"
+        f'Jsi AI agent který provedl úkol: "{job.title}"\n\n'
+        f"Kontext úkolu:\n"
+        f"- Popis: {job.input_summary or 'žádný'}\n"
+        f"- Status: {job.status}\n"
+        f"{'- Výstup: ' + task_output if task_output else '- Úkol nemá textový výstup.'}\n"
+        f"{'- Chyba: ' + job.last_error if job.last_error else ''}\n\n"
+        f"Odpovídej na otázky uživatele o tomto konkrétním úkolu. "
+        f"Buď konkrétní. Odpovídej česky."
+    )
+
+
+def build_mission_chat_context(job) -> str:
+    """Build system prompt for mission-level chat.
+
+    *job* is a job_service job object for a resident_mission.
+    """
+    from app.services.llm_service import get_date_context
+
+    plan = job.payload.get("plan", {})
+    steps = plan.get("steps", [])
+    mission_output = plan.get("output", "")
+
+    steps_summary = "\n".join(
+        f"  Krok {i+1}: {s.get('title', '')} — {s.get('status', 'pending')}"
+        + (f" → {s.get('result_summary', '')}" if s.get("result_summary") else "")
+        for i, s in enumerate(steps)
+    )
+
+    reflection_ctx = ""
+    if job.meta and job.meta.get("reflection"):
+        r = job.meta["reflection"]
+        points = r.get("points", [])
+        if points:
+            reflection_ctx = "\nReflexe:\n" + "\n".join(f"- {p}" for p in points)
+            if r.get("recommendation"):
+                reflection_ctx += f"\nDoporučení: {r['recommendation']}"
+
+    return (
+        f"{get_date_context()}\n"
+        f"Jsi AI agent který právě dokončil misi: \"{plan.get('goal', job.title)}\"\n\n"
+        f"Kontext mise:\n"
+        f"- Status: {plan.get('status', job.status)}\n"
+        f"- Počet kroků: {len(steps)}\n"
+        f"- Kroky které jsi provedl:\n{steps_summary}\n"
+        f"{reflection_ctx}\n"
+        f"{'- Výstup mise: ' + mission_output if mission_output else '- Mise nemá textový výstup.'}\n\n"
+        f"Odpovídej na otázky uživatele o této konkrétní misi. "
+        f"Vysvětluj své rozhodnutí, metodologii a výsledky. "
+        f"Buď konkrétní a odkazuj se na skutečné kroky které jsi provedl. "
+        f"Odpovídej česky."
+    )
+
+
+# ── Reasoning cycle store (extracted from router) ───────────
+
+_reasoning_cycles: list = []
+_MAX_REASONING_HISTORY = 20
+
+
+def get_reasoning_cycles(limit: int = 10) -> list:
+    """Return recent reasoning cycles."""
+    return _reasoning_cycles[-limit:]
+
+
+def store_reasoning_cycle(cycle) -> None:
+    """Append a cycle and prune old entries."""
+    _reasoning_cycles.append(cycle)
+    if len(_reasoning_cycles) > _MAX_REASONING_HISTORY:
+        del _reasoning_cycles[: len(_reasoning_cycles) - _MAX_REASONING_HISTORY]
+
+
+# ── Dashboard enrichment (extracted from router) ────────────
+
+
+def enrich_dashboard_data(data: dict, health: dict) -> dict:
+    """Add metrics_24h and health-based alerts to dashboard data dict."""
+    data["health"] = health
+
+    stats = data.get("stats_24h", {})
+    total = stats.get("total", 0)
+    succeeded = stats.get("succeeded", 0)
+    avg_duration = stats.get("avg_duration_s", None)
+    success_rate = round(succeeded / total, 4) if total else 0.0
+    data["metrics_24h"] = {
+        "cycles_total": total,
+        "success_rate": success_rate,
+        "avg_cycle_duration_s": avg_duration,
+    }
+
+    alerts: list = list(data.get("alerts", []))
+    if health.get("ollama") == "unavailable":
+        alerts.append("Ollama degraded – LLM features unavailable")
+    if health.get("kb") == "degraded":
+        alerts.append("Knowledge Base degraded")
+    if health.get("jobs_db") == "error":
+        alerts.append("Jobs DB error – task queue unavailable")
+    data["alerts"] = alerts
+
+    return data
+
+
+# ── Mode status builder (extracted from router) ─────────────
+
+
+def build_mode_status(agent, mode: str) -> dict:
+    """Build comprehensive mode status response."""
+    from app.services.resident_agent import (
+        MODE_ALLOWED_ACTIONS,
+        ACTION_TIERS,
+        ALLOWED_ACTIONS,
+    )
+    from app.services.mode_audit_service import get_mode_audit_service
+
+    allowed = set(MODE_ALLOWED_ACTIONS.get(mode, set()))
+    all_known = set(ALLOWED_ACTIONS)
+    for tier_actions in ACTION_TIERS.values():
+        all_known.update(tier_actions)
+    blocked = sorted(all_known - allowed)
+
+    suggestions_pending = 0
+    try:
+        raw = agent.get_suggestions(limit=50)
+        for s in raw:
+            executed_ids = set(s.get("executed_action_ids", []))
+            for a in s.get("actions", []):
+                if a.get("id") not in executed_ids:
+                    suggestions_pending += 1
+    except Exception:
+        pass
+
+    mode_descriptions = {
+        "observer": "Agent pouze sleduje systém, nevolá LLM, nezpracovává tasky",
+        "advisor": "Agent zpracovává tasky a generuje návrhy, ale neprovádí nic automaticky",
+        "autonomous": "Agent jedná samostatně v rámci nastavených limitů a cooldownů",
+    }
+
+    audit_svc = get_mode_audit_service()
+
+    return {
+        "current_mode": mode,
+        "allowed_actions": sorted(allowed),
+        "blocked_actions": blocked,
+        "action_tiers": {tier: list(acts) for tier, acts in ACTION_TIERS.items()},
+        "mode_descriptions": mode_descriptions,
+        "guardrail_status": agent.get_guardrail_status(),
+        "mode_history": audit_svc.get_history(limit=10),
+        "stats": {
+            "blocked_actions_since_start": agent._blocked_actions_since_start,
+            "suggestions_pending_approval": suggestions_pending,
+        },
+    }
+
+
+# ── Task/Mission detail builders (extracted from router) ────
+
+
+def build_task_detail(job, job_svc) -> dict:
+    """Build task detail response dict from a resident_task job."""
+    output = ""
+    if job.meta and job.meta.get("result"):
+        output = str(job.meta["result"])
+    elif job.meta and job.meta.get("reflection"):
+        r = job.meta["reflection"]
+        points = r.get("points", [])
+        if points:
+            output = "\n".join(f"- {p}" for p in points)
+            if r.get("recommendation"):
+                output += f"\n\nDoporučení: {r['recommendation']}"
+
+    chat_history = job.payload.get("chat_history", [])
+
+    return {
+        "id": job.id,
+        "title": job.title,
+        "description": job.input_summary,
+        "status": job.status,
+        "progress": job.progress,
+        "output": output,
+        "created_at": job.created_at,
+        "started_at": job.started_at,
+        "finished_at": job.finished_at,
+        "last_error": job.last_error,
+        "chat_history": chat_history,
+        "mission_id": job.payload.get("mission_id"),
+        "step_index": job.payload.get("step_index"),
+    }
+
+
+def build_mission_detail(job, job_svc) -> dict:
+    """Build mission detail response dict from a resident_mission job."""
+    plan = job.payload.get("plan", {})
+    steps = plan.get("steps", [])
+
+    enriched_steps = []
+    for i, step in enumerate(steps):
+        enriched = {
+            "number": i + 1,
+            "title": step.get("title", ""),
+            "description": step.get("description", ""),
+            "status": step.get("status", "pending"),
+            "result_summary": step.get("result_summary", ""),
+            "job_id": step.get("job_id"),
+        }
+        sub_job_id = step.get("job_id")
+        if sub_job_id:
+            sub_job = job_svc.get_job(sub_job_id)
+            if sub_job:
+                enriched["status"] = sub_job.status
+                if sub_job.meta and sub_job.meta.get("result"):
+                    enriched["result_summary"] = str(sub_job.meta["result"])[:500]
+                elif sub_job.last_error:
+                    enriched["result_summary"] = f"Chyba: {sub_job.last_error}"
+        enriched_steps.append(enriched)
+
+    output = plan.get("output", "")
+    if not output and job.meta and job.meta.get("reflection"):
+        reflection = job.meta["reflection"]
+        points = reflection.get("points", [])
+        if points:
+            output = "## Reflexe mise\n\n" + "\n".join(f"- {p}" for p in points)
+            if reflection.get("recommendation"):
+                output += f"\n\n**Doporučení:** {reflection['recommendation']}"
+
+    chat_history = job.payload.get("chat_history", [])
+
+    return {
+        "id": job.id,
+        "goal": plan.get("goal", job.title),
+        "status": plan.get("status", job.status),
+        "steps": enriched_steps,
+        "current_step": plan.get("current_step", 0),
+        "total_steps": len(steps),
+        "progress": job.progress,
+        "output": output,
+        "created_at": job.created_at,
+        "started_at": job.started_at,
+        "finished_at": job.finished_at,
+        "chat_history": chat_history,
+    }
+
+
+# ── Thought log builder (extracted from router) ─────────────
+
+
+async def build_thought_log(limit: int = 50) -> dict:
+    """Return recent thought/decision memory entries for debugging."""
+    from app.services.memory_service import get_memory_service
+
+    mem = get_memory_service()
+    entries = []
+    for category in ("thought", "decision"):
+        try:
+            results = await mem.search_memories(
+                query=category,
+                tags=["resident", category],
+                limit=limit,
+            )
+            entries.extend(results)
+        except Exception:
+            pass
+
+    seen_ids: set = set()
+    unique: list = []
+    for entry in entries:
+        eid = entry.get("id", id(entry))
+        if eid not in seen_ids:
+            seen_ids.add(eid)
+            unique.append(entry)
+
+    unique.sort(
+        key=lambda e: e.get("timestamp", e.get("created_at", "")), reverse=True
+    )
+    unique = unique[:limit]
+
+    return {
+        "thoughts": [
+            {
+                "id": e.get("id", ""),
+                "timestamp": e.get("timestamp", e.get("created_at", "")),
+                "category": next(
+                    (
+                        t
+                        for t in e.get("tags", [])
+                        if t in ("thought", "decision", "observation")
+                    ),
+                    "thought",
+                ),
+                "content": str(e.get("text", e.get("content", "")))[:300],
+                "importance": e.get("importance", 0),
+            }
+            for e in unique
+        ],
+        "count": len(unique),
+    }
+
+
+# ── Debug export builder (extracted from router) ────────────
+
+
+def build_debug_snapshot(agent, job_svc, settings: dict) -> dict:
+    """Build a debug export snapshot."""
+    from datetime import datetime
+
+    try:
+        dashboard = agent.get_dashboard_data()
+    except Exception:
+        dashboard = {}
+
+    try:
+        jobs = job_svc.list_jobs(limit=10)
+        recent_jobs = [
+            {
+                "id": j.id,
+                "title": j.title,
+                "status": j.status,
+                "type": j.type,
+                "created_at": j.created_at,
+            }
+            for j in jobs
+        ]
+    except Exception:
+        recent_jobs = []
+
+    try:
+        logs_data = agent.get_logs(limit=50)
+    except Exception:
+        logs_data = []
+
+    return {
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "resident_state": dashboard,
+        "recent_jobs": recent_jobs,
+        "logs": logs_data,
+        "config_summary": {
+            "resident_interval": settings.get("resident_interval", 900),
+            "resident_mode": settings.get("resident_mode", "advisor"),
+            "llm_provider": settings.get("llm", {}).get("provider", "unknown"),
+        },
+    }
+
+
+# ── Mission templates ────────────────────────────────────────
+
+MISSION_TEMPLATES = [
+    {
+        "id": "daily_recap",
+        "title": "📋 Denní rekapitulace",
+        "desc": "Analyzuj dnešní KB/git/jobs a vytvoř shrnutí + todo na zítřek",
+        "icon": "📋",
+    },
+    {
+        "id": "stack_health",
+        "title": "🖥️ Stack monitor",
+        "desc": "Zkontroluj Ollama/disk/jobs/Tailscale a připrav report + doporučení",
+        "icon": "🖥️",
+    },
+    {
+        "id": "lean_assist",
+        "title": "⚙️ Lean experiment",
+        "desc": "Z metrik navrhni Lean experiment (hypothesis + test + success metric)",
+        "icon": "⚙️",
+    },
+]
+
+TEMPLATE_PROMPTS: Dict[str, str] = {
+    "daily_recap": "Analyzuj dnešní KB/git/jobs → shrnutí + todo zítra",
+    "stack_health": "Check Ollama/disk/jobs/Tailscale → report + akce",
+    "lean_assist": "Z metrik navrhni Lean experiment (hypothesis+test)",
+}
+
+
 # Singleton
 _reasoner = ResidentReasoner()
 

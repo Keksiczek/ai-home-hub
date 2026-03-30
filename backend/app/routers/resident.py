@@ -1,17 +1,25 @@
-"""Resident agent API endpoints – includes brain orchestrator features."""
+"""Resident agent API endpoints – thin router delegating to service modules."""
 
 import asyncio
 import json
 import logging
-import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
 
-from app.models.resident_models import PlanApproveRequest, PlanCreateRequest
+from app.models.resident_models import (
+    AgentSettingsPatch,
+    MissionChatRequest,
+    MissionTemplateRequest,
+    PlanApproveRequest,
+    PlanCreateRequest,
+    PlanRejectRequest,
+    ResidentActionRequest,
+    ResidentModeRequest,
+    ResidentTaskRequest,
+)
 from app.services.resident_agent import get_resident_agent
 from app.services.job_service import get_job_service
 from app.services.settings_service import get_settings_service
@@ -21,62 +29,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/resident", tags=["resident"])
 
 
-# ── Request / Response models ────────────────────────────────
-
-
-class ResidentTaskRequest(BaseModel):
-    title: str
-    description: str = ""
-    payload: Dict[str, Any] = {}
-
-
-class ResidentModeRequest(BaseModel):
-    mode: str = Field(..., pattern=r"^(observer|advisor|autonomous)$")
-
-
-class MissionCreateRequest(BaseModel):
-    goal: str = Field(..., min_length=1, max_length=500)
-    context: str = ""
-
-
-class MissionChatRequest(BaseModel):
-    message: str = Field(..., min_length=1, max_length=2000)
-
-
-class ResidentActionRequest(BaseModel):
-    """Request body for POST /resident/action – manual action trigger."""
-
-    action: str = Field(..., min_length=1, max_length=100)
-    params: Dict[str, Any] = Field(default_factory=dict)
-
-
-class AgentSettingsPatch(BaseModel):
-    interval_seconds: Optional[int] = Field(None, ge=5, le=3600)
-    model: Optional[str] = None
-    max_cycles_per_day: Optional[int] = Field(None, ge=1, le=10000)
-    quiet_hours_start: Optional[str] = None
-    quiet_hours_end: Optional[str] = None
-    quiet_hours_enabled: Optional[bool] = None
-    proposal_interval_minutes: Optional[int] = Field(None, ge=15, le=1440)
-    max_proposals: Optional[int] = Field(None, ge=1, le=5)
-    interest_topics: Optional[str] = None
-
-
-# ── Core endpoints (unchanged) ───────────────────────────────
+# ── Core endpoints ───────────────────────────────────────────
 
 
 @router.get("/status")
 async def resident_status() -> dict:
     """Get resident agent state."""
-    agent = get_resident_agent()
-    return agent.get_state()
+    return get_resident_agent().get_state()
 
 
 @router.get("/heartbeat")
 async def resident_heartbeat() -> dict:
     """Get resident agent heartbeat status – lightweight health check."""
-    agent = get_resident_agent()
-    state = agent.get_state()
+    state = get_resident_agent().get_state()
     return {
         "is_running": state.get("is_running", False),
         "heartbeat_status": state.get("heartbeat_status", "unknown"),
@@ -89,52 +54,20 @@ async def resident_heartbeat() -> dict:
 
 @router.get("/dashboard")
 async def resident_dashboard() -> dict:
-    """Get resident agent dashboard data for the control-room UX.
+    """Get resident agent dashboard data for the control-room UX."""
+    from app.services.resident_reasoner import enrich_dashboard_data
 
-    Extends the base agent data with:
-    - ``health``: startup component health from ``/api/system/health``
-    - ``metrics_24h``: cycle success rate, count, and avg duration
-    - enriched ``alerts`` (includes component health warnings)
-    """
     agent = get_resident_agent()
     data = agent.get_dashboard_data()
-
-    # Attach startup component health
-    settings_svc = get_settings_service()
-    health = settings_svc.global_health
-    data["health"] = health
-
-    # Build metrics_24h from stats_24h if available
-    stats = data.get("stats_24h", {})
-    total = stats.get("total", 0)
-    succeeded = stats.get("succeeded", 0)
-    avg_duration = stats.get("avg_duration_s", None)
-    success_rate = round(succeeded / total, 4) if total else 0.0
-    data["metrics_24h"] = {
-        "cycles_total": total,
-        "success_rate": success_rate,
-        "avg_cycle_duration_s": avg_duration,
-    }
-
-    # Enrich alerts with health-based warnings
-    alerts: list = list(data.get("alerts", []))
-    if health.get("ollama") == "unavailable":
-        alerts.append("Ollama degraded – LLM features unavailable")
-    if health.get("kb") == "degraded":
-        alerts.append("Knowledge Base degraded")
-    if health.get("jobs_db") == "error":
-        alerts.append("Jobs DB error – task queue unavailable")
-    data["alerts"] = alerts
-
-    return data
+    health = get_settings_service().global_health
+    return enrich_dashboard_data(data, health)
 
 
 @router.post("/start")
 async def resident_start() -> dict:
     """Start the resident agent daemon."""
-    agent = get_resident_agent()
     try:
-        result = await agent.start()
+        result = await get_resident_agent().start()
         return {"status": result["status"], "message": result["message"]}
     except Exception as exc:
         logger.error("Failed to start resident agent: %s", exc)
@@ -144,9 +77,8 @@ async def resident_start() -> dict:
 @router.post("/stop")
 async def resident_stop() -> dict:
     """Stop the resident agent daemon."""
-    agent = get_resident_agent()
     try:
-        result = await agent.stop()
+        result = await get_resident_agent().stop()
         return {"status": result["status"], "message": result["message"]}
     except Exception as exc:
         logger.error("Failed to stop resident agent: %s", exc)
@@ -169,12 +101,7 @@ async def resident_add_task(req: ResidentTaskRequest) -> dict:
 
 @router.post("/action")
 async def resident_action(req: ResidentActionRequest) -> dict:
-    """Manually trigger a resident action via the job engine.
-
-    Validates the action against ALLOWED_ACTIONS, creates a resident_task job,
-    and returns the job ID. The action will be processed by _process_task_queue()
-    on the next tick (or can be forced with POST /resident/run-now).
-    """
+    """Manually trigger a resident action via the job engine."""
     from app.services.resident_agent.core import ALLOWED_ACTIONS
 
     if req.action not in ALLOWED_ACTIONS:
@@ -203,8 +130,7 @@ async def resident_action(req: ResidentActionRequest) -> dict:
 @router.get("/steps")
 async def resident_steps() -> dict:
     """Get the last 5 steps from the resident agent."""
-    agent = get_resident_agent()
-    state = agent.get_state()
+    state = get_resident_agent().get_state()
     return {"steps": state.get("recent_steps", [])}
 
 
@@ -214,68 +140,27 @@ async def resident_steps() -> dict:
 @router.get("/tasks/{task_id}")
 async def get_task_detail(task_id: str) -> dict:
     """Get detailed task info."""
+    from app.services.resident_reasoner import build_task_detail
+
     job_svc = get_job_service()
     job = job_svc.get_job(task_id)
     if not job or job.type != "resident_task":
         raise HTTPException(404, "Úkol nenalezen")
-
-    output = ""
-    if job.meta and job.meta.get("result"):
-        output = str(job.meta["result"])
-    elif job.meta and job.meta.get("reflection"):
-        r = job.meta["reflection"]
-        points = r.get("points", [])
-        if points:
-            output = "\n".join(f"- {p}" for p in points)
-            if r.get("recommendation"):
-                output += f"\n\nDoporučení: {r['recommendation']}"
-
-    chat_history = job.payload.get("chat_history", [])
-
-    return {
-        "id": job.id,
-        "title": job.title,
-        "description": job.input_summary,
-        "status": job.status,
-        "progress": job.progress,
-        "output": output,
-        "created_at": job.created_at,
-        "started_at": job.started_at,
-        "finished_at": job.finished_at,
-        "last_error": job.last_error,
-        "chat_history": chat_history,
-        "mission_id": job.payload.get("mission_id"),
-        "step_index": job.payload.get("step_index"),
-    }
+    return build_task_detail(job, job_svc)
 
 
 @router.post("/tasks/{task_id}/chat")
 async def task_chat(task_id: str, req: MissionChatRequest) -> dict:
     """Chat about a specific task with full task context."""
-    from datetime import datetime
-    from app.services.llm_service import get_llm_service, get_date_context
+    from app.services.llm_service import get_llm_service
+    from app.services.resident_reasoner import build_task_chat_context
 
     job_svc = get_job_service()
     job = job_svc.get_job(task_id)
     if not job or job.type != "resident_task":
         raise HTTPException(404, "Úkol nenalezen")
 
-    task_output = ""
-    if job.meta and job.meta.get("result"):
-        task_output = str(job.meta["result"])[:2000]
-
-    system_prompt = (
-        f"{get_date_context()}\n"
-        f'Jsi AI agent který provedl úkol: "{job.title}"\n\n'
-        f"Kontext úkolu:\n"
-        f"- Popis: {job.input_summary or 'žádný'}\n"
-        f"- Status: {job.status}\n"
-        f"{'- Výstup: ' + task_output if task_output else '- Úkol nemá textový výstup.'}\n"
-        f"{'- Chyba: ' + job.last_error if job.last_error else ''}\n\n"
-        f"Odpovídej na otázky uživatele o tomto konkrétním úkolu. "
-        f"Buď konkrétní. Odpovídej česky."
-    )
-
+    system_prompt = build_task_chat_context(job)
     chat_history = job.payload.get("chat_history", [])
     history_messages = [
         {"role": m["role"], "content": m["content"]} for m in chat_history[-20:]
@@ -295,11 +180,7 @@ async def task_chat(task_id: str, req: MissionChatRequest) -> dict:
     job.payload["chat_history"] = chat_history
     job_svc.update_job(job)
 
-    return {
-        "reply": reply,
-        "meta": meta,
-        "chat_history": chat_history,
-    }
+    return {"reply": reply, "meta": meta, "chat_history": chat_history}
 
 
 # ── Autonomy mode ────────────────────────────────────────────
@@ -321,56 +202,11 @@ async def get_resident_mode() -> dict:
 @router.get("/mode-status")
 async def get_mode_status() -> dict:
     """Comprehensive mode status: allowed/blocked actions, tiers, history, stats."""
-    from app.services.resident_agent import (
-        MODE_ALLOWED_ACTIONS,
-        ACTION_TIERS,
-        ALLOWED_ACTIONS,
-    )
-    from app.services.mode_audit_service import get_mode_audit_service
+    from app.services.resident_reasoner import build_mode_status
 
     settings = get_settings_service().load()
     mode = settings.get("resident_mode", "advisor")
-    agent = get_resident_agent()
-
-    allowed = set(MODE_ALLOWED_ACTIONS.get(mode, set()))
-    all_known = set(ALLOWED_ACTIONS)
-    for tier_actions in ACTION_TIERS.values():
-        all_known.update(tier_actions)
-    blocked = sorted(all_known - allowed)
-
-    # Pending suggestions count (only relevant in advisor mode)
-    suggestions_pending = 0
-    try:
-        raw = agent.get_suggestions(limit=50)
-        for s in raw:
-            executed_ids = set(s.get("executed_action_ids", []))
-            for a in s.get("actions", []):
-                if a.get("id") not in executed_ids:
-                    suggestions_pending += 1
-    except Exception:
-        pass
-
-    mode_descriptions = {
-        "observer": "Agent pouze sleduje systém, nevolá LLM, nezpracovává tasky",
-        "advisor": "Agent zpracovává tasky a generuje návrhy, ale neprovádí nic automaticky",
-        "autonomous": "Agent jedná samostatně v rámci nastavených limitů a cooldownů",
-    }
-
-    audit_svc = get_mode_audit_service()
-
-    return {
-        "current_mode": mode,
-        "allowed_actions": sorted(allowed),
-        "blocked_actions": blocked,
-        "action_tiers": {tier: list(acts) for tier, acts in ACTION_TIERS.items()},
-        "mode_descriptions": mode_descriptions,
-        "guardrail_status": agent.get_guardrail_status(),
-        "mode_history": audit_svc.get_history(limit=10),
-        "stats": {
-            "blocked_actions_since_start": agent._blocked_actions_since_start,
-            "suggestions_pending_approval": suggestions_pending,
-        },
-    }
+    return build_mode_status(get_resident_agent(), mode)
 
 
 @router.patch("/mode")
@@ -421,11 +257,7 @@ async def pause_resident_mode() -> dict:
 
 @router.post("/mode/autonomous")
 async def enable_resident_autonomous() -> dict:
-    """Enable autonomous mode (safe actions may run without confirmation).
-
-    Note: destructive actions (delete, overwrite) always require confirmation
-    regardless of this setting – that logic lives in the job worker, not here.
-    """
+    """Enable autonomous mode (safe actions may run without confirmation)."""
     from app.services.mode_audit_service import get_mode_audit_service
 
     svc = get_settings_service()
@@ -448,8 +280,7 @@ async def enable_resident_autonomous() -> dict:
 @router.get("/suggestions")
 async def get_suggestions(limit: int = Query(default=10, ge=1, le=50)) -> dict:
     """Get recent suggestions from the resident reasoner."""
-    agent = get_resident_agent()
-    suggestions = agent.get_suggestions(limit=limit)
+    suggestions = get_resident_agent().get_suggestions(limit=limit)
     return {"suggestions": suggestions, "count": len(suggestions)}
 
 
@@ -460,52 +291,50 @@ async def accept_suggestion(suggestion_id: str, action_id: str = Query(...)) -> 
     if mode == "observer":
         raise HTTPException(400, "V režimu observer nelze přijímat návrhy")
 
-    agent = get_resident_agent()
-    job_id = await agent.accept_suggestion_action(suggestion_id, action_id)
+    job_id = await get_resident_agent().accept_suggestion_action(suggestion_id, action_id)
     if job_id is None:
         raise HTTPException(404, "Návrh nebo akce nenalezena")
-
-    return {
-        "job_id": job_id,
-        "status": "queued",
-        "message": "Akce přijata a zařazena do fronty",
-    }
+    return {"job_id": job_id, "status": "queued", "message": "Akce přijata a zařazena do fronty"}
 
 
 # ── Missions ─────────────────────────────────────────────────
 
 
 @router.post("/missions")
-async def create_mission(req: MissionCreateRequest) -> dict:
+async def create_mission(body: Dict[str, Any]) -> dict:
     """Create a new mission – the resident will plan and execute steps."""
     from app.services.resident_reasoner import get_resident_reasoner
 
+    goal = body.get("goal", "")
+    context = body.get("context", "")
+    if not goal:
+        raise HTTPException(400, "Field 'goal' is required")
+
     reasoner = get_resident_reasoner()
-    steps = await reasoner.plan_mission(req.goal, req.context)
+    steps = await reasoner.plan_mission(goal, context)
     if not steps:
         raise HTTPException(
             500,
             "Nepodařilo se naplánovat misi (LLM nedostupné nebo nevrátilo platný plán)",
         )
 
-    # Store as a resident_mission job
     job_svc = get_job_service()
     plan = {
-        "goal": req.goal,
+        "goal": goal,
         "steps": [s.model_dump() for s in steps],
         "current_step": 0,
         "status": "planned",
     }
     job = job_svc.create_job(
         type="resident_mission",
-        title=req.goal,
-        input_summary=req.context,
+        title=goal,
+        input_summary=context,
         payload={"plan": plan},
         priority="normal",
     )
     return {
         "mission_id": job.id,
-        "goal": req.goal,
+        "goal": goal,
         "steps_count": len(steps),
         "status": "planned",
     }
@@ -535,119 +364,31 @@ async def list_missions(limit: int = Query(default=10, ge=1, le=50)) -> dict:
 
 @router.get("/missions/{mission_id}")
 async def get_mission_detail(mission_id: str) -> dict:
-    """Get detailed mission info including step statuses, output, and enriched step results."""
+    """Get detailed mission info including step statuses and enriched step results."""
+    from app.services.resident_reasoner import build_mission_detail
+
     job_svc = get_job_service()
     job = job_svc.get_job(mission_id)
     if not job or job.type != "resident_mission":
         raise HTTPException(404, "Mise nenalezena")
-
-    plan = job.payload.get("plan", {})
-    steps = plan.get("steps", [])
-
-    # Enrich steps with sub-job results if available
-    enriched_steps = []
-    for i, step in enumerate(steps):
-        enriched = {
-            "number": i + 1,
-            "title": step.get("title", ""),
-            "description": step.get("description", ""),
-            "status": step.get("status", "pending"),
-            "result_summary": step.get("result_summary", ""),
-            "job_id": step.get("job_id"),
-        }
-        # Try to get richer result from the sub-job
-        sub_job_id = step.get("job_id")
-        if sub_job_id:
-            sub_job = job_svc.get_job(sub_job_id)
-            if sub_job:
-                enriched["status"] = sub_job.status
-                if sub_job.meta and sub_job.meta.get("result"):
-                    enriched["result_summary"] = str(sub_job.meta["result"])[:500]
-                elif sub_job.last_error:
-                    enriched["result_summary"] = f"Chyba: {sub_job.last_error}"
-        enriched_steps.append(enriched)
-
-    # Build mission output from reflection or aggregated step results
-    output = plan.get("output", "")
-    if not output and job.meta and job.meta.get("reflection"):
-        reflection = job.meta["reflection"]
-        points = reflection.get("points", [])
-        if points:
-            output = "## Reflexe mise\n\n" + "\n".join(f"- {p}" for p in points)
-            if reflection.get("recommendation"):
-                output += f"\n\n**Doporučení:** {reflection['recommendation']}"
-
-    # Get chat history for this mission
-    chat_history = job.payload.get("chat_history", [])
-
-    return {
-        "id": job.id,
-        "goal": plan.get("goal", job.title),
-        "status": plan.get("status", job.status),
-        "steps": enriched_steps,
-        "current_step": plan.get("current_step", 0),
-        "total_steps": len(steps),
-        "progress": job.progress,
-        "output": output,
-        "created_at": job.created_at,
-        "started_at": job.started_at,
-        "finished_at": job.finished_at,
-        "chat_history": chat_history,
-    }
+    return build_mission_detail(job, job_svc)
 
 
 @router.post("/missions/{mission_id}/chat")
 async def mission_chat(mission_id: str, req: MissionChatRequest) -> dict:
     """Chat about a specific mission with full mission context."""
-    from datetime import datetime
-    from app.services.llm_service import get_llm_service, get_date_context
+    from app.services.llm_service import get_llm_service
+    from app.services.resident_reasoner import build_mission_chat_context
 
     job_svc = get_job_service()
     job = job_svc.get_job(mission_id)
     if not job or job.type != "resident_mission":
         raise HTTPException(404, "Mise nenalezena")
 
-    plan = job.payload.get("plan", {})
-    steps = plan.get("steps", [])
-    mission_output = plan.get("output", "")
-
-    # Build steps summary
-    steps_summary = "\n".join(
-        f"  Krok {i+1}: {s.get('title', '')} — {s.get('status', 'pending')}"
-        + (f" → {s.get('result_summary', '')}" if s.get("result_summary") else "")
-        for i, s in enumerate(steps)
-    )
-
-    # Build reflection context if available
-    reflection_ctx = ""
-    if job.meta and job.meta.get("reflection"):
-        r = job.meta["reflection"]
-        points = r.get("points", [])
-        if points:
-            reflection_ctx = "\nReflexe:\n" + "\n".join(f"- {p}" for p in points)
-            if r.get("recommendation"):
-                reflection_ctx += f"\nDoporučení: {r['recommendation']}"
-
-    system_prompt = (
-        f"{get_date_context()}\n"
-        f"Jsi AI agent který právě dokončil misi: \"{plan.get('goal', job.title)}\"\n\n"
-        f"Kontext mise:\n"
-        f"- Status: {plan.get('status', job.status)}\n"
-        f"- Počet kroků: {len(steps)}\n"
-        f"- Kroky které jsi provedl:\n{steps_summary}\n"
-        f"{reflection_ctx}\n"
-        f"{'- Výstup mise: ' + mission_output if mission_output else '- Mise nemá textový výstup.'}\n\n"
-        f"Odpovídej na otázky uživatele o této konkrétní misi. "
-        f"Vysvětluj své rozhodnutí, metodologii a výsledky. "
-        f"Buď konkrétní a odkazuj se na skutečné kroky které jsi provedl. "
-        f"Odpovídej česky."
-    )
-
-    # Load existing chat history for this mission
+    system_prompt = build_mission_chat_context(job)
     chat_history = job.payload.get("chat_history", [])
     history_messages = [
-        {"role": m["role"], "content": m["content"]}
-        for m in chat_history[-20:]  # Last 20 messages
+        {"role": m["role"], "content": m["content"]} for m in chat_history[-20:]
     ]
 
     llm_svc = get_llm_service()
@@ -658,18 +399,13 @@ async def mission_chat(mission_id: str, req: MissionChatRequest) -> dict:
         history=[{"role": "system", "content": system_prompt}] + history_messages,
     )
 
-    # Persist chat messages to job payload
     now = datetime.now().isoformat()
     chat_history.append({"role": "user", "content": req.message, "timestamp": now})
     chat_history.append({"role": "assistant", "content": reply, "timestamp": now})
     job.payload["chat_history"] = chat_history
     job_svc.update_job(job)
 
-    return {
-        "reply": reply,
-        "meta": meta,
-        "chat_history": chat_history,
-    }
+    return {"reply": reply, "meta": meta, "chat_history": chat_history}
 
 
 # ── Resident Plan → Confirm → Execute ────────────────────────
@@ -677,10 +413,7 @@ async def mission_chat(mission_id: str, req: MissionChatRequest) -> dict:
 
 @router.post("/plan")
 async def create_plan(req: PlanCreateRequest) -> dict:
-    """Generate a structured plan via LLM – NO execution, draft only.
-
-    Returns a full plan object with steps, ready for user review and approval.
-    """
+    """Generate a structured plan via LLM – NO execution, draft only."""
     from app.models.resident_models import PlanStep, ResidentPlan
     from app.services.resident_reasoner import get_resident_reasoner
     from app.services.resident_plan_service import get_resident_plan_service
@@ -697,7 +430,6 @@ async def create_plan(req: PlanCreateRequest) -> dict:
             "Nepodařilo se vygenerovat plán (LLM nedostupné nebo nevrátilo platný plán)",
         )
 
-    # Build plan object
     steps = [PlanStep(**s) for s in result["steps"]]
     plan = ResidentPlan(
         goal=req.goal,
@@ -721,8 +453,7 @@ async def get_plan(plan_id: str) -> dict:
     """Retrieve a stored plan by ID."""
     from app.services.resident_plan_service import get_resident_plan_service
 
-    plan_svc = get_resident_plan_service()
-    plan = plan_svc.get_plan(plan_id)
+    plan = get_resident_plan_service().get_plan(plan_id)
     if plan is None:
         raise HTTPException(404, "Plán nenalezen")
     return plan.model_dump()
@@ -733,55 +464,22 @@ async def list_plans(limit: int = Query(default=20, ge=1, le=100)) -> dict:
     """List recent resident plans."""
     from app.services.resident_plan_service import get_resident_plan_service
 
-    plan_svc = get_resident_plan_service()
-    plans = plan_svc.list_plans(limit=limit)
-    return {
-        "plans": [p.model_dump() for p in plans],
-        "count": len(plans),
-    }
+    plans = get_resident_plan_service().list_plans(limit=limit)
+    return {"plans": [p.model_dump() for p in plans], "count": len(plans)}
 
 
 @router.get("/plans/pending")
 async def list_pending_plans() -> dict:
-    """List plans awaiting user approval (status = pending_approval).
-
-    Frontend should poll this endpoint to display plans for review.
-
-    Example response::
-
-        {
-          "plans": [
-            {
-              "plan_id": "abc-123",
-              "goal": "Reindexovat KB",
-              "status": "pending_approval",
-              "steps": [...],
-              "risk_level": "low",
-              "impact_assessment": "...",
-              "created_at": "2026-03-25T10:00:00Z"
-            }
-          ],
-          "count": 1
-        }
-    """
+    """List plans awaiting user approval (status = pending_approval)."""
     from app.services.resident_plan_service import get_resident_plan_service
 
-    plan_svc = get_resident_plan_service()
-    plans = plan_svc.list_plans(status="pending_approval", limit=50)
-    return {
-        "plans": [p.model_dump() for p in plans],
-        "count": len(plans),
-    }
+    plans = get_resident_plan_service().list_plans(status="pending_approval", limit=50)
+    return {"plans": [p.model_dump() for p in plans], "count": len(plans)}
 
 
 @router.post("/plan/{plan_id}/approve")
 async def approve_plan(plan_id: str, req: Optional[PlanApproveRequest] = None) -> dict:
-    """Approve a plan and start execution as a background job.
-
-    Accepts plans in ``draft``, ``pending_approval``, or ``failed`` status.
-    Returns HTTP 202 with job_id.  Execution progress is streamed via WS
-    as ``resident_plan_update`` events.
-    """
+    """Approve a plan and start execution as a background job."""
     from app.services.resident_plan_service import get_resident_plan_service
 
     plan_svc = get_resident_plan_service()
@@ -792,81 +490,48 @@ async def approve_plan(plan_id: str, req: Optional[PlanApproveRequest] = None) -
         raise HTTPException(404, "Plán nenalezen")
 
     if plan.status not in ("draft", "pending_approval", "failed"):
-        raise HTTPException(
-            400,
-            f"Plán nelze schválit – aktuální stav: {plan.status}",
-        )
+        raise HTTPException(400, f"Plán nelze schválit – aktuální stav: {plan.status}")
 
-    # Parse approval options
     approved_steps = None
     mode = "sequential"
     if req is not None:
         approved_steps = req.approved_steps
         mode = req.mode
 
-    # Update plan status
     plan.status = "approved"
     plan.approved_steps = approved_steps
     plan.execution_mode = mode
     plan_svc.save_plan(plan)
 
-    # Create background job
     job = job_svc.create_job(
         type="resident_plan_execute",
         title=f"Plán: {plan.goal[:80]}",
         input_summary=plan.goal,
-        payload={
-            "plan_id": plan_id,
-            "approved_steps": approved_steps,
-            "mode": mode,
-        },
+        payload={"plan_id": plan_id, "approved_steps": approved_steps, "mode": mode},
         priority="normal",
     )
 
-    # Store job_id in plan
     plan.job_id = job.id
     plan_svc.save_plan(plan)
 
     logger.info("Plan %s approved → job %s", plan_id, job.id)
     return JSONResponse(
         status_code=202,
-        content={
-            "status": "accepted",
-            "job_id": job.id,
-            "plan_id": plan_id,
-        },
+        content={"status": "accepted", "job_id": job.id, "plan_id": plan_id},
     )
-
-
-class PlanRejectRequest(BaseModel):
-    """Request body for POST /resident/plan/{plan_id}/reject."""
-
-    reason: str = ""
 
 
 @router.post("/plan/{plan_id}/reject")
 async def reject_plan(plan_id: str, req: Optional[PlanRejectRequest] = None) -> dict:
-    """Reject a pending_approval plan.
-
-    The plan is marked as ``rejected`` and will not be executed.
-    An optional ``reason`` can be provided for audit purposes.
-    """
+    """Reject a pending_approval plan."""
     from app.services.resident_plan_service import get_resident_plan_service
 
-    plan_svc = get_resident_plan_service()
     reason = req.reason if req else ""
-    plan = plan_svc.reject_plan(plan_id, reason=reason)
+    plan = get_resident_plan_service().reject_plan(plan_id, reason=reason)
     if plan is None:
-        raise HTTPException(
-            404,
-            "Plán nenalezen nebo není ve stavu pending_approval",
-        )
+        raise HTTPException(404, "Plán nenalezen nebo není ve stavu pending_approval")
     logger.info("Plan %s rejected (reason=%s)", plan_id, reason[:100])
-    return {
-        "status": "rejected",
-        "plan_id": plan_id,
-        "reason": reason,
-    }
+    return {"status": "rejected", "plan_id": plan_id, "reason": reason}
 
 
 # ── History & Logs ────────────────────────────────────────────
@@ -875,8 +540,7 @@ async def reject_plan(plan_id: str, req: Optional[PlanRejectRequest] = None) -> 
 @router.get("/history")
 async def get_agent_history(limit: int = Query(default=20, ge=1, le=200)) -> dict:
     """Get recent cycle history."""
-    agent = get_resident_agent()
-    history = agent.get_cycle_history(limit=limit)
+    history = get_resident_agent().get_cycle_history(limit=limit)
     return {"history": history, "count": len(history)}
 
 
@@ -887,16 +551,14 @@ async def get_agent_logs(
     limit: int = Query(default=100, ge=1, le=1000),
 ) -> dict:
     """Get filterable structured log entries."""
-    agent = get_resident_agent()
-    logs = agent.get_logs(level=level, cycle=cycle, limit=limit)
+    logs = get_resident_agent().get_logs(level=level, cycle=cycle, limit=limit)
     return {"logs": logs, "count": len(logs)}
 
 
 @router.delete("/logs")
 async def clear_agent_logs() -> dict:
     """Clear all agent log entries."""
-    agent = get_resident_agent()
-    count = agent.clear_logs()
+    count = get_resident_agent().clear_logs()
     return {"status": "ok", "cleared": count}
 
 
@@ -906,23 +568,20 @@ async def clear_agent_logs() -> dict:
 @router.post("/pause")
 async def agent_pause() -> dict:
     """Pause the resident agent (stays running, skips ticks)."""
-    agent = get_resident_agent()
-    return await agent.pause()
+    return await get_resident_agent().pause()
 
 
 @router.post("/resume")
 async def agent_resume() -> dict:
     """Resume a paused resident agent."""
-    agent = get_resident_agent()
-    return await agent.resume()
+    return await get_resident_agent().resume()
 
 
 @router.post("/run-now")
 async def agent_run_now() -> dict:
     """Trigger an immediate cycle."""
-    agent = get_resident_agent()
     try:
-        return await agent.run_now()
+        return await get_resident_agent().run_now()
     except Exception as exc:
         logger.error("Run-now failed: %s", exc)
         raise HTTPException(500, f"Run-now failed: {exc}")
@@ -931,8 +590,7 @@ async def agent_run_now() -> dict:
 @router.post("/reset")
 async def agent_reset() -> dict:
     """Reset agent counters, history, and memory."""
-    agent = get_resident_agent()
-    return await agent.reset()
+    return await get_resident_agent().reset()
 
 
 @router.post("/restart")
@@ -943,12 +601,9 @@ async def agent_restart() -> dict:
         if agent.get_state().get("is_running"):
             await agent.stop()
             await asyncio.sleep(1)
-        result = await agent.start()
+        await agent.start()
         logger.info("Resident agent restarted")
-        return {
-            "status": "restarted",
-            "message": "Agent restartován s novým nastavením.",
-        }
+        return {"status": "restarted", "message": "Agent restartován s novým nastavením."}
     except Exception as exc:
         logger.error("Resident agent restart failed: %s", exc)
         raise HTTPException(500, f"Restart selhal: {exc}")
@@ -960,18 +615,16 @@ async def agent_restart() -> dict:
 @router.get("/agent-settings")
 async def get_agent_settings() -> dict:
     """Get current agent runtime settings."""
-    agent = get_resident_agent()
-    return agent.get_agent_settings()
+    return get_resident_agent().get_agent_settings()
 
 
 @router.patch("/agent-settings")
 async def patch_agent_settings(req: AgentSettingsPatch) -> dict:
     """Update agent runtime settings (interval, model, quiet hours, etc.)."""
-    agent = get_resident_agent()
     updates = req.model_dump(exclude_none=True)
     if not updates:
         raise HTTPException(400, "No settings to update")
-    return agent.update_agent_settings(updates)
+    return get_resident_agent().update_agent_settings(updates)
 
 
 # ── Agent Memory ──────────────────────────────────────────────
@@ -980,16 +633,14 @@ async def patch_agent_settings(req: AgentSettingsPatch) -> dict:
 @router.get("/agent-memory")
 async def get_agent_memory(limit: int = Query(default=50, ge=1, le=200)) -> dict:
     """Get agent memory entries."""
-    agent = get_resident_agent()
-    items = await agent.get_agent_memory(limit=limit)
+    items = await get_resident_agent().get_agent_memory(limit=limit)
     return {"memory": items, "count": len(items)}
 
 
 @router.delete("/agent-memory")
 async def clear_agent_memory() -> dict:
     """Clear all resident agent memory entries."""
-    agent = get_resident_agent()
-    return await agent.clear_agent_memory()
+    return await get_resident_agent().clear_agent_memory()
 
 
 @router.get("/agent-memory/search")
@@ -999,25 +650,22 @@ async def search_agent_memory(
 ) -> dict:
     """Full-text search over agent memory entries."""
     if len(q) < 3:
-        raise HTTPException(
-            status_code=400, detail="Query must be at least 3 characters"
-        )
+        raise HTTPException(status_code=400, detail="Query must be at least 3 characters")
     try:
         from app.services.memory_service import get_memory_service
 
         mem = get_memory_service()
         records = await mem.search_memory(q, top_k=limit)
-        results = []
-        for i, r in enumerate(records):
-            results.append(
-                {
-                    "id": r.id,
-                    "content": getattr(r, "text", getattr(r, "content", str(r))),
-                    "tags": list(getattr(r, "tags", [])),
-                    "created_at": getattr(r, "created_at", None),
-                    "relevance_score": round(max(0.0, 1.0 - i * 0.05), 2),
-                }
-            )
+        results = [
+            {
+                "id": r.id,
+                "content": getattr(r, "text", getattr(r, "content", str(r))),
+                "tags": list(getattr(r, "tags", [])),
+                "created_at": getattr(r, "created_at", None),
+                "relevance_score": round(max(0.0, 1.0 - i * 0.05), 2),
+            }
+            for i, r in enumerate(records)
+        ]
         return {"results": results, "count": len(results), "query": q}
     except Exception as exc:
         logger.error("Memory search failed: %s", exc)
@@ -1030,9 +678,7 @@ async def search_agent_memory(
 @router.get("/pending-actions")
 async def get_pending_actions() -> dict:
     """Get list of pending actions awaiting user approval (advisor mode)."""
-    agent = get_resident_agent()
-    actions = agent.get_pending_actions()
-    # Only return pending ones to the UI
+    actions = get_resident_agent().get_pending_actions()
     pending = [a for a in actions if a.get("status") == "pending"]
     return {"actions": pending, "count": len(pending)}
 
@@ -1040,8 +686,7 @@ async def get_pending_actions() -> dict:
 @router.post("/pending-actions/{action_id}/approve")
 async def approve_pending_action(action_id: str) -> dict:
     """Approve a pending action."""
-    agent = get_resident_agent()
-    action = agent.approve_action(action_id)
+    action = get_resident_agent().approve_action(action_id)
     if action is None:
         raise HTTPException(404, "Akce nenalezena nebo již zpracována")
     return {"status": "approved", "action_id": action_id, "action": action}
@@ -1050,8 +695,7 @@ async def approve_pending_action(action_id: str) -> dict:
 @router.post("/pending-actions/{action_id}/reject")
 async def reject_pending_action(action_id: str) -> dict:
     """Reject a pending action."""
-    agent = get_resident_agent()
-    action = agent.reject_action(action_id)
+    action = get_resident_agent().reject_action(action_id)
     if action is None:
         raise HTTPException(404, "Akce nenalezena nebo již zpracována")
     return {"status": "rejected", "action_id": action_id}
@@ -1065,8 +709,7 @@ async def get_mode_history(limit: int = Query(default=20, ge=1, le=50)) -> dict:
     """Get recent mode change history."""
     from app.services.mode_audit_service import get_mode_audit_service
 
-    audit_svc = get_mode_audit_service()
-    history = audit_svc.get_history(limit=limit)
+    history = get_mode_audit_service().get_history(limit=limit)
     return {"history": history, "count": len(history)}
 
 
@@ -1083,8 +726,7 @@ async def get_curiosity_items(
     """List curiosity backlog items for debugging."""
     from app.services.resident_curiosity import get_curiosity_service
 
-    svc = get_curiosity_service()
-    items = svc.list_items(status=status, limit=limit)
+    items = get_curiosity_service().list_items(status=status, limit=limit)
     return {
         "items": [
             {
@@ -1104,59 +746,11 @@ async def get_curiosity_items(
 
 
 @router.get("/thoughts")
-async def get_thought_log(
-    limit: int = Query(default=50, ge=1, le=200),
-) -> dict:
+async def get_thought_log(limit: int = Query(default=50, ge=1, le=200)) -> dict:
     """Return recent thought/decision memory entries for debugging."""
-    from app.services.memory_service import get_memory_service
+    from app.services.resident_reasoner import build_thought_log
 
-    mem = get_memory_service()
-    # Search for thought and decision entries
-    entries = []
-    for category in ("thought", "decision"):
-        try:
-            results = await mem.search_memories(
-                query=category,
-                tags=["resident", category],
-                limit=limit,
-            )
-            entries.extend(results)
-        except Exception:
-            pass
-
-    # Deduplicate by id and sort newest first
-    seen_ids: set = set()
-    unique: list = []
-    for entry in entries:
-        eid = entry.get("id", id(entry))
-        if eid not in seen_ids:
-            seen_ids.add(eid)
-            unique.append(entry)
-
-    # Sort by timestamp descending
-    unique.sort(key=lambda e: e.get("timestamp", e.get("created_at", "")), reverse=True)
-    unique = unique[:limit]
-
-    return {
-        "thoughts": [
-            {
-                "id": e.get("id", ""),
-                "timestamp": e.get("timestamp", e.get("created_at", "")),
-                "category": next(
-                    (
-                        t
-                        for t in e.get("tags", [])
-                        if t in ("thought", "decision", "observation")
-                    ),
-                    "thought",
-                ),
-                "content": str(e.get("text", e.get("content", "")))[:300],
-                "importance": e.get("importance", 0),
-            }
-            for e in unique
-        ],
-        "count": len(unique),
-    }
+    return await build_thought_log(limit=limit)
 
 
 # ── Reflections ──────────────────────────────────────────────
@@ -1165,42 +759,37 @@ async def get_thought_log(
 @router.get("/reflections")
 async def get_reflections(limit: int = Query(default=20, ge=1, le=100)) -> dict:
     """Get recent reflections from completed resident jobs."""
-    agent = get_resident_agent()
-    reflections = agent.get_reflections(limit=limit)
+    reflections = get_resident_agent().get_reflections(limit=limit)
     return {"reflections": reflections, "count": len(reflections)}
 
 
 # ── Tool-augmented reasoning ────────────────────────────────
 
-# In-memory store for reasoning cycles (matching pattern of _suggestions)
-_reasoning_cycles: list = []
-_MAX_REASONING_HISTORY = 20
-
 
 @router.get("/reasoning")
 async def get_reasoning_cycles(limit: int = Query(default=10, ge=1, le=50)) -> dict:
     """Get recent tool-augmented reasoning cycles."""
-    cycles = _reasoning_cycles[-limit:]
+    from app.services.resident_reasoner import get_reasoning_cycles
+
+    cycles = get_reasoning_cycles(limit=limit)
     return {"cycles": [c.model_dump() for c in cycles], "count": len(cycles)}
 
 
 @router.post("/reasoning")
 async def trigger_reasoning_cycle() -> dict:
     """Trigger a new tool-augmented reasoning cycle."""
-    from app.services.resident_reasoner import get_resident_reasoner
-
-    reasoner = get_resident_reasoner()
+    from app.services.resident_reasoner import (
+        get_resident_reasoner,
+        store_reasoning_cycle,
+    )
 
     try:
-        cycle = await reasoner.reason_with_tools()
+        cycle = await get_resident_reasoner().reason_with_tools()
     except Exception as exc:
         logger.error("Reasoning cycle failed: %s", exc)
         raise HTTPException(500, f"Reasoning cycle selhal: {exc}")
 
-    _reasoning_cycles.append(cycle)
-    if len(_reasoning_cycles) > _MAX_REASONING_HISTORY:
-        del _reasoning_cycles[: len(_reasoning_cycles) - _MAX_REASONING_HISTORY]
-
+    store_reasoning_cycle(cycle)
     return cycle.model_dump()
 
 
@@ -1210,17 +799,15 @@ async def trigger_reasoning_cycle() -> dict:
 @router.get("/proposals")
 async def get_proposals(status: Optional[str] = Query(default=None)) -> dict:
     """Get mission proposals (optionally filtered by status)."""
-    agent = get_resident_agent()
-    proposals = agent.get_proposals(status=status)
+    proposals = get_resident_agent().get_proposals(status=status)
     return {"proposals": proposals, "count": len(proposals)}
 
 
 @router.post("/proposals/generate")
 async def generate_proposals() -> dict:
     """Trigger the agent to generate new mission proposals."""
-    agent = get_resident_agent()
     try:
-        proposals = await agent.propose_missions()
+        proposals = await get_resident_agent().propose_missions()
         return {"proposals": proposals, "count": len(proposals)}
     except Exception as exc:
         logger.error("Proposal generation failed: %s", exc)
@@ -1230,22 +817,16 @@ async def generate_proposals() -> dict:
 @router.post("/proposals/{proposal_id}/approve")
 async def approve_proposal(proposal_id: str) -> dict:
     """Approve a proposed mission and queue it for execution."""
-    agent = get_resident_agent()
-    job_id = await agent.approve_proposal(proposal_id)
+    job_id = await get_resident_agent().approve_proposal(proposal_id)
     if job_id is None:
         raise HTTPException(404, "Návrh nenalezen nebo již zpracován")
-    return {
-        "status": "approved",
-        "job_id": job_id,
-        "message": "Mise schválena a zařazena do fronty",
-    }
+    return {"status": "approved", "job_id": job_id, "message": "Mise schválena a zařazena do fronty"}
 
 
 @router.post("/proposals/{proposal_id}/reject")
 async def reject_proposal(proposal_id: str) -> dict:
     """Reject a proposed mission."""
-    agent = get_resident_agent()
-    ok = agent.reject_proposal(proposal_id)
+    ok = get_resident_agent().reject_proposal(proposal_id)
     if not ok:
         raise HTTPException(404, "Návrh nenalezen nebo již zpracován")
     return {"status": "rejected", "message": "Návrh zamítnut"}
@@ -1271,7 +852,6 @@ async def resident_stream(request: Request):
                 data = json.dumps(thought, ensure_ascii=False)
                 yield f"event: {event_type}\ndata: {data}\n\n"
             except asyncio.TimeoutError:
-                # Send keepalive comment
                 yield ": keepalive\n\n"
 
     return StreamingResponse(
@@ -1288,57 +868,25 @@ async def resident_stream(request: Request):
 # ── Control Room: Mission Templates ───────────────────────────
 
 
-class MissionRequest(BaseModel):
-    """Optional metadata for template runs."""
-
-    context: str = ""
-
-
-_TEMPLATES = [
-    {
-        "id": "daily_recap",
-        "title": "📋 Denní rekapitulace",
-        "desc": "Analyzuj dnešní KB/git/jobs a vytvoř shrnutí + todo na zítřek",
-        "icon": "📋",
-    },
-    {
-        "id": "stack_health",
-        "title": "🖥️ Stack monitor",
-        "desc": "Zkontroluj Ollama/disk/jobs/Tailscale a připrav report + doporučení",
-        "icon": "🖥️",
-    },
-    {
-        "id": "lean_assist",
-        "title": "⚙️ Lean experiment",
-        "desc": "Z metrik navrhni Lean experiment (hypothesis + test + success metric)",
-        "icon": "⚙️",
-    },
-]
-
-_TEMPLATE_PROMPTS: Dict[str, str] = {
-    "daily_recap": "Analyzuj dnešní KB/git/jobs → shrnutí + todo zítra",
-    "stack_health": "Check Ollama/disk/jobs/Tailscale → report + akce",
-    "lean_assist": "Z metrik navrhni Lean experiment (hypothesis+test)",
-}
-
-
 @router.get("/templates")
 async def get_templates() -> List[Dict[str, Any]]:
     """List available Control Room mission templates."""
-    return _TEMPLATES
+    from app.services.resident_reasoner import MISSION_TEMPLATES
+
+    return MISSION_TEMPLATES
 
 
 @router.post("/run-template/{template_id}")
 async def run_template(
-    template_id: str, req: MissionRequest = MissionRequest()
+    template_id: str, req: MissionTemplateRequest = MissionTemplateRequest()
 ) -> dict:
     """Queue a resident task from a predefined mission template."""
-    if template_id not in _TEMPLATE_PROMPTS:
-        raise HTTPException(
-            status_code=404, detail=f"Template '{template_id}' nenalezen"
-        )
+    from app.services.resident_reasoner import TEMPLATE_PROMPTS
 
-    prompt = _TEMPLATE_PROMPTS[template_id]
+    if template_id not in TEMPLATE_PROMPTS:
+        raise HTTPException(status_code=404, detail=f"Template '{template_id}' nenalezen")
+
+    prompt = TEMPLATE_PROMPTS[template_id]
     if req.context:
         prompt = f"{prompt}\n\nKontext: {req.context}"
 
@@ -1350,12 +898,7 @@ async def run_template(
         payload={},
         priority="normal",
     )
-    return {
-        "job_id": job.id,
-        "status": "queued",
-        "template_id": template_id,
-        "title": template_id,
-    }
+    return {"job_id": job.id, "status": "queued", "template_id": template_id, "title": template_id}
 
 
 # ── Control Room: Debug Export ─────────────────────────────────
@@ -1364,48 +907,13 @@ async def run_template(
 @router.post("/export-debug")
 async def export_debug() -> JSONResponse:
     """Export a debug snapshot: resident state + recent jobs + logs + config summary."""
+    from app.services.resident_reasoner import build_debug_snapshot
+
     agent = get_resident_agent()
     job_svc = get_job_service()
     settings = get_settings_service().load()
 
-    try:
-        dashboard = agent.get_dashboard_data()
-    except Exception:
-        dashboard = {}
-
-    try:
-        jobs = job_svc.list_jobs(limit=10)
-        recent_jobs = [
-            {
-                "id": j.id,
-                "title": j.title,
-                "status": j.status,
-                "type": j.type,
-                "created_at": j.created_at,
-            }
-            for j in jobs
-        ]
-    except Exception:
-        recent_jobs = []
-
-    try:
-        logs_data = agent.get_logs(limit=50)
-    except Exception:
-        logs_data = []
-
-    snapshot = {
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-        "resident_state": dashboard,
-        "recent_jobs": recent_jobs,
-        "logs": logs_data,
-        "config_summary": {
-            "resident_interval": settings.get("resident_interval", 900),
-            "resident_mode": settings.get("resident_mode", "advisor"),
-            "llm_provider": settings.get("llm", {}).get("provider", "unknown"),
-        },
-    }
-
-    content = json.dumps(snapshot, ensure_ascii=False, indent=2, default=str)
+    snapshot = build_debug_snapshot(agent, job_svc, settings)
     return JSONResponse(
         content=snapshot,
         headers={"Content-Disposition": "attachment; filename=debug.json"},

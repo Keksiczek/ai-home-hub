@@ -14,12 +14,12 @@ openpyxl==3.1.2
 Pillow==10.2.0
 pytesseract==0.3.10
 python-magic==0.4.27
-chromadb==0.4.22
-slowapi==0.1
-faster-whisper
-ffmpeg-python
-markdown
-weasyprint
+chromadb>=0.5.23,<0.6
+slowapi==0.1.9  # pinned 2026-03-30
+faster-whisper==1.2.1  # pinned 2026-03-30
+ffmpeg-python==0.2.0  # pinned 2026-03-30
+markdown==3.10.2  # pinned 2026-03-30
+weasyprint==68.1  # pinned 2026-03-30
 python-pptx>=0.6.21
 EbookLib>=0.18
 beautifulsoup4>=4.12.0
@@ -27,5 +27,4 @@ duckduckgo-search>=4.0
 structlog>=24.1.0
 prometheus-client>=0.20.0
 sse-starlette>=1.6.1
-playwright>=1.40
 pytest-timeout>=2.2.0
