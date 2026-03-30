@@ -22,6 +22,7 @@ from app.core.settings import (
     ActionBlockedError,
 )  # noqa: F401 – re-exported for convenience
 from app.services.background_service import BackgroundService
+from app.services.resource_monitor import get_resource_monitor
 from app.services.metrics_service import (
     agent_cycles_total,
     resident_cycles_total,
@@ -165,9 +166,9 @@ class ResidentAgentState:
         return d
 
 
-THOUGHT_TICK_INTERVAL = 4  # run reasoner every 4th tick (~2 min at 30s interval)
-MISSION_TICK_INTERVAL = 4  # check missions every 4th tick (~2 min)
-PROACTIVE_TICK_INTERVAL = 2  # deterministic proactive action every 2nd tick (~1 min)
+THOUGHT_TICK_INTERVAL = 6  # run reasoner every 6th tick (~12 min at 120s interval)
+MISSION_TICK_INTERVAL = 6  # check missions every 6th tick (~12 min)
+PROACTIVE_TICK_INTERVAL = 3  # deterministic proactive action every 3rd tick (~6 min)
 CURIOSITY_TICK_INTERVAL = 10  # curiosity backlog every 10th tick (~5 min)
 MAX_CURIOSITY_IN_PROGRESS = 3  # WIP limit for concurrent curiosity items
 
@@ -268,7 +269,7 @@ class MissionProposal:
 class AgentSettings:
     """Runtime-configurable agent settings."""
 
-    interval_seconds: int = 30
+    interval_seconds: int = 120
     model: str = ""  # empty = use default from settings
     max_cycles_per_day: int = 100
     quiet_hours_start: str = "22:00"  # HH:MM
@@ -1137,6 +1138,16 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         if self._state.tick_count % THOUGHT_TICK_INTERVAL != 0:
             return
 
+        # Resource-aware skip: don't call LLM when RAM is under pressure
+        monitor = get_resource_monitor()
+        if monitor.is_blocked() or monitor.is_background_paused():
+            logger.info(
+                "Skipping LLM thought cycle – RAM pressure (blocked=%s, bg_paused=%s)",
+                monitor.is_blocked(),
+                monitor.is_background_paused(),
+            )
+            return
+
         mode = self._get_resident_mode()
         # Observer: no LLM reasoning at all
         if mode == "observer":
@@ -1311,6 +1322,16 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         Results are stored in memory and recorded in the cycle history.
         """
         if self._state.tick_count % PROACTIVE_TICK_INTERVAL != 0:
+            return
+
+        # Resource-aware skip: don't run proactive actions when RAM is under pressure
+        monitor = get_resource_monitor()
+        if monitor.is_blocked() or monitor.is_background_paused():
+            logger.info(
+                "Skipping proactive cycle – RAM pressure (blocked=%s, bg_paused=%s)",
+                monitor.is_blocked(),
+                monitor.is_background_paused(),
+            )
             return
 
         action_name = self._PROACTIVE_ACTIONS[

@@ -75,7 +75,10 @@ class ResidentGuardrailsConfig(BaseModel):
     """Runtime configuration for the resident daemon."""
 
     interval_seconds: int = Field(
-        900, ge=300, le=3600, description="Cycle interval in seconds (default 15 min)"
+        120, ge=30, le=3600, description="Cycle interval in seconds (default 2 min)"
+    )
+    low_memory_mode: bool = Field(
+        False, description="When True, agent further reduces LLM calls to conserve RAM"
     )
     quiet_hours: List[str] = Field(
         default=["22:00-07:00"],

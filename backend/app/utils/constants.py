@@ -61,7 +61,7 @@ LLM_SEMAPHORE_TIMEOUT: float = float(
 LLM_NUM_THREADS: int = int(
     __import__("os").environ.get(
         "LLM_NUM_THREADS",
-        str(max(1, (__import__("os").cpu_count() or 4) // 2)),
+        str(min(4, max(1, (__import__("os").cpu_count() or 4) // 2))),
     )
 )
 
