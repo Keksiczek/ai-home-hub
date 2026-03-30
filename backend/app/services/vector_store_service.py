@@ -20,6 +20,24 @@ from app.services.metrics_service import (
 
 logger = logging.getLogger(__name__)
 
+
+class KBDimensionMismatchError(Exception):
+    """Raised when embedding dimension does not match the ChromaDB collection.
+
+    Callers should catch this to trigger a collection rebuild instead of
+    silently swallowing the error.
+    """
+
+    def __init__(self, old_dim: int, new_dim: int, collection: str = "knowledge_base"):
+        self.old_dim = old_dim
+        self.new_dim = new_dim
+        self.collection = collection
+        super().__init__(
+            f"KB kolekce '{collection}' má nekompatibilní dimenzi {old_dim} vs {new_dim} "
+            f"— je třeba přebuildit (POST /api/kb/rebuild)"
+        )
+
+
 CHROMA_DIR = Path(__file__).parent.parent.parent / "data" / "chroma"
 CHROMA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -95,6 +113,19 @@ class VectorStoreService:
             )
             logger.info("Added %d documents to vector store", len(ids))
         except Exception as exc:
+            exc_str = str(exc)
+            if "dimension" in exc_str.lower() and "does not match" in exc_str.lower():
+                import re
+
+                dims = re.findall(r"\d+", exc_str)
+                old_dim = int(dims[0]) if len(dims) >= 1 else 0
+                new_dim = int(dims[1]) if len(dims) >= 2 else 0
+                logger.error(
+                    "KB kolekce má nekompatibilní dimenzi %d vs %d — je třeba přebuildit",
+                    old_dim,
+                    new_dim,
+                )
+                raise KBDimensionMismatchError(old_dim, new_dim, self.COLLECTION_NAME)
             logger.error("Failed to add documents: %s", exc)
             raise
 
@@ -135,6 +166,20 @@ class VectorStoreService:
                 "distances": results["distances"][0] if results["distances"] else [],
             }
         except Exception as exc:
+            exc_str = str(exc)
+            if "dimension" in exc_str.lower() and "does not match" in exc_str.lower():
+                # Extract dimensions from error message
+                import re
+
+                dims = re.findall(r"\d+", exc_str)
+                old_dim = int(dims[0]) if len(dims) >= 1 else 0
+                new_dim = int(dims[1]) if len(dims) >= 2 else 0
+                logger.error(
+                    "KB kolekce má nekompatibilní dimenzi %d vs %d — je třeba přebuildit",
+                    old_dim,
+                    new_dim,
+                )
+                raise KBDimensionMismatchError(old_dim, new_dim, self.COLLECTION_NAME)
             logger.error("Search failed: %s", exc)
             return {"ids": [], "documents": [], "metadatas": [], "distances": []}
 

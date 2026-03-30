@@ -129,6 +129,16 @@ class MemoryService:
         try:
             results = self.collection.query(**kwargs)
         except Exception as exc:
+            exc_str = str(exc)
+            if "dimension" in exc_str.lower() and "does not match" in exc_str.lower():
+                logger.error(
+                    "Memory search failed – embedding dimension mismatch: %s. "
+                    "Rebuild KB via POST /api/kb/rebuild",
+                    exc,
+                )
+                from app.services.vector_store_service import KBDimensionMismatchError
+
+                raise KBDimensionMismatchError(0, 0, self.COLLECTION_NAME)
             logger.error("Memory search failed: %s", exc)
             return []
 

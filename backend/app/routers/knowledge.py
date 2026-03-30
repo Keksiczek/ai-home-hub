@@ -26,6 +26,83 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+# ── KB Rebuild (dimension mismatch fix) ─────────────────────────
+
+
+@router.post("/kb/rebuild", tags=["knowledge"], dependencies=[Depends(verify_api_key)])
+async def rebuild_kb_collection() -> Dict[str, Any]:
+    """Drop and recreate the default KB ChromaDB collection.
+
+    Use when embedding dimension has changed (e.g. switched embedding model)
+    and the existing collection has incompatible vectors.
+    """
+    from app.services.embeddings_service import get_embeddings_service
+
+    vs = get_vector_store_service()
+    emb_svc = get_embeddings_service()
+
+    # Detect current embedding dimension
+    new_dim = emb_svc.get_embedding_dim()
+    if new_dim is None:
+        # Probe to detect dimension
+        probe = await emb_svc.generate_embedding("dimension probe")
+        if probe is not None:
+            new_dim = len(probe)
+        else:
+            raise HTTPException(
+                status_code=503,
+                detail="Embedding model unavailable – cannot determine target dimension",
+            )
+
+    # Read old dimension from collection metadata
+    old_dim = None
+    try:
+        col_meta = vs.collection.metadata or {}
+        stored = col_meta.get("embedding_dim")
+        if stored is not None:
+            old_dim = int(stored)
+    except Exception:
+        pass
+
+    # If no stored dim, try to peek at existing vectors
+    if old_dim is None:
+        try:
+            peek = vs.collection.peek(limit=1)
+            if peek and peek.get("embeddings") and peek["embeddings"][0]:
+                old_dim = len(peek["embeddings"][0])
+        except Exception:
+            pass
+
+    old_dim = old_dim or 0
+    col_name = vs.COLLECTION_NAME
+
+    try:
+        import asyncio
+
+        await asyncio.to_thread(vs.client.delete_collection, col_name)
+        vs.collection = await asyncio.to_thread(
+            vs.client.get_or_create_collection,
+            col_name,
+            metadata={"hnsw:space": "cosine", "embedding_dim": new_dim},
+        )
+        emb_svc.clear_cache()
+        logger.warning(
+            "KB collection '%s' rebuilt: old_dim=%d, new_dim=%d",
+            col_name,
+            old_dim,
+            new_dim,
+        )
+        return {
+            "status": "rebuilt",
+            "collection": col_name,
+            "old_dim": old_dim,
+            "new_dim": new_dim,
+        }
+    except Exception as exc:
+        logger.error("KB rebuild failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"KB rebuild failed: {exc}")
+
+
 # ── KB Initialization ────────────────────────────────────────────
 
 
