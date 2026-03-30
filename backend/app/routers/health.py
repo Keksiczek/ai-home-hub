@@ -198,7 +198,8 @@ async def health_errors(limit: int = 20) -> dict:
     """Return recent unhandled error records for debugging."""
     from app.middleware.error_handler import get_error_history
 
-    return {"errors": get_error_history(limit=limit), "count": limit}
+    errors = get_error_history(limit=limit)
+    return {"errors": errors, "count": len(errors)}
 
 
 @router.get("/api/health/cleanup")

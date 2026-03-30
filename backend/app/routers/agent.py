@@ -8,6 +8,8 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 
+from app.models.resident_models import AgentSettingsPatch
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/agent", tags=["agent"])
@@ -100,11 +102,11 @@ async def agent_reset() -> dict:
 
 
 @router.patch("/settings")
-async def agent_settings_patch(updates: dict) -> dict:
+async def agent_settings_patch(updates: AgentSettingsPatch) -> dict:
     """Update agent runtime settings."""
     from app.services.resident_agent import get_resident_agent
 
-    return get_resident_agent().update_agent_settings(updates)
+    return get_resident_agent().update_agent_settings(updates.model_dump(exclude_none=True))
 
 
 @router.get("/memory")

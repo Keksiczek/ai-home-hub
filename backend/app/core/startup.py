@@ -36,6 +36,7 @@ async def lifespan(app: FastAPI):
     get_task_manager().set_broadcast(ws_manager.broadcast)
 
     # Ensure data directories exist
+    # __file__ = backend/app/core/startup.py → .parent³ = backend/
     base = Path(__file__).parent.parent.parent / "data"
     for subdir in (
         "sessions",
