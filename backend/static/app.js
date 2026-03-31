@@ -264,7 +264,7 @@ function switchTab(tabName) {
   if (tabName === 'skills') { loadSkills(); loadMarketplace(); }
   if (tabName === 'jobs') { loadJobs(); loadJobHistory(); }
   if (tabName === 'actions') { loadQuickActions(); loadVSCodeProjects(); loadActionHistory(); }
-  if (tabName === 'settings') { loadSettings(); loadOllamaModels(); loadRuntimeSkills(); }
+  if (tabName === 'settings') { loadSettings(); loadOllamaModels(); loadRuntimeSkills(); loadContextAndProviderSettings(); }
   if (tabName === 'files-manager') loadFilesManager();
   if (tabName === 'resident') loadResidentDashboard();
   if (tabName === 'control-room') loadControlRoom();
@@ -1251,18 +1251,20 @@ async function sendMessageStreaming(body, sendBtn, chatSpinner) {
             bubble.style.display = '';
           }
           fullText += token;
-          // Update bubble text (keep cursor at end)
-          textEl.textContent = fullText;
+          // Progressive markdown rendering – re-render on each token
+          textEl.innerHTML = renderMarkdown(fullText);
           textEl.appendChild(cursor);
-          chatHistoryEl.scrollTop = chatHistoryEl.scrollHeight;
+          // Auto-scroll follows new text progressively
+          const isNearBottom = chatHistoryEl.scrollHeight - chatHistoryEl.scrollTop - chatHistoryEl.clientHeight < 120;
+          if (isNearBottom) chatHistoryEl.scrollTop = chatHistoryEl.scrollHeight;
         } else if (msg.type === 'chat_chunk' && msg.is_final) {
           receivedFinal = true;
           clearInterval(phaseTimer);
           if (loadingEl.parentNode) loadingEl.remove();
           bubble.style.display = '';
-          // Remove cursor, add metadata
+          // Remove cursor, render final markdown
           cursor.remove();
-          textEl.textContent = fullText;
+          textEl.innerHTML = renderMarkdown(fullText);
 
           // Detect timeout/error in streamed text
           const isTimeout = fullText.startsWith('[Timeout:') || fullText.startsWith('[Chyba LLM:');
@@ -2700,6 +2702,13 @@ async function loadSettings() {
     }
     setVal('s-llm-model', defaultModel);
 
+    // Context window (num_ctx)
+    const numCtx = s.llm?.num_ctx || 2048;
+    const ctxSlider = document.getElementById('s-llm-num-ctx');
+    const ctxLabel = document.getElementById('s-llm-num-ctx-value');
+    if (ctxSlider) ctxSlider.value = numCtx;
+    if (ctxLabel) ctxLabel.textContent = numCtx;
+
     // Advanced per-profile fields – load for the currently selected profile
     const profileSel = document.getElementById('s-llm-profile-select');
     const activeProfile = profileSel ? profileSel.value : 'chat';
@@ -2820,6 +2829,7 @@ async function saveSettings() {
       timeout_seconds: Math.max(60, Math.min(600, parseInt(getVal('s-llm-timeout')) || 180)),
       ollama_url: getVal('s-llm-url'),
       base_url: getVal('s-llm-url'),
+      num_ctx: Math.max(512, Math.min(8192, parseInt(document.getElementById('s-llm-num-ctx')?.value || '2048'))),
     },
     profiles: updatedProfiles,
     integrations: {
@@ -10561,6 +10571,137 @@ async function saveOllamaPerf(restartOllama) {
     }
   } catch (err) {
     showToast('\u{274C} ' + err.message, 'error');
+  }
+}
+
+/* ============================================================
+   CONTEXT WINDOW, PROVIDER, GROQ SETTINGS
+   ============================================================ */
+
+// num_ctx slider sync
+(function() {
+  const slider = document.getElementById('s-llm-num-ctx');
+  const label = document.getElementById('s-llm-num-ctx-value');
+  if (slider && label) {
+    slider.addEventListener('input', () => { label.textContent = slider.value; });
+  }
+  // Provider select toggle
+  const provSel = document.getElementById('s-llm-provider-select');
+  if (provSel) {
+    provSel.addEventListener('change', () => {
+      const llamaGrp = document.getElementById('llamacpp-url-group');
+      if (llamaGrp) llamaGrp.style.display = provSel.value === 'llamacpp' ? '' : 'none';
+    });
+  }
+})();
+
+async function loadContextAndProviderSettings() {
+  try {
+    const [ctxResp, provResp, groqResp] = await Promise.all([
+      fetch('/api/settings/llm/num-ctx'),
+      fetch('/api/settings/llm/provider'),
+      fetch('/api/settings/groq'),
+    ]);
+    if (ctxResp.ok) {
+      const d = await ctxResp.json();
+      const slider = document.getElementById('s-llm-num-ctx');
+      const label = document.getElementById('s-llm-num-ctx-value');
+      if (slider) slider.value = d.num_ctx || 2048;
+      if (label) label.textContent = d.num_ctx || 2048;
+    }
+    if (provResp.ok) {
+      const d = await provResp.json();
+      const sel = document.getElementById('s-llm-provider-select');
+      if (sel) sel.value = d.provider || 'ollama';
+      const llamaUrl = document.getElementById('s-llamacpp-url');
+      if (llamaUrl) llamaUrl.value = d.llamacpp_url || 'http://localhost:8080';
+      const llamaGrp = document.getElementById('llamacpp-url-group');
+      if (llamaGrp) llamaGrp.style.display = d.provider === 'llamacpp' ? '' : 'none';
+    }
+    if (groqResp.ok) {
+      const d = await groqResp.json();
+      const en = document.getElementById('s-groq-enabled');
+      if (en) en.checked = !!d.enabled;
+      const key = document.getElementById('s-groq-api-key');
+      if (key && d.api_key) key.value = d.api_key;
+      const model = document.getElementById('s-groq-model');
+      if (model && d.model) model.value = d.model;
+      const af = document.getElementById('s-groq-auto-fallback');
+      if (af) af.checked = !!d.auto_fallback;
+    }
+  } catch (err) {
+    // non-fatal
+  }
+}
+
+async function saveProviderSettings() {
+  const provider = document.getElementById('s-llm-provider-select').value;
+  const llamacppUrl = document.getElementById('s-llamacpp-url').value;
+  const numCtx = parseInt(document.getElementById('s-llm-num-ctx').value);
+
+  try {
+    const [provResp, ctxResp] = await Promise.all([
+      fetch('/api/settings/llm/provider', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider, llamacpp_url: llamacppUrl }),
+      }),
+      fetch('/api/settings/llm/num-ctx', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ num_ctx: numCtx }),
+      }),
+    ]);
+    if (provResp.ok && ctxResp.ok) {
+      showToast('\u{2705} Provider a context window uloženo', 'success');
+    } else {
+      showToast('\u{274C} Chyba při ukládání', 'error');
+    }
+  } catch (err) {
+    showToast('\u{274C} ' + err.message, 'error');
+  }
+}
+
+async function saveGroqSettings() {
+  const payload = {
+    enabled: document.getElementById('s-groq-enabled').checked,
+    api_key: document.getElementById('s-groq-api-key').value,
+    model: document.getElementById('s-groq-model').value,
+    auto_fallback: document.getElementById('s-groq-auto-fallback').checked,
+  };
+  try {
+    const resp = await fetch('/api/settings/groq', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (resp.ok) {
+      showToast('\u{2705} Groq nastavení uloženo', 'success');
+    } else {
+      showToast('\u{274C} Chyba při ukládání', 'error');
+    }
+  } catch (err) {
+    showToast('\u{274C} ' + err.message, 'error');
+  }
+}
+
+async function testGroqConnection() {
+  const statusEl = document.getElementById('groq-test-status');
+  if (!statusEl) return;
+  statusEl.classList.remove('hidden');
+  statusEl.innerHTML = '\u{23F3} Testuji Groq...';
+  try {
+    const resp = await fetch('/api/settings/groq/test', { method: 'POST' });
+    const d = await resp.json();
+    if (d.status === 'ok') {
+      statusEl.innerHTML = '\u{1F7E2} Groq online | Modely: ' + (d.models || []).join(', ');
+      showToast('\u{2705} Groq připojeno', 'success');
+    } else {
+      statusEl.innerHTML = '\u{1F534} ' + (d.message || 'Chyba');
+      showToast('\u{274C} Groq test selhal', 'error');
+    }
+  } catch (err) {
+    statusEl.innerHTML = '\u{1F534} ' + err.message;
   }
 }
 

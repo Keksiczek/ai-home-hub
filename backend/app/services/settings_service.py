@@ -20,7 +20,10 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         "timeout_seconds": 180,
         "ollama_url": os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"),
         "base_url": os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"),
+        "llamacpp_url": "http://localhost:8080",
         "embeddings_model": "nomic-embed-text",
+        "num_ctx": 2048,
+        "embedding_num_ctx": 512,
         "default_params": {
             "temperature": 0.3,
             "top_p": 0.9,
@@ -34,6 +37,13 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
             "num_parallel": 1,
             "keep_alive": "5m",
         },
+    },
+    "groq": {
+        "enabled": False,
+        "api_key": "",
+        "model": "llama-3.1-8b-instant",
+        "auto_fallback": False,
+        "fallback_timeout_s": 30,
     },
     "integrations": {
         "claude_mcp": {

@@ -326,6 +326,61 @@ async def _call_ollama_with_retry(
         return data.get("message", {}).get("content", ""), data
 
 
+class _FirstTokenTimeout(Exception):
+    """Raised when no token arrives within the first-token timeout."""
+
+    def __init__(self, elapsed: float) -> None:
+        self.elapsed = elapsed
+        super().__init__(f"No token received within {elapsed:.0f}s")
+
+
+def get_provider_for_settings(settings_svc=None):
+    """Instantiate the correct LLMProvider based on current settings.
+
+    Returns (provider_instance, provider_name).
+    """
+    from app.services.llm_providers.ollama import OllamaProvider
+    from app.services.llm_providers.llamacpp import LlamaCppProvider
+    from app.services.llm_providers.groq import GroqProvider
+
+    if settings_svc is None:
+        settings_svc = get_settings_service()
+    settings = settings_svc.load()
+    llm_cfg = settings.get("llm", {})
+    provider_name = llm_cfg.get("provider", "ollama")
+    ollama_url = llm_cfg.get("ollama_url") or llm_cfg.get(
+        "base_url", "http://localhost:11434"
+    )
+
+    if provider_name == "llamacpp":
+        llamacpp_url = llm_cfg.get("llamacpp_url", "http://localhost:8080")
+        return LlamaCppProvider(base_url=llamacpp_url), "llamacpp"
+
+    if provider_name == "groq":
+        groq_cfg = settings.get("groq", {})
+        api_key = groq_cfg.get("api_key") or os.environ.get("GROQ_API_KEY", "")
+        return GroqProvider(api_key=api_key), "groq"
+
+    # Default: ollama
+    return OllamaProvider(base_url=ollama_url), "ollama"
+
+
+def _get_groq_fallback(settings_svc=None):
+    """Return a GroqProvider if cloud fallback is enabled, else None."""
+    from app.services.llm_providers.groq import GroqProvider
+
+    if settings_svc is None:
+        settings_svc = get_settings_service()
+    settings = settings_svc.load()
+    groq_cfg = settings.get("groq", {})
+    if not groq_cfg.get("enabled"):
+        return None
+    api_key = groq_cfg.get("api_key") or os.environ.get("GROQ_API_KEY", "")
+    if not api_key:
+        return None
+    return GroqProvider(api_key=api_key)
+
+
 class LLMService:
     def __init__(self) -> None:
         self._settings = get_settings_service()
@@ -551,6 +606,11 @@ class LLMService:
                 options["num_thread"],
                 options["num_predict"],
             )
+
+        # Context window size – configurable, default 2048 for faster inference
+        settings_data = self._settings.load()
+        llm_num_ctx = settings_data.get("llm", {}).get("num_ctx", 2048)
+        options.setdefault("num_ctx", llm_num_ctx)
 
         payload: Dict[str, Any] = {
             "model": model,
@@ -895,6 +955,11 @@ class LLMService:
             options.setdefault("num_predict", LLM_NUM_PREDICT)
             options.setdefault("temperature", 0.1)
 
+        # Context window size – configurable, default 2048 for faster inference
+        settings_data = self._settings.load()
+        llm_num_ctx = settings_data.get("llm", {}).get("num_ctx", 2048)
+        options.setdefault("num_ctx", llm_num_ctx)
+
         keep_alive_default = cfg.get("keep_alive_default")
         keep_alive = get_keep_alive_for_model(
             model, for_overnight=for_overnight, config_default=keep_alive_default
@@ -931,6 +996,10 @@ class LLMService:
             yield f"[LLM přetížené – semafor nebyl získán do {LLM_SEMAPHORE_TIMEOUT:.0f}s]"
             return
 
+        first_token_received = False
+        first_token_timeout = 30.0  # 30s to get first token
+        groq_fallback = _get_groq_fallback(self._settings)
+
         try:
             async with asyncio.timeout(outer_timeout):
                 async with httpx.AsyncClient(timeout=stream_http_timeout) as client:
@@ -938,8 +1007,14 @@ class LLMService:
                         "POST", f"{ollama_url}/api/chat", json=payload
                     ) as resp:
                         resp.raise_for_status()
+                        start_wait = time.monotonic()
                         async for line in resp.aiter_lines():
                             if not line.strip():
+                                # Check first-token timeout while waiting
+                                if not first_token_received:
+                                    elapsed = time.monotonic() - start_wait
+                                    if elapsed > first_token_timeout:
+                                        raise _FirstTokenTimeout(elapsed)
                                 continue
                             try:
                                 chunk = json.loads(line)
@@ -949,30 +1024,57 @@ class LLMService:
                                 break
                             token = chunk.get("message", {}).get("content", "")
                             if token:
+                                if not first_token_received:
+                                    first_token_received = True
                                 yield token
             # Success – reset circuit breakers
             await cb.record_success()
             await model_cb.record_success(model)
-        except asyncio.TimeoutError:
+        except (_FirstTokenTimeout, asyncio.TimeoutError, httpx.TimeoutException) as exc:
             await cb.record_failure()
             await model_cb.record_failure(model)
+            timeout_type = "first-token" if isinstance(exc, _FirstTokenTimeout) else "stream"
             logger.warning(
-                "Ollama stream hard-timeout for model %s (%.0fs cap)",
-                model,
-                outer_timeout,
+                "Ollama %s timeout for model %s (%.0fs cap)",
+                timeout_type, model, outer_timeout,
             )
-            yield "⏱ Model odpovídá pomalu. Zkus kratší dotaz nebo přepni na menší model v nastavení."
-        except httpx.TimeoutException as exc:
-            # Covers ReadTimeout (stalled chunk) and ConnectTimeout
-            await cb.record_failure()
-            await model_cb.record_failure(model)
-            logger.warning(
-                "Ollama HTTP timeout during streaming for model %s: %s", model, exc
-            )
+            # Groq cloud fallback – attempt if enabled and first token never arrived
+            if groq_fallback and not first_token_received:
+                settings_data = self._settings.load()
+                groq_cfg = settings_data.get("groq", {})
+                groq_model = groq_cfg.get("model", "llama-3.1-8b-instant")
+                logger.info(
+                    "Attempting Groq fallback (model=%s) after local timeout",
+                    groq_model,
+                )
+                yield f"\n\n[Lokální model pomalý – přepínám na Groq ({groq_model})]\n\n"
+                try:
+                    async for token in groq_fallback.generate_stream(
+                        messages=messages, model=groq_model, options=options, timeout=30.0
+                    ):
+                        yield token
+                    return
+                except Exception as groq_exc:
+                    logger.warning("Groq fallback also failed: %s", groq_exc)
             yield "⏱ Model odpovídá pomalu. Zkus kratší dotaz nebo přepni na menší model v nastavení."
         except httpx.ConnectError:
             await cb.record_failure()
             logger.warning("Ollama not available for streaming, yielding stub")
+            # Groq fallback on connect error
+            if groq_fallback:
+                settings_data = self._settings.load()
+                groq_cfg = settings_data.get("groq", {})
+                groq_model = groq_cfg.get("model", "llama-3.1-8b-instant")
+                logger.info("Attempting Groq fallback after Ollama connect error")
+                yield f"\n\n[Ollama nedostupná – přepínám na Groq ({groq_model})]\n\n"
+                try:
+                    async for token in groq_fallback.generate_stream(
+                        messages=messages, model=groq_model, options=options, timeout=30.0
+                    ):
+                        yield token
+                    return
+                except Exception as groq_exc:
+                    logger.warning("Groq fallback also failed: %s", groq_exc)
             yield "[Stub] Ollama is not reachable. Please start Ollama."
         except Exception as exc:
             await cb.record_failure()

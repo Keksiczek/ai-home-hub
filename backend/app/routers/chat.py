@@ -31,8 +31,8 @@ async def chat_stream_ws(websocket: WebSocket) -> None:
 
     Client sends a JSON message identical to ChatRequest.
     Server responds with a sequence of:
-      {"type": "token", "content": "..."}
-      {"type": "done", "meta": {...}}
+      {"type": "chat_chunk", "delta": {"plain_text": "..."}, "is_final": false}
+      {"type": "chat_chunk", "delta": {...}, "is_final": true, "meta": {...}}
     On error:
       {"type": "error", "message": "..."}
     """
@@ -154,6 +154,102 @@ async def chat_stream_ws(websocket: WebSocket) -> None:
         }
     )
     await websocket.close()
+
+
+@router.post("/chat/stream/sse", tags=["chat"])
+async def chat_stream_sse(request: ChatRequest):
+    """Stream chat responses via Server-Sent Events.
+
+    Alternative to WebSocket streaming for proxy-friendly environments.
+    Returns ``text/event-stream`` with X-Accel-Buffering: no for nginx compat.
+    Each event is ``data: {"type":"chat_chunk","delta":{"plain_text":"..."},"is_final":false}``
+    """
+    from fastapi.responses import StreamingResponse
+
+    llm_svc = get_llm_service()
+    session_svc = get_session_service()
+
+    message = request.message
+    if not message.strip():
+        return JSONResponse(status_code=400, content={"error": "Empty message"})
+
+    model_override = request.model
+    if model_override and is_abliterated_model(model_override):
+        if not request.allow_uncensored:
+            return JSONResponse(status_code=400, content={
+                "error": "Model je abliterated/uncensored. Pošli allow_uncensored: true"
+            })
+
+    session_id = request.session_id
+    if not session_id or not session_svc.session_exists(session_id):
+        session_id = session_svc.create_session()
+
+    history = session_svc.get_history_for_llm(session_id, limit=20)
+
+    from app.utils.context_helpers import enrich_message
+    llm_message, context_meta = await enrich_message(message)
+
+    async def event_generator():
+        full_reply = []
+        start = time.monotonic()
+        try:
+            async for token in llm_svc.generate_stream(
+                message=llm_message,
+                mode=request.mode,
+                profile=request.profile,
+                history=history,
+                model_override=model_override,
+            ):
+                full_reply.append(token)
+                chunk = json.dumps({
+                    "type": "chat_chunk",
+                    "delta": {"plain_text": token, "markdown": token},
+                    "is_final": False,
+                })
+                yield f"data: {chunk}\n\n"
+        except Exception as exc:
+            logger.error("SSE stream error: %s", exc, exc_info=True)
+            yield f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
+            return
+
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        reply_text = "".join(full_reply)
+
+        cfg = llm_svc._settings.get_llm_config(profile=request.profile)
+        model_used = model_override or cfg.get("model", "llama3.2")
+
+        from app.services.llm_service import sanitize_response
+        reply_text, was_sanitized = sanitize_response(reply_text, model_used)
+
+        session_svc.save_message(session_id, "user", message)
+        session_svc.save_message(session_id, "assistant", reply_text)
+
+        meta = {
+            "provider": "ollama",
+            "model": model_used,
+            "latency_ms": elapsed_ms,
+            "mode": request.mode,
+            "sanitized": was_sanitized,
+            "session_id": session_id,
+            **context_meta,
+        }
+        final = json.dumps({
+            "type": "chat_chunk",
+            "delta": {"plain_text": reply_text, "markdown": reply_text, "html": None},
+            "is_final": True,
+            "meta": meta,
+        })
+        yield f"data: {final}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/chat", tags=["chat"])

@@ -51,8 +51,15 @@ async def get_settings_schema() -> Dict[str, Any]:
                 "properties": {
                     "provider": {
                         "type": "string",
-                        "enum": ["ollama", "stub"],
+                        "enum": ["ollama", "llamacpp", "groq", "stub"],
                         "default": "ollama",
+                    },
+                    "num_ctx": {
+                        "type": "integer",
+                        "minimum": 512,
+                        "maximum": 8192,
+                        "default": 2048,
+                        "description": "Context window size for inference",
                     },
                     "model": {"type": "string", "default": "llama3.2"},
                     "temperature": {
@@ -498,6 +505,158 @@ async def update_llm_performance(body: OllamaPerformanceUpdate) -> Dict[str, Any
     return {"status": "ok", "performance": perf, "restarted": restarted}
 
 
+## ── Context Window (num_ctx) ────────────────────────────────────────────────
+
+
+@router.get("/settings/llm/num-ctx", tags=["settings"])
+async def get_num_ctx() -> Dict[str, Any]:
+    """Return current context window size."""
+    svc = get_settings_service()
+    settings = svc.load()
+    llm = settings.get("llm", {})
+    return {
+        "num_ctx": llm.get("num_ctx", 2048),
+        "embedding_num_ctx": llm.get("embedding_num_ctx", 512),
+    }
+
+
+@router.patch("/settings/llm/num-ctx", tags=["settings"])
+async def update_num_ctx(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Update context window size. Validates min=512, max=8192."""
+    num_ctx = body.get("num_ctx")
+    embedding_num_ctx = body.get("embedding_num_ctx")
+
+    update: Dict[str, Any] = {}
+    if num_ctx is not None:
+        num_ctx = int(num_ctx)
+        if not (512 <= num_ctx <= 8192):
+            raise HTTPException(400, "num_ctx must be between 512 and 8192")
+        update["num_ctx"] = num_ctx
+    if embedding_num_ctx is not None:
+        embedding_num_ctx = int(embedding_num_ctx)
+        if not (256 <= embedding_num_ctx <= 2048):
+            raise HTTPException(400, "embedding_num_ctx must be between 256 and 2048")
+        update["embedding_num_ctx"] = embedding_num_ctx
+
+    if update:
+        svc = get_settings_service()
+        svc.update({"llm": update})
+
+    return {"status": "ok", **update}
+
+
+## ── LLM Provider Selection ─────────────────────────────────────────────────
+
+
+@router.get("/settings/llm/provider", tags=["settings"])
+async def get_llm_provider() -> Dict[str, Any]:
+    """Return current LLM provider and available providers."""
+    svc = get_settings_service()
+    settings = svc.load()
+    llm = settings.get("llm", {})
+    return {
+        "provider": llm.get("provider", "ollama"),
+        "ollama_url": llm.get("ollama_url", "http://localhost:11434"),
+        "llamacpp_url": llm.get("llamacpp_url", "http://localhost:8080"),
+        "available_providers": ["ollama", "llamacpp", "groq"],
+    }
+
+
+@router.patch("/settings/llm/provider", tags=["settings"])
+async def update_llm_provider(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Switch LLM provider."""
+    provider = body.get("provider")
+    if provider and provider not in ("ollama", "llamacpp", "groq", "stub"):
+        raise HTTPException(400, f"Invalid provider: {provider}")
+
+    update: Dict[str, Any] = {}
+    if provider:
+        update["provider"] = provider
+    if "llamacpp_url" in body:
+        update["llamacpp_url"] = body["llamacpp_url"]
+
+    if update:
+        svc = get_settings_service()
+        svc.update({"llm": update})
+        logger.info("LLM provider changed to: %s", provider or "(unchanged)")
+
+    return {"status": "ok", **update}
+
+
+## ── Groq Cloud Fallback ────────────────────────────────────────────────────
+
+
+@router.get("/settings/groq", tags=["settings"])
+async def get_groq_settings() -> Dict[str, Any]:
+    """Return Groq cloud fallback settings."""
+    svc = get_settings_service()
+    settings = svc.load()
+    groq_cfg = dict(settings.get("groq", {}))
+    # Mask API key
+    if groq_cfg.get("api_key"):
+        groq_cfg["api_key"] = "••••••••"
+    groq_cfg["available_models"] = [
+        "llama-3.1-8b-instant",
+        "mixtral-8x7b-32768",
+        "llama-3.3-70b-versatile",
+    ]
+    return groq_cfg
+
+
+@router.patch("/settings/groq", tags=["settings"])
+async def update_groq_settings(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Update Groq cloud fallback settings."""
+    svc = get_settings_service()
+    update: Dict[str, Any] = {}
+
+    if "enabled" in body:
+        update["enabled"] = bool(body["enabled"])
+    if "api_key" in body and body["api_key"] != "••••••••":
+        update["api_key"] = body["api_key"]
+    if "model" in body:
+        update["model"] = body["model"]
+    if "auto_fallback" in body:
+        update["auto_fallback"] = bool(body["auto_fallback"])
+    if "fallback_timeout_s" in body:
+        timeout = int(body["fallback_timeout_s"])
+        if not (10 <= timeout <= 120):
+            raise HTTPException(400, "fallback_timeout_s must be between 10 and 120")
+        update["fallback_timeout_s"] = timeout
+
+    if update:
+        svc.update({"groq": update})
+        logger.info("Groq settings updated: %s", list(update.keys()))
+
+    return {"status": "ok"}
+
+
+@router.post("/settings/groq/test", tags=["settings"])
+async def test_groq_connection() -> Dict[str, Any]:
+    """Test Groq API connectivity."""
+    svc = get_settings_service()
+    settings = svc.load()
+    groq_cfg = settings.get("groq", {})
+    api_key = groq_cfg.get("api_key", "")
+
+    if not api_key:
+        return {"status": "error", "message": "API key not configured"}
+
+    from app.services.llm_providers.groq import GroqProvider
+
+    provider = GroqProvider(api_key=api_key)
+    try:
+        healthy = await provider.health_check()
+        if healthy:
+            models = await provider.get_models()
+            return {
+                "status": "ok",
+                "models": [m.name for m in models],
+            }
+        return {"status": "error", "message": "API key invalid or Groq unavailable"}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
 ## ── Safe Mode ───────────────────────────────────────────────────────────────
 
 
@@ -697,5 +856,9 @@ def _mask_secrets(settings: Dict[str, Any]) -> None:
             ag = settings["integrations"].get("antigravity", {})
             if ag.get("api_key"):
                 ag["api_key"] = "••••••••"
+        if "groq" in settings:
+            groq = settings["groq"]
+            if groq.get("api_key"):
+                groq["api_key"] = "••••••••"
     except Exception:
         pass
