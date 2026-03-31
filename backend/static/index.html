@@ -146,9 +146,12 @@
 
       <!-- Chat sessions sidebar -->
       <div class="chat-sidebar" id="chat-sidebar">
-        <button class="btn btn--primary" id="new-chat-btn" style="margin:1rem;display:flex;align-items:center;gap:0.5rem;justify-content:center">
-          + Nov&yacute; chat
-        </button>
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:0.75rem 1rem 0">
+          <button class="btn btn--primary btn--small" id="new-chat-btn" style="display:flex;align-items:center;gap:0.5rem;flex:1;justify-content:center">
+            + Nov&yacute; chat
+          </button>
+          <button class="btn btn--ghost btn--small" id="chat-sidebar-collapse" title="Skr&yacute;t sidebar" style="margin-left:0.5rem">&laquo;</button>
+        </div>
         <div class="sessions-list" id="sessions-list">
           <div class="empty-state">Na&#269;&iacute;t&aacute;m...</div>
         </div>
@@ -1730,6 +1733,12 @@
         <button class="settings-tab-btn" data-settings-tab="memory-settings">
           <span class="settings-tab-btn__icon">&#129504;</span> Paměť
         </button>
+        <button class="settings-tab-btn" data-settings-tab="git-projects">
+          <span class="settings-tab-btn__icon">&#128450;</span> Git projekty
+        </button>
+        <button class="settings-tab-btn" data-settings-tab="notifications-settings">
+          <span class="settings-tab-btn__icon">&#128276;</span> Notifikace
+        </button>
         <button class="settings-tab-btn" data-settings-tab="system-settings">
           <span class="settings-tab-btn__icon">&#128736;</span> Systém
         </button>
@@ -2058,6 +2067,57 @@
         <div id="memory-list" class="hidden" style="margin-top:0.75rem"></div>
       </section>
       </div><!-- /settings-panel memory-settings -->
+
+      <!-- Git Projects section -->
+      <div class="settings-section-panel" data-settings-panel="git-projects">
+      <section class="card settings-section">
+        <h2 class="card-title"><span class="section-icon">&#128450;</span> Git projekty</h2>
+        <p class="hint-text">Cesty k Git repozit&aacute;&#345;&uring;m pro proaktivn&iacute; monitoring rezidentn&iacute;m agentem.</p>
+
+        <div class="form-row" style="gap:0.5rem;margin-bottom:1rem">
+          <input type="text" class="input" id="git-project-name" placeholder="N&aacute;zev" style="flex:1" />
+          <input type="text" class="input" id="git-project-path" placeholder="Cesta k repozit&aacute;&#345;i" style="flex:2" />
+          <button class="btn btn--primary btn--small" id="add-git-project-btn">+ P&#345;idat</button>
+        </div>
+
+        <div id="git-projects-list">
+          <p class="text-muted" id="git-projects-empty">&Zcaron;&aacute;dn&eacute; projekty. P&#345;idej cestu k Git repozit&aacute;&#345;i.</p>
+        </div>
+      </section>
+      </div><!-- /settings-panel git-projects -->
+
+      <!-- Notifications section -->
+      <div class="settings-section-panel" data-settings-panel="notifications-settings">
+      <section class="card settings-section">
+        <h2 class="card-title"><span class="section-icon">&#128276;</span> Push notifikace (ntfy.sh)</h2>
+        <p class="hint-text">Upozorn&#283;n&iacute; na kritick&eacute; ud&aacute;losti p&#345;es <a href="https://ntfy.sh" target="_blank" rel="noopener">ntfy.sh</a>.</p>
+
+        <div class="form-group">
+          <label class="form-label">
+            <input type="checkbox" id="ntfy-tab-enabled" /> Povolit push notifikace
+          </label>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="ntfy-tab-topic">Ntfy topic:</label>
+          <input type="text" class="input" id="ntfy-tab-topic" placeholder="ai-home-hub-moje-jmeno" />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="ntfy-tab-server">Ntfy server:</label>
+          <input type="text" class="input" id="ntfy-tab-server" placeholder="https://ntfy.sh" />
+        </div>
+
+        <div style="display:flex;gap:0.5rem;align-items:center;margin-top:0.75rem">
+          <button class="btn btn--primary btn--small" id="save-ntfy-btn">Ulo&#382;it</button>
+          <button class="btn btn--ghost btn--small" id="test-ntfy-btn">&#128241; Test notifikace</button>
+        </div>
+
+        <p class="hint-text" style="margin-top:0.75rem">
+          <a href="https://docs.ntfy.sh/subscribe/phone/" target="_blank" rel="noopener">Jak nastavit ntfy na mobilu &rarr;</a>
+        </p>
+      </section>
+      </div><!-- /settings-panel notifications-settings -->
 
       <!-- Security section -->
       <div class="settings-section-panel" data-settings-panel="system-settings">

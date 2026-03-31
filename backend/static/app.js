@@ -707,6 +707,20 @@ function bindChatEvents() {
     showToast(t('new_chat'), 'info');
   });
 
+  // Sidebar collapse (desktop)
+  const collapseBtn = document.getElementById('chat-sidebar-collapse');
+  const chatSidebar = document.getElementById('chat-sidebar');
+  if (collapseBtn && chatSidebar) {
+    // Restore collapsed state from localStorage
+    if (localStorage.getItem('aih_sidebar_collapsed') === '1') {
+      chatSidebar.classList.add('collapsed');
+    }
+    collapseBtn.addEventListener('click', () => {
+      chatSidebar.classList.toggle('collapsed');
+      localStorage.setItem('aih_sidebar_collapsed', chatSidebar.classList.contains('collapsed') ? '1' : '0');
+    });
+  }
+
   // Mobile sidebar toggle for chat history
   const sidebarToggle = document.getElementById('chat-sidebar-toggle');
   const chatBackdrop = document.getElementById('chat-sidebar-backdrop');
@@ -1539,6 +1553,20 @@ function appendBubble(role, text, meta, images) {
 /* ============================================================
    CHAT SESSIONS SIDEBAR
    ============================================================ */
+function _formatSessionDate(isoStr) {
+  if (!isoStr) return '';
+  try {
+    const d = new Date(isoStr);
+    const now = new Date();
+    const diffMs = now - d;
+    const diffDays = Math.floor(diffMs / 86400000);
+    const time = d.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' });
+    if (diffDays === 0) return `dnes ${time}`;
+    if (diffDays === 1) return 'včera';
+    return `${d.getDate()}. ${d.getMonth() + 1}.`;
+  } catch { return ''; }
+}
+
 async function loadSessions() {
   try {
     const resp = await fetch('/api/chat/sessions');
@@ -1550,21 +1578,28 @@ async function loadSessions() {
       return;
     }
 
-    list.innerHTML = data.sessions.map(s => `
+    list.innerHTML = data.sessions.map(s => {
+      const name = s.name || s.preview || 'Prázdná konverzace';
+      const truncName = name.length > 35 ? name.slice(0, 35) + '...' : name;
+      const dateStr = _formatSessionDate(s.last_message_at || s.created_at);
+      return `
       <div class="session-item ${s.session_id === currentSessionId ? 'active' : ''}"
            data-id="${escHtml(s.session_id)}">
-        <div class="session-preview">${escHtml(s.preview || 'Prazdna konverzace')}</div>
+        <div class="session-preview">${escHtml(truncName)}</div>
         <div class="session-meta">
-          <span>${s.message_count} zprav</span>
-          <button class="btn-icon session-delete-btn" data-delete-session="${escHtml(s.session_id)}" title="${t('delete')}">&#128465;</button>
+          <span class="text-muted">${dateStr}</span>
+          <span class="session-actions">
+            <button class="btn-icon session-rename-btn" data-rename-session="${escHtml(s.session_id)}" title="Přejmenovat">&#9998;</button>
+            <button class="btn-icon session-delete-btn" data-delete-session="${escHtml(s.session_id)}" title="Smazat">&#128465;</button>
+          </span>
         </div>
-      </div>
-    `).join('');
+      </div>`;
+    }).join('');
 
     // Bind click handlers
     list.querySelectorAll('.session-item').forEach(el => {
       el.addEventListener('click', (e) => {
-        if (e.target.closest('.session-delete-btn')) return;
+        if (e.target.closest('.session-delete-btn') || e.target.closest('.session-rename-btn')) return;
         loadSession(el.dataset.id);
       });
     });
@@ -1572,11 +1607,22 @@ async function loadSessions() {
     list.querySelectorAll('.session-delete-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        deleteSession(btn.dataset.deleteSession);
+        const sid = btn.dataset.deleteSession;
+        const item = btn.closest('.session-item');
+        const name = item?.querySelector('.session-preview')?.textContent || sid;
+        if (!confirm(`Smazat chat '${name}'?`)) return;
+        deleteSessionDirect(sid);
       });
     });
 
-    // Scroll the active session into view (e.g. after first message in new chat)
+    list.querySelectorAll('.session-rename-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        startInlineRename(btn.dataset.renameSession);
+      });
+    });
+
+    // Scroll the active session into view
     const activeItem = list.querySelector('.session-item.active');
     if (activeItem) {
       activeItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -1584,6 +1630,43 @@ async function loadSessions() {
   } catch (err) {
     console.error('Failed to load sessions:', err);
   }
+}
+
+function startInlineRename(sessionId) {
+  const item = document.querySelector(`.session-item[data-id="${sessionId}"]`);
+  if (!item) return;
+  const preview = item.querySelector('.session-preview');
+  const oldName = preview.textContent;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'input';
+  input.value = oldName;
+  input.style.cssText = 'font-size:0.85rem;padding:0.2rem 0.4rem;width:100%';
+  preview.replaceWith(input);
+  input.focus();
+  input.select();
+
+  const finish = async (save) => {
+    const newName = input.value.trim();
+    if (save && newName && newName !== oldName) {
+      try {
+        await fetch(`/api/chat/sessions/${sessionId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: newName }),
+        });
+      } catch (err) {
+        showToast('Chyba při přejmenování', 'error');
+      }
+    }
+    loadSessions();
+  };
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+    if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+  });
+  input.addEventListener('blur', () => finish(true));
 }
 
 async function loadSession(sessionId, opts = {}) {
@@ -1627,7 +1710,10 @@ async function loadSession(sessionId, opts = {}) {
 
 async function deleteSession(sessionId) {
   if (!confirm(t('conversation_delete_confirm'))) return;
+  await deleteSessionDirect(sessionId);
+}
 
+async function deleteSessionDirect(sessionId) {
   try {
     await fetch(`/api/chat/sessions/${sessionId}`, { method: 'DELETE' });
 
@@ -2543,6 +2629,13 @@ function bindSettingsEvents() {
     tempSlider.addEventListener('input', () => { tempNum.value = tempSlider.value; });
     tempNum.addEventListener('input', () => { tempSlider.value = tempNum.value; });
   }
+
+  // Git Projects
+  document.getElementById('add-git-project-btn')?.addEventListener('click', addGitProject);
+
+  // Ntfy notifications
+  document.getElementById('save-ntfy-btn')?.addEventListener('click', saveNtfySettings);
+  document.getElementById('test-ntfy-btn')?.addEventListener('click', testNtfyNotification);
 }
 
 /** Populate the advanced profile fields from _currentSettings for the given profileKey. */
@@ -2664,6 +2757,14 @@ async function loadSettings() {
 
     // API key – never pre-fill; user must re-enter to change
     setVal('s-api-key', '');
+
+    // Git Projects
+    loadGitProjects();
+
+    // Ntfy settings (new tab)
+    setChecked('ntfy-tab-enabled', s.notifications?.enabled);
+    setVal('ntfy-tab-topic', s.notifications?.topic || '');
+    setVal('ntfy-tab-server', s.notifications?.ntfy_url || 'https://ntfy.sh');
 
     // Update model badge
     updateModelBadge();
@@ -11963,6 +12064,141 @@ function _relativeTime(isoStr) {
 }
 
 // ── Auto-Cleanup Settings ─────────────────────────────────────────────────
+
+// ── Git Projects ──────────────────────────────────────────────────────────────
+
+async function loadGitProjects() {
+  try {
+    const res = await fetch('/api/settings/git-projects');
+    if (!res.ok) return;
+    const data = await res.json();
+    renderGitProjectsList(data.projects || []);
+  } catch (err) {
+    console.error('Failed to load git projects:', err);
+  }
+}
+
+function renderGitProjectsList(projects) {
+  const container = document.getElementById('git-projects-list');
+  const empty = document.getElementById('git-projects-empty');
+  if (!container) return;
+
+  if (!projects.length) {
+    container.innerHTML = '';
+    if (empty) { empty.style.display = ''; container.appendChild(empty); }
+    return;
+  }
+
+  if (empty) empty.style.display = 'none';
+  container.innerHTML = projects.map(p => `
+    <div class="card" style="padding:0.5rem 0.75rem;margin-bottom:0.5rem;display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <strong>${escHtml(p.name)}</strong>
+        <span class="text-muted" style="margin-left:0.5rem">${escHtml(p.path)}</span>
+      </div>
+      <div style="display:flex;gap:0.5rem;align-items:center">
+        <label class="form-label" style="margin:0;cursor:pointer">
+          <input type="checkbox" ${p.enabled ? 'checked' : ''}
+                 onchange="toggleGitProject('${escHtml(p.name)}', this.checked)" />
+        </label>
+        <button class="btn btn--danger btn--small" onclick="deleteGitProject('${escHtml(p.name)}')" title="Odebrat">&#128465;</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function addGitProject() {
+  const nameEl = document.getElementById('git-project-name');
+  const pathEl = document.getElementById('git-project-path');
+  const name = nameEl?.value.trim();
+  const path = pathEl?.value.trim();
+  if (!name || !path) { showToast('Vyplň název i cestu', 'error'); return; }
+
+  try {
+    const res = await fetch('/api/settings/git-projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, path }),
+    });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.detail || 'Chyba', 'error'); return; }
+    showToast('Projekt přidán');
+    nameEl.value = '';
+    pathEl.value = '';
+    loadGitProjects();
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
+}
+
+async function deleteGitProject(name) {
+  if (!confirm(`Odebrat projekt "${name}"?`)) return;
+  try {
+    const res = await fetch(`/api/settings/git-projects/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    if (!res.ok) { showToast('Chyba při mazání', 'error'); return; }
+    showToast('Projekt odebrán');
+    loadGitProjects();
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
+}
+
+async function toggleGitProject(name, enabled) {
+  try {
+    await fetch(`/api/settings/git-projects/${encodeURIComponent(name)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    });
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
+}
+
+// ── Ntfy Notifications ────────────────────────────────────────────────────────
+
+async function saveNtfySettings() {
+  try {
+    const res = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        settings: {
+          notifications: {
+            enabled: getChecked('ntfy-tab-enabled'),
+            topic: getVal('ntfy-tab-topic'),
+            ntfy_url: getVal('ntfy-tab-server') || 'https://ntfy.sh',
+          },
+        },
+      }),
+    });
+    if (res.ok) {
+      showToast('Notifikace uloženy');
+      // Sync the old settings tab checkboxes
+      setChecked('s-ntfy-enabled', getChecked('ntfy-tab-enabled'));
+      setVal('s-ntfy-url', getVal('ntfy-tab-server'));
+      setVal('s-ntfy-topic', getVal('ntfy-tab-topic'));
+    } else {
+      showToast('Chyba při ukládání', 'error');
+    }
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
+}
+
+async function testNtfyNotification() {
+  try {
+    const res = await fetch('/api/notifications/test', { method: 'POST' });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      showToast('Testovací notifikace odeslána');
+    } else {
+      showToast(data.detail || data.error || 'Test selhal', 'error');
+    }
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+  }
+}
 
 async function loadCleanupSettings() {
   try {

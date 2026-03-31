@@ -46,7 +46,7 @@ class SessionService:
                 data = self._read_raw(f.stem)
                 messages = data.get("messages", [])
 
-                # Find first user message for preview
+                # Find first user message for preview / auto-name
                 preview = ""
                 for msg in messages:
                     if msg.get("role") == "user":
@@ -54,11 +54,21 @@ class SessionService:
                         preview = content[:50]
                         break
 
+                # Session name: explicit name > first message truncated > session_id
+                name = data.get("name") or (preview[:35] if preview else data.get("session_id", f.stem))
+
+                # Last message timestamp
+                last_message_at = None
+                if messages:
+                    last_message_at = messages[-1].get("timestamp")
+
                 result.append(
                     {
                         "session_id": data["session_id"],
+                        "name": name,
                         "created_at": data.get("created_at", ""),
                         "updated_at": f.stat().st_mtime,
+                        "last_message_at": last_message_at or data.get("created_at", ""),
                         "message_count": len(messages),
                         "preview": preview + ("..." if len(preview) == 50 else ""),
                     }
@@ -74,6 +84,22 @@ class SessionService:
             p.unlink()
             return True
         return False
+
+    def rename_session(self, session_id: str, name: str) -> bool:
+        """Set or update the display name for a session."""
+        if not self.session_exists(session_id):
+            return False
+        data = self._read(session_id)
+        data["name"] = name
+        self._write(session_id, data)
+        return True
+
+    def get_session_name(self, session_id: str) -> Optional[str]:
+        """Return the display name for a session, or None."""
+        if not self.session_exists(session_id):
+            return None
+        data = self._read(session_id)
+        return data.get("name")
 
     # ── Message management ────────────────────────────────────
 

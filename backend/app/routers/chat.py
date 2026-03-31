@@ -122,6 +122,10 @@ async def chat_stream_ws(websocket: WebSocket) -> None:
     cfg = llm_svc._settings.get_llm_config(profile=profile)
     model_used = model_override or cfg.get("model", "llama3.2")
 
+    # Sanitize the final assembled response
+    from app.services.llm_service import sanitize_response
+    reply_text, was_sanitized = sanitize_response(reply_text, model_used)
+
     # Prometheus instrumentation
     chat_requests_total.labels(profile=profile or "default", model=model_used).inc()
     chat_latency_seconds.labels(model=model_used).observe(time.monotonic() - start)
@@ -131,6 +135,7 @@ async def chat_stream_ws(websocket: WebSocket) -> None:
         "model": model_used,
         "latency_ms": elapsed_ms,
         "mode": mode,
+        "sanitized": was_sanitized,
         **context_meta,
     }
 
@@ -350,6 +355,22 @@ async def get_session(session_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
     messages = session_svc.load_history(session_id)
     return {"session_id": session_id, "messages": messages}
+
+
+@router.patch("/chat/sessions/{session_id}", tags=["chat"])
+async def rename_session(session_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
+    """Rename a conversation session."""
+    from fastapi import HTTPException
+
+    name = body.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+
+    session_svc = get_session_service()
+    success = session_svc.rename_session(session_id, name)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    return {"session_id": session_id, "name": name}
 
 
 @router.delete("/chat/sessions/{session_id}", tags=["chat"])

@@ -276,6 +276,81 @@ async def update_llm_profiles(body: Dict[str, Any]) -> Dict[str, Any]:
     return {"profiles": registry.list_all_dicts()}
 
 
+## ── Git Projects CRUD ──────────────────────────────────────
+
+
+@router.get("/settings/git-projects", tags=["settings"])
+async def list_git_projects() -> Dict[str, Any]:
+    """Return all configured git projects."""
+    svc = get_settings_service()
+    settings = svc.load()
+    return {"projects": settings.get("git_projects", [])}
+
+
+@router.post("/settings/git-projects", tags=["settings"])
+async def add_git_project(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Add a new git project. Validates that the path exists."""
+    import os
+
+    name = body.get("name", "").strip()
+    path = body.get("path", "").strip()
+
+    if not name:
+        raise HTTPException(400, "Project name is required")
+    if not path:
+        raise HTTPException(400, "Project path is required")
+    if not os.path.isdir(path):
+        raise HTTPException(400, f"Path does not exist: {path}")
+
+    svc = get_settings_service()
+    settings = svc.load()
+    projects: List[Dict[str, Any]] = settings.get("git_projects", [])
+
+    if any(p["name"] == name for p in projects):
+        raise HTTPException(400, f"Project '{name}' already exists")
+
+    project = {"name": name, "path": path, "enabled": True}
+    projects.append(project)
+    settings["git_projects"] = projects
+    svc.save(settings)
+    return {"success": True, "project": project}
+
+
+@router.delete("/settings/git-projects/{name}", tags=["settings"])
+async def delete_git_project(name: str) -> Dict[str, Any]:
+    """Delete a git project by name."""
+    svc = get_settings_service()
+    settings = svc.load()
+    projects: List[Dict[str, Any]] = settings.get("git_projects", [])
+    original_len = len(projects)
+    projects = [p for p in projects if p.get("name") != name]
+
+    if len(projects) == original_len:
+        raise HTTPException(404, f"Project '{name}' not found")
+
+    settings["git_projects"] = projects
+    svc.save(settings)
+    return {"success": True}
+
+
+@router.patch("/settings/git-projects/{name}", tags=["settings"])
+async def toggle_git_project(name: str, body: Dict[str, Any]) -> Dict[str, Any]:
+    """Toggle enabled state or update a git project."""
+    svc = get_settings_service()
+    settings = svc.load()
+    projects: List[Dict[str, Any]] = settings.get("git_projects", [])
+
+    for project in projects:
+        if project.get("name") == name:
+            if "enabled" in body:
+                project["enabled"] = bool(body["enabled"])
+            settings["git_projects"] = projects
+            svc.save(settings)
+            return {"success": True, "project": project}
+
+    raise HTTPException(404, f"Project '{name}' not found")
+
+
 ## ── Quick Actions CRUD ──────────────────────────────────────
 
 

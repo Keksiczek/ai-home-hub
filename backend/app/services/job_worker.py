@@ -291,6 +291,22 @@ class JobWorker(BackgroundService):
             job.last_error = str(exc)
             ai_home_hub_job_failed_total.inc()
             logger.error("Job %s failed: %s", job.id, exc, exc_info=True)
+            # Send push notification for failed jobs
+            try:
+                from app.services.notification_service import get_notification_service
+
+                notif_svc = get_notification_service()
+                await notif_svc.send(
+                    title=f"Job selhal: {job.type}",
+                    body=f"Job {job.id[:8]} ({job.type}) selhal: {str(exc)[:200]}",
+                    level="alert",
+                    source="job_worker",
+                    importance=8,
+                    priority="high",
+                    tags=["x"],
+                )
+            except Exception:
+                pass
         finally:
             job_duration_seconds.labels(type=job.type).observe(
                 time.monotonic() - job_start_mono

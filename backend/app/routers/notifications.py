@@ -39,3 +39,21 @@ async def mark_all_read() -> dict:
     svc = get_notification_service()
     count = svc.mark_all_read()
     return {"status": "ok", "marked_count": count}
+
+
+@router.post("/test")
+async def test_notification() -> dict:
+    """Send a test notification via ntfy.sh to verify configuration."""
+    svc = get_notification_service()
+    success = await svc.send(
+        title="AI Home Hub - Test",
+        body="Testovací notifikace z AI Home Hub. Notifikace fungují správně!",
+        level="info",
+        source="test",
+        importance=8,
+        priority="default",
+        tags=["white_check_mark", "test_tube"],
+    )
+    if success:
+        return {"success": True, "message": "Test notification sent"}
+    return {"success": False, "error": "Failed to send notification. Check ntfy settings."}
