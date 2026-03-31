@@ -226,6 +226,17 @@
           <div id="vision-mode-indicator" class="vision-mode-badge hidden">
             &#128270; Vision mode aktivn&iacute;
           </div>
+          <!-- Uncensored model warning -->
+          <div class="uncensored-warning hidden" id="uncensored-warning">
+            &#9888;&#65039; Použ&iacute;v&aacute;š uncensored model. Odpov&#283;di mohou b&yacute;t nevhodn&eacute;.
+          </div>
+          <!-- Model indicator -->
+          <div class="chat-model-indicator" id="chat-model-indicator" title="Klikni pro zm&#283;nu modelu">
+            <span class="chat-model-indicator__dot"></span>
+            <span id="chat-model-indicator-text">&#128172; Na&#269;&iacute;t&aacute;m model...</span>
+          </div>
+          <!-- Inline model picker (hidden by default) -->
+          <div class="model-picker-inline hidden" id="model-picker-inline"></div>
           <!-- Quick Action Skills -->
           <div class="quick-actions" id="quickActions">
             <span class="quick-actions-label">Rychlé akce:</span>
@@ -1438,9 +1449,33 @@
       <!-- Installed models sub-panel -->
       <div class="models-subpanel" id="models-sub-installed">
         <section class="card">
-          <h2 class="card-title">&#9989; Nainstalovan&eacute; modely</h2>
-          <div id="installed-models-list" class="model-list">
-            <p class="empty-state">Na&#269;&iacute;t&aacute;m...</p>
+          <h2 class="card-title">&#9989; Nainstalované modely</h2>
+          <div class="model-toolbar" id="model-toolbar">
+            <div class="model-search-wrap">
+              <input class="input" type="text" id="model-search-input" placeholder="&#128269; Hledat model nebo tag..." autocomplete="off" />
+              <button class="model-search-clear" id="model-search-clear" title="Vymazat">&times;</button>
+            </div>
+            <div class="model-filter-bar" id="model-filter-bar">
+              <button class="model-filter-btn model-filter-btn--active" data-filter="all">V&#353;e</button>
+              <button class="model-filter-btn" data-filter="instruct">Instruct</button>
+              <button class="model-filter-btn" data-filter="coder">Coder</button>
+              <button class="model-filter-btn" data-filter="vision">Vision</button>
+              <button class="model-filter-btn" data-filter="uncensored">Uncensored</button>
+              <button class="model-filter-btn" data-filter="embedding">Embedding</button>
+            </div>
+          </div>
+          <div class="model-cards-container" id="model-cards-container">
+            <div class="model-cards-grid" id="installed-models-list">
+              <div class="skeleton skeleton-card"></div>
+              <div class="skeleton skeleton-card"></div>
+              <div class="skeleton skeleton-card"></div>
+            </div>
+          </div>
+          <div class="model-no-results hidden" id="model-no-results">
+            &#381;&#225;dn&#253; model nenalezen pro '<span class="model-no-results__query" id="model-no-results-query"></span>'
+            <div style="margin-top:0.75rem">
+              <button class="btn btn--ghost btn--small" id="model-reset-filter-btn">Resetovat filtr</button>
+            </div>
           </div>
         </section>
       </div>
@@ -1658,7 +1693,7 @@
     <div class="tab-panel hidden" id="tab-settings" role="tabpanel">
 
       <div class="panel-header">
-        <h1 class="panel-title">Nastaven&iacute;</h1>
+        <h1 class="panel-title">&#9881; Nastaven&iacute;</h1>
         <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
           <button class="theme-toggle-btn" id="theme-toggle-btn" title="P&#345;epnout t&eacute;ma">
             &#127769; Tmav&eacute;
@@ -1672,7 +1707,36 @@
         </div>
       </div>
 
+      <!-- Settings tabs (Sekce 4a) -->
+      <div class="settings-tabs" id="settings-tabs">
+        <button class="settings-tab-btn settings-tab-btn--active" data-settings-tab="llm">
+          <span class="settings-tab-btn__icon">&#129302;</span> LLM &amp; Modely
+        </button>
+        <button class="settings-tab-btn" data-settings-tab="integrations">
+          <span class="settings-tab-btn__icon">&#128268;</span> Integrace
+        </button>
+        <button class="settings-tab-btn" data-settings-tab="filesystem">
+          <span class="settings-tab-btn__icon">&#128193;</span> Filesystem
+        </button>
+        <button class="settings-tab-btn" data-settings-tab="kb-settings">
+          <span class="settings-tab-btn__icon">&#128218;</span> Knowledge Base
+        </button>
+        <button class="settings-tab-btn" data-settings-tab="prompts">
+          <span class="settings-tab-btn__icon">&#128172;</span> Prompty
+        </button>
+        <button class="settings-tab-btn" data-settings-tab="agents-settings">
+          <span class="settings-tab-btn__icon">&#129302;</span> Agenti
+        </button>
+        <button class="settings-tab-btn" data-settings-tab="memory-settings">
+          <span class="settings-tab-btn__icon">&#129504;</span> Paměť
+        </button>
+        <button class="settings-tab-btn" data-settings-tab="system-settings">
+          <span class="settings-tab-btn__icon">&#128736;</span> Systém
+        </button>
+      </div>
+
       <!-- LLM section -->
+      <div class="settings-section-panel settings-section-panel--active" data-settings-panel="llm">
       <section class="card settings-section">
         <h2 class="card-title"><span class="section-icon">&#129504;</span> LLM Konfigurace</h2>
         <div class="form-group">
@@ -1749,8 +1813,10 @@
           </div>
         </details>
       </section>
+      </div><!-- /settings-panel llm -->
 
       <!-- Integrations section -->
+      <div class="settings-section-panel" data-settings-panel="integrations">
       <section class="card settings-section">
         <h2 class="card-title"><span class="section-icon">&#128268;</span> Integrace</h2>
 
@@ -1825,8 +1891,10 @@
           </div>
         </div>
       </section>
+      </div><!-- /settings-panel integrations -->
 
       <!-- Filesystem section -->
+      <div class="settings-section-panel" data-settings-panel="filesystem">
       <section class="card settings-section">
         <h2 class="card-title"><span class="section-icon">&#128193;</span> Filesyst&eacute;m</h2>
         <p class="hint-text">Pouze tyto adres&aacute;&#345;e jsou p&#345;&iacute;stupn&eacute; p&#345;es API.</p>
@@ -1837,8 +1905,10 @@
           <button class="btn btn--secondary btn--small" id="add-dir-btn">+ P&#345;idat</button>
         </div>
       </section>
+      </div><!-- /settings-panel filesystem -->
 
       <!-- Knowledge Base section -->
+      <div class="settings-section-panel" data-settings-panel="kb-settings">
       <section class="card settings-section">
         <h2 class="card-title"><span class="section-icon">&#128218;</span> Knowledge Base</h2>
         <p class="hint-text">Extern&iacute; cesty k soubor&#367;m pro budouc&iacute; indexaci a sémantické vyhled&aacute;v&aacute;n&iacute;.</p>
@@ -1882,8 +1952,10 @@
           <div id="kb-files-display" class="hidden" style="margin-top:0.75rem"></div>
         </div>
       </section>
+      </div><!-- /settings-panel kb-settings -->
 
       <!-- Prompts section -->
+      <div class="settings-section-panel" data-settings-panel="prompts">
       <section class="card settings-section">
         <h2 class="card-title"><span class="section-icon">&#128172;</span> Syst&eacute;mov&eacute; Prompty</h2>
         <div class="form-group">
@@ -1899,8 +1971,10 @@
           <textarea class="textarea" id="s-prompt-lean" rows="3"></textarea>
         </div>
       </section>
+      </div><!-- /settings-panel prompts -->
 
       <!-- Agent limits section -->
+      <div class="settings-section-panel" data-settings-panel="agents-settings">
       <section class="card settings-section">
         <h2 class="card-title"><span class="section-icon">&#129302;</span> Agenti</h2>
         <div class="form-group">
@@ -1943,8 +2017,10 @@
         </div>
         <div id="agent-skills-catalog" style="margin-top:0.75rem"></div>
       </section>
+      </div><!-- /settings-panel agents-settings -->
 
       <!-- Shared Memory section -->
+      <div class="settings-section-panel" data-settings-panel="memory-settings">
       <section class="card settings-section">
         <h2 class="card-title"><span class="section-icon">&#129504;</span> Sd&iacute;len&aacute; pam&#283;&#357; (Shared Memory)</h2>
         <small class="form-hint" style="display:block;margin-bottom:1rem">
@@ -1981,8 +2057,10 @@
         </div>
         <div id="memory-list" class="hidden" style="margin-top:0.75rem"></div>
       </section>
+      </div><!-- /settings-panel memory-settings -->
 
       <!-- Security section -->
+      <div class="settings-section-panel" data-settings-panel="system-settings">
       <section class="card settings-section">
         <h2 class="card-title"><span class="section-icon">&#128274;</span> Bezpe&#269;nost (API Key)</h2>
         <div class="form-group">
@@ -2238,6 +2316,7 @@
         <p class="hint-text">Runtime skills pro Resident agenta. Zapni/vypni podle pot&#345;eby.</p>
         <div id="runtime-skills-panel" class="runtime-skills-grid" style="margin-top:0.75rem"></div>
       </section>
+      </div><!-- /settings-panel system-settings -->
 
     </div><!-- /tab-settings -->
 
@@ -2248,6 +2327,31 @@
         <h1 class="panel-title">&#128218; Knowledge Base</h1>
         <span class="badge" id="kb-doc-count-badge" title="Celkem dokumentů v KB">0 dok.</span>
       </div>
+
+      <!-- KB Dashboard (Sekce 3a) -->
+      <div class="kb-dashboard" id="kb-dashboard">
+        <div class="kb-dashboard__stats">
+          <span class="kb-dashboard__title">Knowledge Base</span>
+          <span class="kb-dashboard__meta" id="kb-dashboard-meta">Na&#269;&iacute;t&aacute;m statistiky...</span>
+        </div>
+        <div class="kb-dashboard__actions">
+          <button class="btn btn--primary btn--small" onclick="document.getElementById('kb-dropzone').click()">+ P&#345;idat dokument</button>
+          <button class="btn btn--ghost btn--small" onclick="if(confirm('Rebuild sma&#382;e a p&#345;ebuduje celou KB. Pokra&#269;ovat?')){rebuildKB()}" id="kb-rebuild-btn">&#128260; Rebuild</button>
+          <button class="btn btn--ghost btn--small" id="kb-refresh-dashboard-btn" onclick="loadKBDashboard()">&#8635;</button>
+        </div>
+      </div>
+
+      <!-- KB Test Panel (Sekce 3d) -->
+      <section class="card">
+        <h2 class="card-title">&#128269; Test KB vyhledávání</h2>
+        <div class="kb-test-panel">
+          <div style="display:flex;gap:0.5rem">
+            <input class="input" type="text" id="kb-test-query" placeholder="Napi&#353; testovac&iacute; dotaz..." style="flex:1" />
+            <button class="btn btn--primary btn--small" id="kb-test-btn" onclick="testKBSearch()">Hledat</button>
+          </div>
+          <div id="kb-test-results" style="margin-top:0.75rem"></div>
+        </div>
+      </section>
 
       <!-- KB Manager: Collections + Search -->
       <section class="card kb-manager">

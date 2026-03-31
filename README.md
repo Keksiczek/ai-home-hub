@@ -30,6 +30,15 @@ Lokální AI orchestrační centrum pro macOS. Propojuje Ollama, VS Code, filesy
 | 🎯 First-run Onboarding Wizard | ✅ |
 | 🔍 Global Search Ctrl+K | ✅ |
 | 📊 Nightly Report Widget | ✅ |
+| 🃏 Model Cards (vizuální model výběr s tagy, filtry, hledání) | ✅ |
+| 🔔 Toast notifikace (stackable, auto-dismiss, max 3) | ✅ |
+| 💀 Skeleton loading states | ✅ |
+| 💬 Chat UX (markdown, code copy, timestamps, model indicator) | ✅ |
+| 📚 KB Dashboard + test panel | ✅ |
+| ⚙️ Settings tab navigation | ✅ |
+| 🎯 Empty states s návrhy akcí | ✅ |
+| ⌨️ Keyboard shortcuts (Ctrl+K, Ctrl+N, Esc) | ✅ |
+| 📱 Responsive mobile layout | ✅ |
 
 ---
 
