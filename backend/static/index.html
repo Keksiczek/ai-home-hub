@@ -1752,6 +1752,8 @@
           <label class="form-label" for="s-llm-provider">Provider:</label>
           <select class="select" id="s-llm-provider">
             <option value="ollama">Ollama (lok&aacute;ln&iacute;)</option>
+            <option value="llamacpp">llama.cpp server</option>
+            <option value="groq">Groq (cloud)</option>
             <option value="stub">Stub (testov&aacute;n&iacute;)</option>
           </select>
         </div>
@@ -1772,10 +1774,87 @@
             <span id="s-llm-timeout-value" style="min-width:3rem;text-align:right;font-family:monospace;color:#e2e8f0">180s</span>
           </div>
         </div>
+        <div class="form-group">
+          <label class="form-label" for="s-llm-num-ctx">Context window:</label>
+          <div style="display:flex;align-items:center;gap:0.75rem;flex:1">
+            <input type="range" class="slider" id="s-llm-num-ctx" min="512" max="8192" step="256" value="2048" style="flex:1" />
+            <span id="s-llm-num-ctx-value" style="min-width:3rem;text-align:right;font-family:monospace;color:#e2e8f0">2048</span>
+          </div>
+          <p class="hint-text" style="margin-top:0.25rem;font-size:0.78rem">Ni&zcaron;&scaron;&iacute; hodnota = rychlej&scaron;&iacute; odpov&#283;&#271;, krat&scaron;&iacute; pam&#283;&#357; konverzace</p>
+          <div style="display:flex;gap:0.5rem;margin-top:0.4rem">
+            <button class="btn btn--ghost btn--small" onclick="document.getElementById('s-llm-num-ctx').value=1024;document.getElementById('s-llm-num-ctx-value').textContent='1024'">Rychl&yacute; 1024</button>
+            <button class="btn btn--ghost btn--small" onclick="document.getElementById('s-llm-num-ctx').value=2048;document.getElementById('s-llm-num-ctx-value').textContent='2048'">Vyv&aacute;&zcaron;en&yacute; 2048</button>
+            <button class="btn btn--ghost btn--small" onclick="document.getElementById('s-llm-num-ctx').value=4096;document.getElementById('s-llm-num-ctx-value').textContent='4096'">Pln&yacute; 4096</button>
+          </div>
+        </div>
+
         <div class="form-group form-group--right">
           <button class="btn btn--ghost btn--small" id="check-ollama-btn">Zkontrolovat Ollama</button>
         </div>
         <div id="ollama-status" class="result-box hidden"></div>
+
+        <!-- Provider selection -->
+        <details style="margin-top:1.25rem">
+          <summary style="cursor:pointer;font-weight:600;color:#94a3b8;font-size:0.85rem;letter-spacing:.05em;text-transform:uppercase;padding:0.25rem 0">
+            &#9881; Provider (Ollama / llama.cpp)
+          </summary>
+          <div style="margin-top:1rem;padding:1rem;background:#1a1f2e;border-radius:0.5rem;border:1px solid #2d3348">
+            <div class="form-group">
+              <label class="form-label" for="s-llm-provider-select">Provider:</label>
+              <select class="select" id="s-llm-provider-select">
+                <option value="ollama">Ollama (lok&aacute;ln&iacute;)</option>
+                <option value="llamacpp">llama.cpp server</option>
+              </select>
+            </div>
+            <div class="form-group" id="llamacpp-url-group" style="display:none">
+              <label class="form-label" for="s-llamacpp-url">llama.cpp URL:</label>
+              <input type="text" class="input" id="s-llamacpp-url" placeholder="http://localhost:8080" />
+              <p class="hint-text" style="margin-top:0.25rem">Ujisti se &#382;e llama-cpp-python server b&#283;&#382;&iacute; na dan&eacute;m portu</p>
+            </div>
+            <div class="form-group form-group--right">
+              <button class="btn btn--ghost btn--small" onclick="saveProviderSettings()">Ulo&zcaron;it provider</button>
+            </div>
+          </div>
+        </details>
+
+        <!-- Groq Cloud Fallback -->
+        <details style="margin-top:1.25rem">
+          <summary style="cursor:pointer;font-weight:600;color:#94a3b8;font-size:0.85rem;letter-spacing:.05em;text-transform:uppercase;padding:0.25rem 0">
+            &#9729;&#65039; Cloud fallback (Groq)
+          </summary>
+          <div style="margin-top:1rem;padding:1rem;background:#1a1f2e;border-radius:0.5rem;border:1px solid #2d3348">
+            <p class="hint-text" style="margin-bottom:1rem">Groq je zdarma (rate-limited). Odpov&#283;di p&#345;ich&aacute;zej&iacute; za &lt;1s.</p>
+            <div class="form-group">
+              <label class="toggle-label">
+                <input type="checkbox" id="s-groq-enabled" />
+                <strong>Povolit Groq</strong>
+              </label>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="s-groq-api-key">API Key:</label>
+              <input type="password" class="input" id="s-groq-api-key" placeholder="gsk_..." autocomplete="off" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="s-groq-model">Model:</label>
+              <select class="select" id="s-groq-model">
+                <option value="llama-3.1-8b-instant">llama-3.1-8b-instant</option>
+                <option value="mixtral-8x7b-32768">mixtral-8x7b-32768</option>
+                <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="toggle-label">
+                <input type="checkbox" id="s-groq-auto-fallback" />
+                <strong>Automatick&yacute; fallback</strong> (p&#345;epnout na Groq p&#345;i timeoutu lok&aacute;ln&iacute;ho modelu)
+              </label>
+            </div>
+            <div class="form-group" style="display:flex;gap:0.5rem">
+              <button class="btn btn--ghost btn--small" onclick="saveGroqSettings()">Ulo&zcaron;it</button>
+              <button class="btn btn--ghost btn--small" onclick="testGroqConnection()">Test p&#345;ipojen&iacute;</button>
+            </div>
+            <div id="groq-test-status" class="result-box hidden" style="margin-top:0.5rem"></div>
+          </div>
+        </details>
 
         <!-- Advanced: per-profile LLM settings -->
         <details style="margin-top:1.25rem">
