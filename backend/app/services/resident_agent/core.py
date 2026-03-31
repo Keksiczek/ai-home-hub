@@ -766,6 +766,18 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             logger.warning("Failed to seed initial jobs: %s", exc)
 
     async def _on_start(self) -> None:
+        # Log once at startup if git proactive check is disabled
+        try:
+            from app.services.settings_service import get_settings_service
+
+            settings = get_settings_service().load()
+            git_projects = settings.get("git_projects", [])
+            has_enabled = any(p.get("enabled", True) for p in git_projects)
+            if not has_enabled:
+                logger.info("Git proactive check disabled – no projects configured")
+        except Exception:
+            pass
+
         try:
             from app.services.memory_service import get_memory_service
 
@@ -1354,6 +1366,19 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         ]
         self._proactive_action_index += 1
 
+        # Skip git_status if no enabled git projects are configured
+        if action_name == "git_status":
+            try:
+                from app.services.settings_service import get_settings_service
+
+                settings = get_settings_service().load()
+                git_projects = settings.get("git_projects", [])
+                has_enabled = any(p.get("enabled", True) for p in git_projects)
+                if not has_enabled:
+                    return  # silently skip
+            except Exception:
+                return
+
         cycle_id = f"cycle-{self._state.tick_count:04d}"
         self._add_log(
             "INFO",
@@ -1433,17 +1458,17 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             from app.services.settings_service import get_settings_service
 
             settings = get_settings_service().load()
-            projects = (
-                settings.get("integrations", {}).get("vscode", {}).get("projects", {})
-            )
-            if not projects:
+            git_projects = settings.get("git_projects", [])
+            enabled_projects = [p for p in git_projects if p.get("enabled", True)]
+            if not enabled_projects:
                 return "Git status – no projects configured"
 
             from app.services.git_service import GitService
 
             git_svc = GitService()
-            for name, project in projects.items():
-                path = project if isinstance(project, str) else project.get("path", "")
+            for project in enabled_projects:
+                name = project.get("name", "unknown")
+                path = project.get("path", "")
                 if not path:
                     continue
                 try:
@@ -2458,22 +2483,16 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                 from app.services.settings_service import get_settings_service
 
                 settings = get_settings_service().load()
-                projects = (
-                    settings.get("integrations", {})
-                    .get("vscode", {})
-                    .get("projects", {})
-                )
+                git_projects = settings.get("git_projects", [])
+                enabled_projects = [p for p in git_projects if p.get("enabled", True)]
 
-                if projects:
+                if enabled_projects:
                     from app.services.git_service import GitService
 
                     git_svc = GitService()
-                    for name, project in projects.items():
-                        path = (
-                            project
-                            if isinstance(project, str)
-                            else project.get("path", "")
-                        )
+                    for project in enabled_projects:
+                        name = project.get("name", "unknown")
+                        path = project.get("path", "")
                         if path:
                             try:
                                 status = await git_svc.status(path)
@@ -2549,9 +2568,9 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
 
             notif_svc = get_notification_service()
 
-            # 1) High RAM – two consecutive ticks above 85%
+            # 1) High RAM – two consecutive ticks above 88%
             ram_pct = snapshot.get("ram_used_percent", 0)
-            if ram_pct > 85:
+            if ram_pct > 88:
                 prev = getattr(self, "_prev_high_ram", False)
                 if prev:
                     await notif_svc.send(
@@ -2560,12 +2579,39 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                         level="warning",
                         source="resident_agent",
                         importance=7,
+                        priority="high",
+                        tags=["warning"],
                     )
                     self._prev_high_ram = False  # don't spam every tick
                 else:
                     self._prev_high_ram = True
             else:
                 self._prev_high_ram = False
+
+            # 1b) Ollama offline detection
+            try:
+                import httpx
+                from app.services.settings_service import get_settings_service
+
+                ollama_url = get_settings_service().get_llm_config().get(
+                    "ollama_url", "http://localhost:11434"
+                )
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    resp = await client.get(f"{ollama_url}/api/tags")
+                    resp.raise_for_status()
+                    self._ollama_offline_notified = False
+            except Exception:
+                if not getattr(self, "_ollama_offline_notified", False):
+                    await notif_svc.send(
+                        title="Ollama offline",
+                        body="Ollama neodpovídá. LLM funkce nejsou dostupné.",
+                        level="alert",
+                        source="resident_agent",
+                        importance=9,
+                        priority="high",
+                        tags=["rotating_light"],
+                    )
+                    self._ollama_offline_notified = True
 
             # 2) Series of failed jobs – 3+ in last hour
             try:

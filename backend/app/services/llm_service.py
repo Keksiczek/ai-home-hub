@@ -104,6 +104,94 @@ _MARKDOWN_SYSTEM_HINT = (
 )
 
 
+
+# ── Response sanitization ─────────────────────────────────────────────────────
+
+import re as _re
+
+_FOREIGN_WORDS_IN_CZECH = [
+    _re.compile(r'\bnuestra\b', _re.IGNORECASE),
+    _re.compile(r'\bsimplemente\b', _re.IGNORECASE),
+    _re.compile(r'\bnuestro\b', _re.IGNORECASE),
+    _re.compile(r'\bfurther\b', _re.IGNORECASE),
+    _re.compile(r'\bjust\b', _re.IGNORECASE),
+    _re.compile(r'\bcould\b', _re.IGNORECASE),
+    _re.compile(r'\bwould\b', _re.IGNORECASE),
+    _re.compile(r'\bouršiny\b', _re.IGNORECASE),
+]
+
+_FAKE_QUESTION_PATTERNS = [
+    _re.compile(r'Co myslíš[?]?\s*$', _re.IGNORECASE),
+    _re.compile(r'Jaký je váš[^?]*[?]\s*$', _re.IGNORECASE),
+    _re.compile(r'Otázka:\s*.+[?]?\s*$', _re.IGNORECASE),
+    _re.compile(r'Můžeme si[^?]*[?]\s*$', _re.IGNORECASE),
+    _re.compile(r'Co byste[^?]*[?]\s*$', _re.IGNORECASE),
+]
+
+_INAPPROPRIATE_GREETINGS = [
+    "Ahoj, moje milá",
+    "Ahoj, moje milý",
+    "Moje milá,",
+    "Moje milý,",
+    "Příteli,",
+    "Drahý uživateli",
+]
+
+
+def sanitize_response(text: str, model: str) -> tuple[str, bool]:
+    """Post-process LLM response: strip fake questions and inappropriate greetings.
+
+    Returns (sanitized_text, was_sanitized).
+    Does NOT remove foreign words – only logs a warning.
+    """
+    if not text or not text.strip():
+        return text, False
+
+    original = text
+    sanitized = False
+
+    # 2a: Mixed-language detection (log only, don't modify)
+    for pattern in _FOREIGN_WORDS_IN_CZECH:
+        if pattern.search(text):
+            logger.warning(
+                "Response quality issue – foreign words in model %s", model
+            )
+            break
+
+    # 2c: Strip inappropriate greetings from the start
+    for greeting in _INAPPROPRIATE_GREETINGS:
+        if text.lstrip().startswith(greeting):
+            text = text.lstrip()[len(greeting):].lstrip(" ,\n")
+            logger.info("Removed inappropriate greeting from response")
+            sanitized = True
+            break
+
+    # 2b: Strip fake questions at the end (last 1-2 sentences)
+    lines = text.rstrip().split('\n')
+    removed_count = 0
+    while lines and removed_count < 2:
+        last_line = lines[-1].strip()
+        if not last_line:
+            lines.pop()
+            continue
+        matched = False
+        for pattern in _FAKE_QUESTION_PATTERNS:
+            if pattern.search(last_line):
+                lines.pop()
+                matched = True
+                removed_count += 1
+                break
+        if not matched:
+            break
+
+    if removed_count > 0:
+        text = '\n'.join(lines).rstrip()
+        logger.info("Removed trailing fake question from response")
+        sanitized = True
+
+    return text, sanitized
+
+
 def get_date_context() -> str:
     """Return current date/time as a Czech-language string for injection into system prompts."""
     now = datetime.now()
@@ -312,6 +400,11 @@ class LLMService:
         )
         ollama_requests_total.labels(model=cfg["model"], status=status).inc()
         ollama_latency_seconds.labels(model=cfg["model"]).observe(elapsed_ms / 1000)
+
+        # Post-process: sanitize response
+        if status == "success":
+            reply, was_sanitized = sanitize_response(reply, cfg["model"])
+            meta["sanitized"] = was_sanitized
 
         return reply, meta
 

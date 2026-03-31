@@ -86,6 +86,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
             },
         },
     },
+    "git_projects": [],
     "filesystem": {
         "allowed_directories": [],
         "require_confirmation": ["delete"],
