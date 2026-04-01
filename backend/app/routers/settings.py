@@ -77,6 +77,11 @@ async def get_settings_schema() -> Dict[str, Any]:
                         "enum": ["ollama", "llamacpp", "groq", "stub"],
                         "default": "ollama",
                     },
+                    "allow_uncensored_models": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Povolit uncensored/abliterated modely pro primary a reasoner role",
+                    },
                     "num_ctx": {
                         "type": "integer",
                         "minimum": 512,

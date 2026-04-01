@@ -27,19 +27,29 @@ async def list_installed_models() -> Dict[str, Any]:
 
     Each model dict includes an ``is_uncensored`` flag (True when the model
     name contains abliterated/uncensored tags) so frontends can display a
-    warning badge.
+    warning badge.  When ``allow_uncensored_models`` is False in settings,
+    uncensored models have ``eligible_for_primary`` set to False.
     """
     from app.services.llm_service import is_abliterated_model, get_model_quality_info
 
     svc = get_model_manager_service()
+    settings_svc = get_settings_service()
+    allow_uncensored = settings_svc.allow_uncensored_models()
+
     try:
         models = await svc.list_installed()
         for m in models:
-            m["is_uncensored"] = is_abliterated_model(m.get("name", ""))
+            uncensored = is_abliterated_model(m.get("name", ""))
+            m["is_uncensored"] = uncensored
+            m["eligible_for_primary"] = not uncensored or allow_uncensored
             quality = get_model_quality_info(m.get("name", ""))
             m["quality_flags"] = quality["quality_flags"]
             m["quality_reasons"] = quality["quality_reasons"]
-        return {"models": models, "count": len(models)}
+        return {
+            "models": models,
+            "count": len(models),
+            "allow_uncensored_models": allow_uncensored,
+        }
     except Exception as exc:
         logger.error("Failed to list installed models: %s", exc)
         raise HTTPException(status_code=502, detail=f"Ollama nedostupná: {exc}")
@@ -148,13 +158,14 @@ async def get_llm_settings() -> Dict[str, Any]:
 @router.patch("/llm/settings", tags=["llm"])
 async def update_llm_settings(body: LLMSettingsUpdate) -> Dict[str, Any]:
     """Update LLM settings with hot-reload (no restart needed)."""
+    from app.services.llm_service import MODEL_ROUTING, is_abliterated_model
+
     settings_svc = get_settings_service()
     updates: Dict[str, Any] = {}
+    warnings: list[str] = []
 
     if body.active_models is not None:
-        # Update MODEL_ROUTING in-memory for hot-reload
-        from app.services.llm_service import MODEL_ROUTING
-
+        allow_uncensored = settings_svc.allow_uncensored_models()
         mapping = {
             "chat": "general",
             "vision": "vision",
@@ -163,7 +174,14 @@ async def update_llm_settings(body: LLMSettingsUpdate) -> Dict[str, Any]:
         }
         for role, profile in mapping.items():
             if role in body.active_models:
-                MODEL_ROUTING[profile] = body.active_models[role]
+                model_name = body.active_models[role]
+                if is_abliterated_model(model_name) and not allow_uncensored:
+                    warnings.append(
+                        f"Model '{model_name}' je uncensored/abliterated a není povolen "
+                        f"pro roli '{role}'. Zapni 'Povolit uncensored modely' v nastavení."
+                    )
+                    continue
+                MODEL_ROUTING[profile] = model_name
 
     if body.parameters is not None:
         updates.setdefault("llm", {})["default_params"] = body.parameters
@@ -174,7 +192,10 @@ async def update_llm_settings(body: LLMSettingsUpdate) -> Dict[str, Any]:
     if updates:
         settings_svc.update(updates)
 
-    return {"status": "ok", "reloaded": True}
+    result: Dict[str, Any] = {"status": "ok", "reloaded": True}
+    if warnings:
+        result["warnings"] = warnings
+    return result
 
 
 @router.post("/llm/test", tags=["llm"])
