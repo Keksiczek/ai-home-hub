@@ -106,6 +106,18 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         "enabled": False,
         "ntfy_url": "https://ntfy.sh",
         "topic": "ai-home-hub",
+        "ntfy_token": "",
+        "ntfy_priority_default": "default",
+        "ntfy_click_url": "",
+        "notify_on_error": True,
+        "notify_on_agent_complete": False,
+        "notify_on_job_complete": False,
+        "notify_on_resource_critical": True,
+        "notify_on_resident_blocked": False,
+        "min_importance": 6,
+        "quiet_hours_enabled": False,
+        "quiet_hours_start": "22:00",
+        "quiet_hours_end": "07:00",
     },
     "agents": {
         "max_concurrent": 3,
@@ -526,7 +538,23 @@ class SettingsService:
         return result
 
     def save(self, settings: Dict[str, Any]) -> None:
-        """Persist settings to disk."""
+        """Persist settings to disk with URL validation and normalization."""
+        # Validate and normalize URLs before saving
+        try:
+            from app.utils.config_validation import validate_settings_on_save
+
+            errors = validate_settings_on_save(settings)
+            hard_errors = [e for e in errors if e.level == "error"]
+            warnings = [e for e in errors if e.level == "warning"]
+
+            for w in warnings:
+                logger.warning("Config validation warning: %s", w.message)
+            for e in hard_errors:
+                logger.error("Config validation error: %s", e.message)
+            # Don't block save on warnings, only log errors (URLs are auto-normalized)
+        except Exception as exc:
+            logger.debug("Config validation failed: %s", exc)
+
         with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
             json.dump(settings, f, indent=2, ensure_ascii=False)
 

@@ -28,6 +28,27 @@ let _streamingWs = null; // active streaming WebSocket
 let _isStreaming = false;
 
 const MAX_IMAGES = 5;
+
+/* ── Visibility-aware polling helper ─────────────────────────────────────────
+   Reduces backend load when:
+   - Browser tab is hidden (document.visibilityState === 'hidden')
+   - System is under resource pressure (resource_tier from WS)
+   Polling intervals double when tab is hidden, quadruple under HIGH tier.
+*/
+let _currentResourceTier = 'normal';
+let _pageIsVisible = true;
+
+document.addEventListener('visibilitychange', () => {
+  _pageIsVisible = document.visibilityState === 'visible';
+});
+
+function getPollingMultiplier() {
+  let m = 1;
+  if (!_pageIsVisible) m *= 2;
+  if (_currentResourceTier === 'high' || _currentResourceTier === 'critical') m *= 2;
+  else if (_currentResourceTier === 'elevated') m *= 1.5;
+  return m;
+}
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 
@@ -467,6 +488,11 @@ function handleWsMessage(msg) {
   else if (msg.type === 'resident_action') handleResidentAction(msg);
   else if (msg.type === 'activity_update') handleActivityUpdate(msg);
   else if (msg.type === 'agent_status') handleAgentStatusUpdate(msg);
+
+  // Track resource tier from any message that includes it
+  if (msg.resource_tier) {
+    _currentResourceTier = msg.resource_tier;
+  }
 }
 
 function handleIngestProgress(msg) {
@@ -7792,13 +7818,13 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Start pending actions polling every 5 seconds (only when resident tab visible)
+  // Pending actions polling – 15s base, scales with visibility/load
   setInterval(() => {
     const panel = document.getElementById('tab-resident');
-    if (panel && !panel.classList.contains('hidden')) {
+    if (panel && !panel.classList.contains('hidden') && _pageIsVisible) {
       loadPendingActions();
     }
-  }, 5000);
+  }, 15000);
 });
 
 // ── Panic / toggle autonomy ──────────────────────────────────────────────────
@@ -9182,8 +9208,8 @@ function handleAgentStatusUpdate(msg) {
 
   if (!statusEl) return;
 
-  const statusIcons = { idle: '\ud83d\udfe2', thinking: '\ud83d\udfe1', executing: '\ud83d\udfe1', error: '\ud83d\udd34', paused: '\u23f8\ufe0f', quiet: '\ud83c\udf19' };
-  const statusTexts = { idle: 'Idle', thinking: 'P\u0159em\u00fd\u0161l\u00ed...', executing: 'Prov\u00e1d\u00ed', error: 'Chyba', paused: 'Pozastaven', quiet: 'Tich\u00fd re\u017eim' };
+  const statusIcons = { idle: '\ud83d\udfe2', thinking: '\ud83d\udfe1', executing: '\ud83d\udfe1', error: '\ud83d\udd34', paused: '\u23f8\ufe0f', quiet: '\ud83c\udf19', resource_blocked: '\u26a0\ufe0f', user_cooldown: '\u23f3' };
+  const statusTexts = { idle: 'Idle', thinking: 'P\u0159em\u00fd\u0161l\u00ed...', executing: 'Prov\u00e1d\u00ed', error: 'Chyba', paused: 'Pozastaven', quiet: 'Tich\u00fd re\u017eim', resource_blocked: 'Pozastaven (z\u00e1t\u011b\u017e)', user_cooldown: '\u010cek\u00e1 na u\u017eivatele' };
   const status = msg.status || 'idle';
   statusEl.textContent = `${statusIcons[status] || '\u26aa'} ${statusTexts[status] || status}`;
 
@@ -11171,8 +11197,10 @@ async function loadMetrics() {
   }
 }
 
-// Poll metrics every 30s
-setInterval(loadMetrics, 30000);
+// Poll metrics every 60s (doubled from 30s), skip when tab hidden
+setInterval(() => {
+  if (_pageIsVisible) loadMetrics();
+}, 60000);
 
 /* ============================================================
    KEYBOARD SHORTCUTS

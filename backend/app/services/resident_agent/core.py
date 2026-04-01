@@ -23,6 +23,11 @@ from app.core.settings import (
 )  # noqa: F401 – re-exported for convenience
 from app.services.background_service import BackgroundService
 from app.services.resource_monitor import get_resource_monitor
+from app.services.resource_policy import (
+    ResourceTier,
+    TaskPriority,
+    get_resource_policy,
+)
 from app.services.metrics_service import (
     agent_cycles_total,
     resident_cycles_total,
@@ -897,18 +902,27 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         logger.info("Resident agent stopped after %d ticks", tick_count)
         return {"status": "stopped", "message": f"Stopped after {tick_count} ticks."}
 
+    # User activity cooldown: after user chat, resident backs off for this many seconds
+    USER_ACTIVITY_COOLDOWN_S = 30
+
     async def _tick(self) -> None:
-        """Single iteration of the resident agent loop."""
+        """Single iteration of the resident agent loop.
+
+        Resource-aware: uses the centralized ResourcePolicy to decide whether
+        to run, throttle, or skip this cycle.
+        """
         tick_start = time.monotonic()
         self._state.tick_count += 1
         self._state.last_tick = _now()
         cycle_id = f"cycle-{self._state.tick_count:04d}"
 
+        policy = get_resource_policy()
+        base_interval = self._agent_settings.interval_seconds
+
         # Skip tick if paused
         if self._paused:
             await self._heartbeat_broadcast()
-            interval = self._agent_settings.interval_seconds
-            await asyncio.sleep(interval)
+            await asyncio.sleep(base_interval)
             return
 
         # Skip tick during quiet hours
@@ -916,7 +930,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             self._state.status = "quiet"
             self._add_log("INFO", "quiet_hours_skip", cycle_id=cycle_id)
             await self._heartbeat_broadcast()
-            await asyncio.sleep(self._agent_settings.interval_seconds)
+            await asyncio.sleep(base_interval)
             return
 
         # Skip if daily limit reached
@@ -930,8 +944,47 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                 max=self._agent_settings.max_cycles_per_day,
             )
             await self._heartbeat_broadcast()
-            await asyncio.sleep(self._agent_settings.interval_seconds)
+            await asyncio.sleep(base_interval)
             return
+
+        # ── Resource-aware skip/throttle ────────────────────────────────────
+        decision = policy.can_proceed(TaskPriority.RESIDENT)
+        tier = policy.tier
+
+        if decision == "block":
+            skip_reason = policy.get_skip_reason(TaskPriority.RESIDENT) or "resource_block"
+            self._state.status = "resource_blocked"
+            self._state.current_thought = f"Pozastaven: {tier.value} resource tier"
+            self._add_log(
+                "WARN",
+                "cycle_skipped",
+                cycle_id=cycle_id,
+                reason=skip_reason,
+                resource_tier=tier.value,
+                ram_percent=policy.state.ram_percent,
+            )
+            await self._heartbeat_broadcast()
+            # Sleep longer when blocked
+            blocked_interval = base_interval * policy.get_resident_interval_multiplier()
+            self._state.next_run_in = int(blocked_interval)
+            await asyncio.sleep(blocked_interval)
+            return
+
+        # Cooldown after user activity: back off briefly so chat feels snappy
+        since_user = policy.seconds_since_user_activity()
+        if since_user < self.USER_ACTIVITY_COOLDOWN_S:
+            wait_for = self.USER_ACTIVITY_COOLDOWN_S - since_user
+            self._state.status = "user_cooldown"
+            self._add_log(
+                "INFO",
+                "cycle_deferred_user_activity",
+                cycle_id=cycle_id,
+                seconds_since_user=round(since_user, 1),
+                waiting=round(wait_for, 1),
+            )
+            await self._heartbeat_broadcast()
+            await asyncio.sleep(wait_for)
+            # Don't skip entirely — just delayed. Fall through to run the cycle.
 
         self._daily_cycle_count += 1
 
@@ -946,6 +999,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             status="thinking",
             last_action=self._state.last_action or "",
             memory_items=len(self._state.recent_steps),
+            resource_tier=tier.value,
         )
 
         cycle_record = CycleRecord(
@@ -958,13 +1012,25 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         try:
             await self._process_task_queue()
             await self._process_missions()
-            await self._thought_tick()
-            await self._proactive_action_tick()
-            await self._curiosity_tick()
+            # Only run LLM-heavy ticks when not throttled
+            if decision == "allow":
+                await self._thought_tick()
+                await self._proactive_action_tick()
+                await self._curiosity_tick()
+            else:
+                self._add_log(
+                    "INFO",
+                    "llm_ticks_throttled",
+                    cycle_id=cycle_id,
+                    resource_tier=tier.value,
+                    decision=decision,
+                )
             await self._periodic_check()
             await self._proactive_alerts()
-            await self._digest_tick()
-            await self._summarize_old_memories()
+            # Digest and memory summarize only when resources allow
+            if decision == "allow":
+                await self._digest_tick()
+                await self._summarize_old_memories()
             # Successful tick resets consecutive error counter
             self._state.consecutive_errors = 0
 
@@ -977,6 +1043,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                 cycle_id=cycle_id,
                 duration_ms=cycle_record.duration_ms,
                 next_run_in=self._agent_settings.interval_seconds,
+                resource_tier=tier.value,
             )
         except Exception as exc:
             self._state.errors_since_start += 1
@@ -1006,17 +1073,21 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         _status_map = {"success": "success", "error": "fail", "aborted": "aborted"}
         _final_status = _status_map.get(cycle_record.status, "fail")
         resident_cycles_total.labels(status=_final_status).inc()
-        logger.debug("resident_cycles_total incremented: status=%s", _final_status)
 
         await self._heartbeat_broadcast()
 
-        # Count down next_run_in for the UI
-        interval = self._agent_settings.interval_seconds
-        self._state.next_run_in = interval
-        await asyncio.sleep(interval)
+        # Adaptive interval: longer when system is under pressure
+        interval_multiplier = policy.get_resident_interval_multiplier()
+        effective_interval = base_interval * interval_multiplier
+        self._state.next_run_in = int(effective_interval)
+        await asyncio.sleep(effective_interval)
 
     async def _heartbeat_broadcast(self) -> None:
         """Push status via WebSocket for the live widget."""
+        policy = get_resource_policy()
+        resource_tier = policy.tier.value
+        resident_decision = policy.can_proceed(TaskPriority.RESIDENT)
+
         await self._broadcast(
             {
                 "type": WS_EVENT_RESIDENT_TICK,
@@ -1025,6 +1096,8 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                 "last_tick": self._state.last_tick,
                 "heartbeat_status": self._state.heartbeat_status,
                 "mode_restricted_actions_count": self._blocked_actions_since_start,
+                "resource_tier": resource_tier,
+                "resource_decision": resident_decision,
             }
         )
         await self._broadcast(
@@ -1034,7 +1107,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                 "current_thought": self._state.current_thought,
                 "last_action": self._state.last_action,
                 "cycle_count": self._state.tick_count,
-                "next_run_in": self._agent_settings.interval_seconds,
+                "next_run_in": self._state.next_run_in,
                 "last_heartbeat": self._state.last_heartbeat,
                 "is_running": self._state.is_running,
                 "paused": self._paused,
@@ -1045,6 +1118,8 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                 "enabled_skills": list(ALLOWED_ACTIONS),
                 "active_skills": self._get_active_skill_names(),
                 "mode_restricted_actions_count": self._blocked_actions_since_start,
+                "resource_tier": resource_tier,
+                "resource_decision": resident_decision,
             }
         )
 

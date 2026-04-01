@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 from app.models.schemas import ChatRequest, ChatResponse
 from app.services.llm_service import get_llm_service, is_abliterated_model
 from app.services.metrics_service import chat_latency_seconds, chat_requests_total
+from app.services.resource_policy import get_resource_policy
 from app.services.session_service import get_session_service
 from app.utils.context_helpers import enrich_message
 
@@ -54,6 +55,9 @@ async def chat_stream_ws(websocket: WebSocket) -> None:
     session_id = data.get("session_id")
     model_override = data.get("model")
     allow_uncensored = bool(data.get("allow_uncensored", False))
+
+    # Record user activity so resident/background tasks back off
+    get_resource_policy().record_user_activity()
 
     if not message.strip():
         await websocket.send_json({"type": "error", "message": "Empty message"})

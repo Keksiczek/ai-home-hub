@@ -59,6 +59,20 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         return response
 
 
+# Paths that are polled frequently — log at DEBUG instead of INFO to reduce noise
+_QUIET_PATHS = frozenset({
+    "/api/health",
+    "/api/health/live",
+    "/api/health/ready",
+    "/metrics",
+    "/api/status/system/resources",
+    "/api/notifications",
+    "/api/jobs/mobile-summary",
+    "/api/resident/status",
+    "/api/resident/heartbeat",
+})
+
+
 def _log_request(
     request_id: str,
     method: str,
@@ -66,7 +80,10 @@ def _log_request(
     status_code: int,
     latency_ms: int,
 ) -> None:
-    """Emit a single JSON log line for each request."""
+    """Emit a single JSON log line for each request.
+
+    Frequently polled endpoints are logged at DEBUG level to reduce noise.
+    """
     entry = {
         "request_id": request_id,
         "method": method,
@@ -74,4 +91,9 @@ def _log_request(
         "status_code": status_code,
         "latency_ms": latency_ms,
     }
-    logger.info(json.dumps(entry, ensure_ascii=False))
+    msg = json.dumps(entry, ensure_ascii=False)
+
+    if path in _QUIET_PATHS and status_code < 400:
+        logger.debug(msg)
+    else:
+        logger.info(msg)

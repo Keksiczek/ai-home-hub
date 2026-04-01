@@ -14,6 +14,7 @@ import httpx
 import psutil
 
 from app.services.metrics_service import ollama_memory_bytes
+from app.services.resource_policy import get_resource_policy
 
 logger = logging.getLogger(__name__)
 
@@ -127,11 +128,31 @@ class ResourceMonitor:
                     pass
 
                 self._latest = snap
+
+                # Update centralized resource policy with current metrics
+                policy = get_resource_policy()
+                policy.update(
+                    ram_percent=snap.ram_used_percent,
+                    cpu_percent=snap.cpu_percent,
+                )
+
                 if snap.block:
                     logger.warning(
                         "RESOURCE BLOCK: RAM %s%% – new agents/jobs blocked",
                         snap.ram_used_percent,
                     )
+                    # Send ntfy notification on CRITICAL tier
+                    if policy.tier.value == "critical":
+                        try:
+                            from app.services.notification_service import get_notification_service
+                            import asyncio
+                            asyncio.create_task(
+                                get_notification_service().notify_resource_critical(
+                                    policy.tier.value, snap.ram_used_percent
+                                )
+                            )
+                        except Exception:
+                            pass
                 elif snap.pause_background:
                     logger.warning(
                         "RESOURCE WARN: High RAM usage (%s%%), pause background jobs",
@@ -227,6 +248,7 @@ class ResourceMonitor:
         if self._latest is None:
             return {"status": "no_data"}
         s = self._latest
+        policy = get_resource_policy()
         return {
             "timestamp": s.timestamp,
             "ram_used_percent": s.ram_used_percent,
@@ -243,6 +265,8 @@ class ResourceMonitor:
             "block": s.block,
             "pause_background": s.pause_background,
             "warnings": s.warnings,
+            "resource_tier": policy.tier.value,
+            "resource_policy": policy.get_state_dict(),
         }
 
 
