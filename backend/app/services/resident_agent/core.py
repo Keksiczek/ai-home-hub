@@ -2119,6 +2119,11 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         except Exception:
             pass
 
+        # Human-readable status text for the agent status widget
+        interval = self._agent_settings.interval_seconds
+        next_run_in = self._state.next_run_in
+        status_text = self._build_status_text(status, next_run_in, interval)
+
         return {
             "status": status,
             "uptime_seconds": round(self.get_uptime_seconds(), 1),
@@ -2138,7 +2143,42 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                 p.to_dict() for p in self._proposals if p.status == "pending"
             ],
             "kb_chunks": kb_chunks,
+            # Activity & status widget fields
+            "status_text": status_text,
+            "cycle_interval": interval,
+            "cycle_remaining": max(0, next_run_in),
+            "current_thought": self._state.current_thought,
+            "paused": self._paused,
+            "quiet_hours_active": self._is_quiet_hours(),
         }
+
+    def _build_status_text(self, status: str, next_run_in: int, interval: int) -> str:
+        """Return human-readable agent status for the dashboard widget."""
+        if status == "stopped":
+            return "\U0001f6d1 Zastaven"
+        if self._paused:
+            return "\u23f8\ufe0f Pozastaven"
+        if self._is_quiet_hours():
+            return "\U0001f319 Tichý režim"
+        if self._state.status == "thinking":
+            return "\U0001f9e0 Přemýšlí..."
+        if self._state.status == "executing":
+            action = self._state.last_action or "task"
+            return f"\u26a1 Provádí: {action}"
+        if status == "error":
+            return f"\u26a0\ufe0f Chyba (po sobě: {self._state.consecutive_errors})"
+        # Check resource throttling
+        try:
+            from app.services.resource_monitor import get_resource_monitor
+            monitor = get_resource_monitor()
+            if monitor.is_throttled():
+                usage = monitor.get_current_usage()
+                ram_pct = usage.get("ram_percent", 0)
+                return f"\u26a0\ufe0f Throttlováno — RAM {ram_pct:.0f}%"
+        except Exception:
+            pass
+        # Resting / waiting for next cycle
+        return f"\U0001f4a4 Odpočívá — příští cyklus za {next_run_in}s"
 
     # ── Thought stream (SSE) ────────────────────────────────────────────────
 

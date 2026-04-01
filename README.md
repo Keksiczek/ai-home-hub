@@ -45,38 +45,44 @@ Lokální AI orchestrační centrum pro macOS. Propojuje Ollama, VS Code, filesy
 ## 🚀 Rychlý start
 
 ### Požadavky
-- macOS (optimalizováno pro Intel 8GB)
 - Python 3.11+
-- [Ollama](https://ollama.com) nainstalovaný
+- [Ollama](https://ollama.ai) nainstalovaný
+- Git
+- macOS (optimalizováno pro Intel 8GB) nebo Linux
 
-### Instalace
+### Quickstart
 
 ```bash
-git clone https://github.com/Keksiczek/ai-home-hub.git
+git clone https://github.com/Keksiczek/ai-home-hub
 cd ai-home-hub
+chmod +x start.sh
+./start.sh
+```
 
-# Stáhni modely
-ollama pull llama3.2
-ollama pull qwen2.5-coder:3b
-ollama pull llava:7b
+Appka běží na http://localhost:8000
 
-# Spusť
+### Alternativní spuštění
+
+```bash
+# Plný launcher s Ollama auto-start a health checks
 ./run-app.sh
-# nebo:
+
+# Manuální spuštění
 cd backend && source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-Dashboard: http://localhost:8000
-
 ### Make příkazy
 
 ```bash
-make dev-start    # spustit backend + Tailscale
-make dev-stop     # zastavit vše
-make dev-update   # git pull + restart
-make dev-status   # stav procesů
+make start           # rychlý start přes start.sh
+make install         # vytvořit venv + nainstalovat deps
+make pull-and-start  # git pull + start
+make dev-start       # spustit backend + Tailscale
+make dev-stop        # zastavit vše
+make dev-update      # git pull + restart
+make dev-status      # stav procesů
 ```
 
 ---

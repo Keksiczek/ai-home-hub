@@ -29,13 +29,16 @@ async def list_installed_models() -> Dict[str, Any]:
     name contains abliterated/uncensored tags) so frontends can display a
     warning badge.
     """
-    from app.services.llm_service import is_abliterated_model
+    from app.services.llm_service import is_abliterated_model, get_model_quality_info
 
     svc = get_model_manager_service()
     try:
         models = await svc.list_installed()
         for m in models:
             m["is_uncensored"] = is_abliterated_model(m.get("name", ""))
+            quality = get_model_quality_info(m.get("name", ""))
+            m["quality_flags"] = quality["quality_flags"]
+            m["quality_reasons"] = quality["quality_reasons"]
         return {"models": models, "count": len(models)}
     except Exception as exc:
         logger.error("Failed to list installed models: %s", exc)

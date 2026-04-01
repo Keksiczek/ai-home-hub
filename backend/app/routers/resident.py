@@ -753,6 +753,54 @@ async def get_thought_log(limit: int = Query(default=50, ge=1, le=200)) -> dict:
     return await build_thought_log(limit=limit)
 
 
+@router.get("/activity-feed")
+async def get_activity_feed(limit: int = Query(default=20, ge=1, le=100)) -> dict:
+    """Unified activity feed merging thoughts, proactive actions, and job completions."""
+    from app.services.resident_reasoner import build_thought_log
+
+    agent = get_resident_agent()
+    feed: list[dict] = []
+
+    # 1. Thoughts
+    try:
+        thought_data = await build_thought_log(limit=limit)
+        for t in thought_data.get("thoughts", []):
+            category = t.get("category", "thought")
+            icon = {"thought": "\U0001f4ad", "decision": "\u2705", "observation": "\U0001f441"}.get(category, "\U0001f4ad")
+            feed.append({
+                "timestamp": t.get("timestamp", ""),
+                "type": "thought",
+                "icon": icon,
+                "description": t.get("content", "")[:200],
+            })
+    except Exception:
+        pass
+
+    # 2. Recent jobs (proactive actions + completed jobs)
+    try:
+        job_svc = get_job_service()
+        recent_jobs = job_svc.list_jobs(type="resident_task", limit=limit)
+        for j in recent_jobs:
+            is_error = j.status in ("failed", "error")
+            icon = "\u274c" if is_error else "\u2705"
+            if j.payload.get("auto_executed"):
+                icon = "\u26a1" if not is_error else "\u274c"
+            feed.append({
+                "timestamp": j.finished_at or j.started_at or j.created_at,
+                "type": "proactive" if j.payload.get("auto_executed") else "job",
+                "icon": icon,
+                "description": j.title or j.type,
+            })
+    except Exception:
+        pass
+
+    # Sort by timestamp descending, take top N
+    feed.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+    feed = feed[:limit]
+
+    return {"feed": feed, "count": len(feed)}
+
+
 # ── Reflections ──────────────────────────────────────────────
 
 

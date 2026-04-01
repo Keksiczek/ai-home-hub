@@ -6311,6 +6311,11 @@ function renderResidentDashboard(data) {
   updateResidentModeHint(data.resident_mode || 'advisor');
   renderResidentAutoLogbook(data);
 
+  // Status widget + cycle progress + activity feed
+  renderAgentStatusWidget(data);
+  startCycleProgressBar(data);
+  loadActivityFeed();
+
   // Agent autonomy panels: thought log, curiosity, budget widgets
   loadThoughtFeed();
   loadCuriosityList();
@@ -6331,6 +6336,83 @@ function renderResidentDashboard(data) {
   } else if (data.status === 'stopped' && _residentEventSource) {
     _residentEventSource.close();
     _residentEventSource = null;
+  }
+}
+
+/* ── Agent Status Widget ── */
+
+function renderAgentStatusWidget(data) {
+  const textEl = document.getElementById('resident-status-widget-text');
+  const countEl = document.getElementById('resident-cycle-count');
+  if (textEl) textEl.textContent = data.status_text || data.status || 'Neznámý';
+  if (countEl) countEl.textContent = data.uptime_seconds > 0 ? `Cyklus #${data.stats_24h?.tasks_total || 0} \u00B7 Uptime ${formatUptime(data.uptime_seconds)}` : '';
+}
+
+/* ── Cycle Progress Bar ── */
+
+let _cycleProgressTimer = null;
+
+function startCycleProgressBar(data) {
+  clearInterval(_cycleProgressTimer);
+  const wrap = document.getElementById('resident-cycle-bar-wrap');
+  const bar = document.getElementById('resident-cycle-bar');
+  const timer = document.getElementById('resident-cycle-timer');
+  if (!wrap || !bar || !timer) return;
+
+  const interval = data.cycle_interval || 120;
+  let remaining = data.cycle_remaining || 0;
+
+  if (data.status !== 'running' || remaining <= 0) {
+    wrap.style.display = 'none';
+    return;
+  }
+
+  wrap.style.display = '';
+
+  function update() {
+    const elapsed = interval - remaining;
+    const pct = Math.min(100, Math.round((elapsed / interval) * 100));
+    bar.style.width = pct + '%';
+    timer.textContent = `${elapsed}s / ${interval}s`;
+    remaining--;
+    if (remaining < 0) {
+      clearInterval(_cycleProgressTimer);
+      bar.style.width = '100%';
+      timer.textContent = `${interval}s / ${interval}s`;
+    }
+  }
+
+  update();
+  _cycleProgressTimer = setInterval(update, 1000);
+}
+
+/* ── Activity Feed ── */
+
+async function loadActivityFeed() {
+  const container = document.getElementById('resident-activity-feed');
+  if (!container) return;
+
+  try {
+    const res = await fetch('/api/resident/activity-feed?limit=20');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const feed = data.feed || [];
+    if (!feed.length) {
+      container.innerHTML = '<p class="empty-state" style="font-size:0.85em">\u017d\u00e1dn\u00e1 aktivita</p>';
+      return;
+    }
+    container.innerHTML = feed.map(item => {
+      const time = item.timestamp ? new Date(item.timestamp).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' }) : '';
+      const typeLabels = { thought: 'thought', proactive: 'proactive', job: 'job' };
+      const typeCls = typeLabels[item.type] || 'thought';
+      return `<div class="activity-feed-item activity-feed-item--${typeCls}">
+        <span class="activity-feed-icon">${item.icon || '\uD83D\uDCCC'}</span>
+        <span class="activity-feed-time">${escHtml(time)}</span>
+        <span class="activity-feed-desc">${escHtml(item.description)}</span>
+      </div>`;
+    }).join('');
+  } catch (err) {
+    container.innerHTML = `<p class="empty-state" style="font-size:0.85em">Chyba: ${escHtml(err.message)}</p>`;
   }
 }
 
@@ -10002,19 +10084,43 @@ function _applyModelFilters() {
     const family = _extractFamily(m.name);
     const ramEst = _estimateRAM(m.size);
     const isActive = activeModel && m.name === activeModel;
+    const qFlags = m.quality_flags || [];
+    const qReasons = m.quality_reasons || [];
 
     let tagHtml = '';
+
+    // Quality flag badges from backend
+    if (qFlags.includes('embedding_only')) {
+      const reason = qReasons[qFlags.indexOf('embedding_only')] || 'Embedding model';
+      tagHtml += `<span class="model-tag model-tag--embedding-only" title="${escHtml(reason)}">\uD83D\uDCCA Embedding</span>`;
+    }
+    if (qFlags.includes('low_quality')) {
+      const reason = qReasons[qFlags.indexOf('low_quality')] || 'Omezený model';
+      tagHtml += `<span class="model-tag model-tag--low-quality" title="${escHtml(reason)}">\u26A0\uFE0F Omezený</span>`;
+    }
+    if (qFlags.includes('uncensored')) {
+      const reason = qReasons[qFlags.indexOf('uncensored')] || 'Uncensored model';
+      tagHtml += `<span class="model-tag model-tag--uncensored" title="${escHtml(reason)}">\u26A0\uFE0F uncensored</span>`;
+    } else {
+      // Fallback: detect from tags if API didn't provide flag
+      tags.forEach(tag => {
+        if (tag === 'uncensored') tagHtml += `<span class="model-tag model-tag--uncensored">\u26A0\uFE0F uncensored</span>`;
+        else if (tag === 'abliterated') tagHtml += `<span class="model-tag model-tag--abliterated">\u26A0\uFE0F abliterated</span>`;
+      });
+    }
+
+    // Standard type tags (skip uncensored/abliterated if already rendered)
     tags.forEach(tag => {
-      if (tag === 'uncensored') tagHtml += `<span class="model-tag model-tag--uncensored">\u26A0\uFE0F uncensored</span>`;
-      else if (tag === 'abliterated') tagHtml += `<span class="model-tag model-tag--abliterated">\u26A0\uFE0F abliterated</span>`;
-      else tagHtml += `<span class="model-tag model-tag--${tag}">${tag}</span>`;
+      if (tag === 'uncensored' || tag === 'abliterated') return;
+      tagHtml += `<span class="model-tag model-tag--${tag}">${tag}</span>`;
     });
     if (paramSize) tagHtml += `<span class="model-tag model-tag--size">${paramSize}</span>`;
     tagHtml += `<span class="model-tag model-tag--ram">${ramEst} RAM</span>`;
 
     const infoLine = [family, quant, `${sizeGB} GB`].filter(Boolean).join(' \u00B7 ');
+    const isEmbedding = qFlags.includes('embedding_only');
 
-    return `<div class="model-card${isActive ? ' model-card--active' : ''}" data-model="${escHtml(m.name)}">
+    return `<div class="model-card${isActive ? ' model-card--active' : ''}${isEmbedding ? ' model-card--embedding' : ''}" data-model="${escHtml(m.name)}">
       <div class="model-card__header">
         <span class="model-card__name" title="${escHtml(m.name)}">${escHtml(m.name)}</span>
         ${isActive ? '<span class="model-card__active-badge">\u25CF Aktivní</span>' : ''}
@@ -10022,7 +10128,7 @@ function _applyModelFilters() {
       <div class="model-card__tags">${tagHtml}</div>
       <div class="model-card__info">${escHtml(infoLine)}</div>
       <div class="model-card__actions">
-        <button class="btn btn--primary btn--small" onclick="event.stopPropagation();setDefaultModel('${escHtml(m.name)}')" title="Nastavit jako výchozí">\u2B50 Výchozí</button>
+        ${isEmbedding ? '' : `<button class="btn btn--primary btn--small" onclick="event.stopPropagation();setDefaultModel('${escHtml(m.name)}')" title="Nastavit jako výchozí">\u2B50 Výchozí</button>`}
         <button class="btn btn--ghost btn--small" onclick="event.stopPropagation();deleteOllamaModel('${escHtml(m.name)}')" title="Smazat">\u{1F5D1} Smazat</button>
       </div>
     </div>`;
@@ -10055,7 +10161,12 @@ function _renderInlineModelPicker() {
     if (picker) picker.innerHTML = '<p class="empty-state">Žádné modely k dispozici</p>';
     return;
   }
-  picker.innerHTML = _ollamaModels.map(m => {
+  // Filter out embedding-only models from chat picker
+  const chatModels = _ollamaModels.filter(m => {
+    const n = (m.name || '').toLowerCase();
+    return !n.includes('embed') && !n.includes('nomic') && !n.includes('minilm');
+  });
+  picker.innerHTML = chatModels.map(m => {
     const isActive = m.name === (document.getElementById('chat-model-select')?.value || _currentSettings?.llm?.model || '');
     return `<div class="model-card${isActive ? ' model-card--active' : ''}" style="padding:0.6rem 0.8rem;margin-bottom:0.35rem;cursor:pointer" onclick="_selectChatModel('${escHtml(m.name)}')">
       <div class="model-card__header">

@@ -1,7 +1,7 @@
 # Makefile – AI Home Hub
 # Usage: make <target>
 
-.PHONY: run-dev run-prod stop logs clean help dev-start dev-stop dev-update dev-status boost reset-boost
+.PHONY: run-dev run-prod stop logs clean help dev-start dev-stop dev-update dev-status boost reset-boost start install pull-and-start
 
 SHELL := /bin/bash
 SCRIPT := ./run-app.sh
@@ -71,6 +71,18 @@ docker-up: ## Start via Docker Compose (fallback)
 
 docker-down: ## Stop Docker Compose stack
 	docker compose down
+
+start: ## Quick start via start.sh
+	@chmod +x ./start.sh
+	./start.sh
+
+install: ## Create venv + install deps via start.sh-compatible layout
+	cd backend && python3.11 -m venv venv 2>/dev/null || python3 -m venv venv
+	cd backend && source venv/bin/activate && pip install -r requirements.txt
+
+pull-and-start: ## git pull + start
+	git pull origin main
+	./start.sh
 
 boost: ## Zvýšit procesní prioritu backendu a Ollamy (vyžaduje sudo)
 	@echo "Nastavuji vysokou prioritu (vyžaduje sudo)..."

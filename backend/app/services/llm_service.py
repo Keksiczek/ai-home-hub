@@ -218,6 +218,38 @@ MODEL_ROUTING: dict[str, str] = {
 }
 
 
+# ── Model quality flags ────────────────────────────────────────────────────
+# Maps substrings of model names to quality flags displayed in the UI.
+# flag types: "uncensored", "low_quality", "embedding_only"
+MODEL_QUALITY_FLAGS: dict[str, dict[str, str]] = {
+    "abliterate": {"flag": "uncensored", "reason": "Abliterated model — nestabilní instrukce, guláš jazyků"},
+    "uncensored": {"flag": "uncensored", "reason": "Uncensored model — bez guardrails"},
+    "dolphin": {"flag": "uncensored", "reason": "Dolphin série — uncensored fine-tune"},
+    "huihui": {"flag": "uncensored", "reason": "Huihui abliterated model"},
+    ":1b": {"flag": "low_quality", "reason": "1B model — velmi omezené schopnosti, vhodné jen pro jednoduché tasky"},
+    "embedding": {"flag": "embedding_only", "reason": "Embedding model — nelze použít pro chat"},
+    "nomic-embed": {"flag": "embedding_only", "reason": "Embedding model"},
+    "all-minilm": {"flag": "embedding_only", "reason": "Embedding model"},
+}
+
+
+def get_model_quality_info(model_name: str) -> dict:
+    """Return quality flags and reasons for a given model name.
+
+    Returns dict with keys: quality_flags (list[str]), quality_reasons (list[str]).
+    """
+    name_lower = model_name.lower()
+    flags: list[str] = []
+    reasons: list[str] = []
+    seen_flags: set[str] = set()
+    for tag, info in MODEL_QUALITY_FLAGS.items():
+        if tag in name_lower and info["flag"] not in seen_flags:
+            flags.append(info["flag"])
+            reasons.append(info["reason"])
+            seen_flags.add(info["flag"])
+    return {"quality_flags": flags, "quality_reasons": reasons}
+
+
 def is_abliterated_model(model_name: str) -> bool:
     """Check if a model name contains abliterated/uncensored tags."""
     name_lower = model_name.lower()
