@@ -183,29 +183,116 @@ class NotificationService:
             except Exception as exc:
                 logger.debug("Notification WS broadcast failed: %s", exc)
 
-        # Also push to ntfy.sh if configured (legacy)
+        # Push to ntfy.sh if configured
         try:
             cfg = self._settings.get_notification_config()
             if cfg.get("enabled", False):
-                ntfy_url = cfg.get("ntfy_url", "https://ntfy.sh").rstrip("/")
-                topic = cfg.get("topic", "ai-home-hub")
-                url = f"{ntfy_url}/{topic}"
-                headers = {
-                    "Title": title,
-                    "Priority": priority,
-                    "Content-Type": "text/plain",
-                }
-                if tags:
-                    headers["Tags"] = ",".join(tags)
-                async with httpx.AsyncClient(timeout=5.0) as client:
-                    resp = await client.post(
-                        url, content=(body or message).encode(), headers=headers
-                    )
-                    resp.raise_for_status()
+                # Check notification type filters
+                if not self._should_push_ntfy(cfg, source, level, importance):
+                    pass  # Skip ntfy push based on filters
+                else:
+                    # Check ntfy quiet hours
+                    if self._is_ntfy_quiet_hours(cfg):
+                        logger.debug("ntfy push skipped: quiet hours active")
+                    else:
+                        ntfy_url = cfg.get("ntfy_url", "https://ntfy.sh").rstrip("/")
+                        topic = cfg.get("topic", "ai-home-hub")
+                        url = f"{ntfy_url}/{topic}"
+
+                        # Map priority
+                        ntfy_priority = priority
+                        if ntfy_priority == "default":
+                            ntfy_priority = cfg.get("ntfy_priority_default", "default")
+
+                        headers = {
+                            "Title": title,
+                            "Priority": ntfy_priority,
+                            "Content-Type": "text/plain",
+                        }
+                        if tags:
+                            headers["Tags"] = ",".join(tags)
+                        # Optional auth token
+                        token = cfg.get("ntfy_token", "")
+                        if token:
+                            headers["Authorization"] = f"Bearer {token}"
+                        # Optional click URL
+                        click_url = cfg.get("ntfy_click_url", "")
+                        if click_url:
+                            headers["Click"] = click_url
+
+                        async with httpx.AsyncClient(timeout=5.0) as client:
+                            resp = await client.post(
+                                url, content=(body or message).encode(), headers=headers
+                            )
+                            resp.raise_for_status()
         except Exception as exc:
             logger.debug("ntfy.sh push failed (non-critical): %s", exc)
 
         return True
+
+    def _should_push_ntfy(
+        self, cfg: dict, source: str, level: str, importance: int
+    ) -> bool:
+        """Check if this notification should be pushed to ntfy based on filter settings."""
+        min_imp = cfg.get("min_importance", 6)
+        if importance < min_imp:
+            return False
+
+        # Source-based filters
+        if source == "system" and level == "alert" and cfg.get("notify_on_error", True):
+            return True
+        if source == "agent" and cfg.get("notify_on_agent_complete", False):
+            return True
+        if source == "job_worker" and cfg.get("notify_on_job_complete", False):
+            return True
+        if source == "resource_monitor" and cfg.get("notify_on_resource_critical", True):
+            return True
+        if source == "resident_agent" and cfg.get("notify_on_resident_blocked", False):
+            return True
+
+        # Default: push if importance is high enough
+        return importance >= min_imp
+
+    def _is_ntfy_quiet_hours(self, cfg: dict) -> bool:
+        """Check if current time is within ntfy quiet hours."""
+        if not cfg.get("quiet_hours_enabled", False):
+            return False
+        try:
+            now = datetime.now(timezone.utc)
+            current_minutes = now.hour * 60 + now.minute
+            start_h, start_m = map(int, cfg.get("quiet_hours_start", "22:00").split(":"))
+            end_h, end_m = map(int, cfg.get("quiet_hours_end", "07:00").split(":"))
+            start = start_h * 60 + start_m
+            end = end_h * 60 + end_m
+            if start <= end:
+                return start <= current_minutes < end
+            else:
+                return current_minutes >= start or current_minutes < end
+        except Exception:
+            return False
+
+    async def notify_resource_critical(self, tier: str, ram_percent: float) -> bool:
+        """Notify when system enters CRITICAL resource tier."""
+        return await self.send(
+            title="Resource pressure",
+            body=f"System resource tier: {tier}, RAM: {ram_percent:.1f}%",
+            level="warning",
+            source="resource_monitor",
+            importance=8,
+            priority="high",
+            tags=["warning", "chart_with_upwards_trend"],
+        )
+
+    async def notify_resident_blocked(self, reason: str) -> bool:
+        """Notify when resident agent is blocked by resource pressure."""
+        return await self.send(
+            title="Resident agent blocked",
+            body=f"Agent paused: {reason}",
+            level="warning",
+            source="resident_agent",
+            importance=6,
+            tags=["robot", "pause_button"],
+        )
 
     # ── Legacy convenience methods (backward compat) ─────────────────────────
 

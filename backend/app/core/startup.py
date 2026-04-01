@@ -58,10 +58,25 @@ async def lifespan(app: FastAPI):
 
     # ── Startup validation ──────────────────────────────────────
     from app.services.startup_checks import run_startup_checks
+    from app.utils.config_validation import validate_llm_config
 
     settings = get_settings_service().load()
+
+    # Validate and normalize LLM URLs at startup
+    llm_cfg = settings.get("llm", {})
+    llm_cfg, url_errors = validate_llm_config(llm_cfg)
+    for err in url_errors:
+        if err.level == "error":
+            logger.error("Startup config error: %s", err.message)
+        else:
+            logger.warning("Startup config: %s", err.message)
+    # Save normalized URLs back
+    if url_errors:
+        settings["llm"] = llm_cfg
+        get_settings_service().save(settings)
+
     ollama_url = (
-        settings.get("llm", {}).get("ollama_url", "http://localhost:11434").rstrip("/")
+        llm_cfg.get("ollama_url", "http://localhost:11434").rstrip("/")
     )
 
     health = await run_startup_checks(ollama_url)

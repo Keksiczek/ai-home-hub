@@ -32,11 +32,34 @@ async def get_settings() -> Dict[str, Any]:
 
 @router.post("/settings", response_model=SettingsResponse, tags=["settings"])
 async def update_settings(body: UpdateSettingsRequest) -> Dict[str, Any]:
-    """Deep-merge provided settings with current and persist."""
+    """Deep-merge provided settings with current and persist.
+
+    Validates URLs before saving. Returns validation warnings in the response.
+    """
+    from app.utils.config_validation import validate_settings_on_save
+
     svc = get_settings_service()
+
+    # Validate before merging
+    validation_errors = validate_settings_on_save(body.settings)
+    hard_errors = [e for e in validation_errors if e.level == "error"]
+    if hard_errors:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "Settings validation failed",
+                "errors": [e.to_dict() for e in hard_errors],
+            },
+        )
+
     updated = svc.update(body.settings)
     _mask_secrets(updated)
-    return {"settings": updated}
+
+    warnings = [e.to_dict() for e in validation_errors if e.level == "warning"]
+    result = {"settings": updated}
+    if warnings:
+        result["validation_warnings"] = warnings
+    return result
 
 
 @router.get("/settings/schema", tags=["settings"])
@@ -138,9 +161,25 @@ async def get_settings_schema() -> Dict[str, Any]:
                 "type": "object",
                 "title": "Notifications",
                 "properties": {
-                    "enabled": {"type": "boolean"},
-                    "ntfy_url": {"type": "string"},
-                    "topic": {"type": "string"},
+                    "enabled": {"type": "boolean", "description": "Enable ntfy push notifications"},
+                    "ntfy_url": {"type": "string", "default": "https://ntfy.sh"},
+                    "topic": {"type": "string", "default": "ai-home-hub"},
+                    "ntfy_token": {"type": "string", "secret": True, "description": "ntfy auth token (optional)"},
+                    "ntfy_priority_default": {
+                        "type": "string",
+                        "enum": ["min", "low", "default", "high", "urgent"],
+                        "default": "default",
+                    },
+                    "ntfy_click_url": {"type": "string", "description": "URL to open on notification click"},
+                    "notify_on_error": {"type": "boolean", "default": True},
+                    "notify_on_agent_complete": {"type": "boolean", "default": False},
+                    "notify_on_job_complete": {"type": "boolean", "default": False},
+                    "notify_on_resource_critical": {"type": "boolean", "default": True},
+                    "notify_on_resident_blocked": {"type": "boolean", "default": False},
+                    "min_importance": {"type": "integer", "minimum": 1, "maximum": 10, "default": 6},
+                    "quiet_hours_enabled": {"type": "boolean", "default": False},
+                    "quiet_hours_start": {"type": "string", "default": "22:00"},
+                    "quiet_hours_end": {"type": "string", "default": "07:00"},
                 },
             },
             "agents": {

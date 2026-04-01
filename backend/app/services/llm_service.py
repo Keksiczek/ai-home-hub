@@ -38,11 +38,14 @@ from app.utils.constants import (
 
 logger = logging.getLogger(__name__)
 
-# ── Global backpressure semaphore ────────────────────────────────────────────
-# Limits concurrent Ollama requests across the entire application.  Shared by
-# all callers (chat, agent orchestrator, resident reasoner, …).  Default is 1
-# because a single-GPU Ollama instance typically cannot serve parallel requests
-# without OOM or heavy swap.  Configurable via LLM_MAX_CONCURRENT_REQUESTS env.
+# ── Global backpressure semaphore (priority-aware) ──────────────────────────
+# Limits concurrent Ollama requests across the entire application.  Chat
+# requests get priority 1, resident gets 2, background gets 3.  When a
+# higher-priority caller is waiting, lower-priority callers yield.
+from app.services.priority_semaphore import get_priority_semaphore
+from app.services.resource_policy import TaskPriority
+
+# Legacy semaphore kept as fallback reference only
 _llm_semaphore = asyncio.Semaphore(LLM_MAX_CONCURRENT_REQUESTS)
 
 
@@ -455,23 +458,32 @@ class LLMService:
         )
 
         if provider == "ollama":
+            # Determine priority: chat/user modes get priority 1, resident gets 2, rest gets 3
+            _priority = TaskPriority.BACKGROUND
+            if mode in ("general", "chat", "powerbi", "lean", "lean_ci", "pbi_dax",
+                        "mac_admin", "ai_dev", "vision"):
+                _priority = TaskPriority.CHAT
+            elif mode in ("resident", "resident_reasoner"):
+                _priority = TaskPriority.RESIDENT
+
+            sem = get_priority_semaphore()
             try:
-                async with asyncio.timeout(LLM_SEMAPHORE_TIMEOUT):
-                    await _llm_semaphore.acquire()
+                async with sem.acquire(
+                    priority=_priority,
+                    timeout=LLM_SEMAPHORE_TIMEOUT,
+                    label=f"generate/{mode}",
+                ):
+                    reply, meta = await self._generate_ollama(
+                        message,
+                        mode,
+                        history or [],
+                        cfg,
+                        keep_alive=keep_alive,
+                        profile=profile,
+                        allow_uncensored=allow_uncensored,
+                    )
             except asyncio.TimeoutError:
                 raise LLMOverloadedError(LLM_SEMAPHORE_TIMEOUT)
-            try:
-                reply, meta = await self._generate_ollama(
-                    message,
-                    mode,
-                    history or [],
-                    cfg,
-                    keep_alive=keep_alive,
-                    profile=profile,
-                    allow_uncensored=allow_uncensored,
-                )
-            finally:
-                _llm_semaphore.release()
         else:
             reply, meta = self._generate_stub(message, mode, context_file_ids or [])
 
@@ -1020,12 +1032,20 @@ class LLMService:
             * 4
         )  # 4× the per-request timeout as a generous wall-clock cap
 
-        # Acquire the global LLM semaphore before streaming
+        # Acquire priority-aware LLM semaphore (chat gets priority 1)
+        _stream_priority = TaskPriority.CHAT  # streaming is always user-facing
+        if for_overnight:
+            _stream_priority = TaskPriority.BACKGROUND
+
+        sem = get_priority_semaphore()
         try:
-            async with asyncio.timeout(LLM_SEMAPHORE_TIMEOUT):
-                await _llm_semaphore.acquire()
-        except asyncio.TimeoutError:
-            yield f"[LLM přetížené – semafor nebyl získán do {LLM_SEMAPHORE_TIMEOUT:.0f}s]"
+            _sem_ctx = sem.acquire(
+                priority=_stream_priority,
+                timeout=LLM_SEMAPHORE_TIMEOUT,
+                label=f"stream/{mode}",
+            )
+        except Exception:
+            yield f"[LLM přetížené – semafor nebyl získán]"
             return
 
         first_token_received = False
@@ -1033,87 +1053,89 @@ class LLMService:
         groq_fallback = _get_groq_fallback(self._settings)
 
         try:
-            async with asyncio.timeout(outer_timeout):
-                async with httpx.AsyncClient(timeout=stream_http_timeout) as client:
-                    async with client.stream(
-                        "POST", f"{ollama_url}/api/chat", json=payload
-                    ) as resp:
-                        resp.raise_for_status()
-                        start_wait = time.monotonic()
-                        async for line in resp.aiter_lines():
-                            if not line.strip():
-                                # Check first-token timeout while waiting
-                                if not first_token_received:
-                                    elapsed = time.monotonic() - start_wait
-                                    if elapsed > first_token_timeout:
-                                        raise _FirstTokenTimeout(elapsed)
-                                continue
-                            try:
-                                chunk = json.loads(line)
-                            except json.JSONDecodeError:
-                                continue
-                            if chunk.get("done"):
-                                break
-                            token = chunk.get("message", {}).get("content", "")
-                            if token:
-                                if not first_token_received:
-                                    first_token_received = True
+            async with _sem_ctx:
+                try:
+                    async with asyncio.timeout(outer_timeout):
+                        async with httpx.AsyncClient(timeout=stream_http_timeout) as client:
+                            async with client.stream(
+                                "POST", f"{ollama_url}/api/chat", json=payload
+                            ) as resp:
+                                resp.raise_for_status()
+                                start_wait = time.monotonic()
+                                async for line in resp.aiter_lines():
+                                    if not line.strip():
+                                        # Check first-token timeout while waiting
+                                        if not first_token_received:
+                                            elapsed = time.monotonic() - start_wait
+                                            if elapsed > first_token_timeout:
+                                                raise _FirstTokenTimeout(elapsed)
+                                        continue
+                                    try:
+                                        chunk = json.loads(line)
+                                    except json.JSONDecodeError:
+                                        continue
+                                    if chunk.get("done"):
+                                        break
+                                    token = chunk.get("message", {}).get("content", "")
+                                    if token:
+                                        if not first_token_received:
+                                            first_token_received = True
+                                        yield token
+                    # Success – reset circuit breakers
+                    await cb.record_success()
+                    await model_cb.record_success(model)
+                except (_FirstTokenTimeout, asyncio.TimeoutError, httpx.TimeoutException) as exc:
+                    await cb.record_failure()
+                    await model_cb.record_failure(model)
+                    timeout_type = "first-token" if isinstance(exc, _FirstTokenTimeout) else "stream"
+                    logger.warning(
+                        "Ollama %s timeout for model %s (%.0fs cap)",
+                        timeout_type, model, outer_timeout,
+                    )
+                    # Groq cloud fallback – attempt if enabled and first token never arrived
+                    if groq_fallback and not first_token_received:
+                        settings_data = self._settings.load()
+                        groq_cfg = settings_data.get("groq", {})
+                        groq_model = groq_cfg.get("model", "llama-3.1-8b-instant")
+                        logger.info(
+                            "Attempting Groq fallback (model=%s) after local timeout",
+                            groq_model,
+                        )
+                        yield f"\n\n[Lokální model pomalý – přepínám na Groq ({groq_model})]\n\n"
+                        try:
+                            async for token in groq_fallback.generate_stream(
+                                messages=messages, model=groq_model, options=options, timeout=30.0
+                            ):
                                 yield token
-            # Success – reset circuit breakers
-            await cb.record_success()
-            await model_cb.record_success(model)
-        except (_FirstTokenTimeout, asyncio.TimeoutError, httpx.TimeoutException) as exc:
-            await cb.record_failure()
-            await model_cb.record_failure(model)
-            timeout_type = "first-token" if isinstance(exc, _FirstTokenTimeout) else "stream"
-            logger.warning(
-                "Ollama %s timeout for model %s (%.0fs cap)",
-                timeout_type, model, outer_timeout,
-            )
-            # Groq cloud fallback – attempt if enabled and first token never arrived
-            if groq_fallback and not first_token_received:
-                settings_data = self._settings.load()
-                groq_cfg = settings_data.get("groq", {})
-                groq_model = groq_cfg.get("model", "llama-3.1-8b-instant")
-                logger.info(
-                    "Attempting Groq fallback (model=%s) after local timeout",
-                    groq_model,
-                )
-                yield f"\n\n[Lokální model pomalý – přepínám na Groq ({groq_model})]\n\n"
-                try:
-                    async for token in groq_fallback.generate_stream(
-                        messages=messages, model=groq_model, options=options, timeout=30.0
-                    ):
-                        yield token
-                    return
-                except Exception as groq_exc:
-                    logger.warning("Groq fallback also failed: %s", groq_exc)
-            yield "⏱ Model odpovídá pomalu. Zkus kratší dotaz nebo přepni na menší model v nastavení."
-        except httpx.ConnectError:
-            await cb.record_failure()
-            logger.warning("Ollama not available for streaming, yielding stub")
-            # Groq fallback on connect error
-            if groq_fallback:
-                settings_data = self._settings.load()
-                groq_cfg = settings_data.get("groq", {})
-                groq_model = groq_cfg.get("model", "llama-3.1-8b-instant")
-                logger.info("Attempting Groq fallback after Ollama connect error")
-                yield f"\n\n[Ollama nedostupná – přepínám na Groq ({groq_model})]\n\n"
-                try:
-                    async for token in groq_fallback.generate_stream(
-                        messages=messages, model=groq_model, options=options, timeout=30.0
-                    ):
-                        yield token
-                    return
-                except Exception as groq_exc:
-                    logger.warning("Groq fallback also failed: %s", groq_exc)
-            yield "[Stub] Ollama is not reachable. Please start Ollama."
-        except Exception as exc:
-            await cb.record_failure()
-            logger.error("Ollama stream error: %s", exc, exc_info=True)
-            yield f"[Chyba LLM: {exc}]"
-        finally:
-            _llm_semaphore.release()
+                            return
+                        except Exception as groq_exc:
+                            logger.warning("Groq fallback also failed: %s", groq_exc)
+                    yield "⏱ Model odpovídá pomalu. Zkus kratší dotaz nebo přepni na menší model v nastavení."
+                except httpx.ConnectError:
+                    await cb.record_failure()
+                    logger.warning("Ollama not available for streaming, yielding stub")
+                    # Groq fallback on connect error
+                    if groq_fallback:
+                        settings_data = self._settings.load()
+                        groq_cfg = settings_data.get("groq", {})
+                        groq_model = groq_cfg.get("model", "llama-3.1-8b-instant")
+                        logger.info("Attempting Groq fallback after Ollama connect error")
+                        yield f"\n\n[Ollama nedostupná – přepínám na Groq ({groq_model})]\n\n"
+                        try:
+                            async for token in groq_fallback.generate_stream(
+                                messages=messages, model=groq_model, options=options, timeout=30.0
+                            ):
+                                yield token
+                            return
+                        except Exception as groq_exc:
+                            logger.warning("Groq fallback also failed: %s", groq_exc)
+                    yield "[Stub] Ollama is not reachable. Please start Ollama."
+                except Exception as exc:
+                    await cb.record_failure()
+                    logger.error("Ollama stream error: %s", exc, exc_info=True)
+                    yield f"[Chyba LLM: {exc}]"
+        except asyncio.TimeoutError:
+            yield f"[LLM přetížené – semafor nebyl získán do {LLM_SEMAPHORE_TIMEOUT:.0f}s]"
 
     async def stream_chat(
         self,
