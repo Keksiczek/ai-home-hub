@@ -63,6 +63,17 @@ def _sync_to_db_and_broadcast(job) -> None:
             ws.broadcast(
                 {
                     "type": WS_EVENT_JOB_UPDATE,
+                    "job": {
+                        "id": job.id,
+                        "type": job.type,
+                        "title": job.title,
+                        "status": job.status,
+                        "progress": job.progress,
+                        "created_at": job.created_at,
+                        "started_at": job.started_at,
+                        "finished_at": job.finished_at,
+                    },
+                    # Keep flat keys for backward compat with older clients
                     "job_id": job.id,
                     "status": job.status,
                     "title": job.title,

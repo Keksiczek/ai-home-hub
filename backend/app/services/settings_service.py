@@ -20,6 +20,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         "timeout_seconds": 180,
         "ollama_url": os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"),
         "base_url": os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"),
+        "allow_uncensored_models": False,
         "llamacpp_url": "http://localhost:8080",
         "embeddings_model": "nomic-embed-text",
         "num_ctx": 2048,
@@ -731,6 +732,10 @@ class SettingsService:
 
     def get_job_settings(self) -> Dict[str, Any]:
         return self.load().get("job_settings", DEFAULT_SETTINGS["job_settings"])
+
+    def allow_uncensored_models(self) -> bool:
+        """Return True if the user has opted in to uncensored/abliterated models."""
+        return bool(self.load().get("llm", {}).get("allow_uncensored_models", False))
 
     def warn_if_unconfigured(self) -> None:
         """Log actionable warnings for settings that need first-time configuration."""

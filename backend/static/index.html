@@ -1635,6 +1635,24 @@
         </div>
       </section>
 
+      <!-- Uncensored models toggle -->
+      <section class="card settings-section">
+        <h2 class="card-title">&#9888;&#65039; Uncensored modely</h2>
+        <div class="form-group" style="display:flex;align-items:center;gap:12px">
+          <label class="switch">
+            <input type="checkbox" id="llm-allow-uncensored" onchange="toggleUncensoredModels(this.checked)">
+            <span class="switch-slider"></span>
+          </label>
+          <label class="label" for="llm-allow-uncensored" style="margin:0;cursor:pointer">Povolit uncensored / abliterated modely</label>
+        </div>
+        <p style="color:var(--text-muted);font-size:12px;margin:4px 0 0">
+          Zpř&iacute;stupn&iacute; tyto modely i pro primary a reasoner role.
+        </p>
+        <p id="llm-uncensored-warning" class="hidden" style="color:var(--warning);font-size:12px;margin:6px 0 0;padding:6px 10px;background:rgba(251,191,36,0.08);border-radius:6px">
+          &#9888;&#65039; Pouze pro lok&aacute;ln&iacute; experimenty. M&#367;&#382;e zhor&scaron;it spolehlivost JSON, tool-calling a zdr&zcaron;enlivost modelu.
+        </p>
+      </section>
+
       <!-- Ollama server -->
       <section class="card settings-section">
         <h2 class="card-title">&#128279; Ollama Server</h2>

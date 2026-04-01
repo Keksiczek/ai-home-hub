@@ -263,7 +263,7 @@ def resolve_model(
     profile: str,
     settings_override: str | None = None,
     *,
-    allow_uncensored: bool = False,
+    allow_uncensored: bool | None = None,
 ) -> str:
     """
     Resolve which Ollama model to use for a given profile.
@@ -271,19 +271,28 @@ def resolve_model(
 
     If the resolved model is abliterated/uncensored, it is rejected for
     reasoning profiles and the fallback model is used instead.
-    When *allow_uncensored* is True (user opt-in for chat), the blacklist
-    is bypassed.
+    When *allow_uncensored* is True (user opt-in via settings), the blacklist
+    is bypassed.  When None, the value is read from settings.
     """
     model = settings_override if settings_override else MODEL_ROUTING.get(profile, "llama3.2")
 
-    if is_abliterated_model(model) and not allow_uncensored:
-        logger.warning(
-            "Model '%s' je abliterated/uncensored — nevhodný pro structured reasoning, "
-            "přepínám na fallback '%s'",
-            model,
-            LLM_FALLBACK_MODEL,
-        )
-        return LLM_FALLBACK_MODEL
+    if is_abliterated_model(model):
+        # Resolve allow_uncensored from settings if not explicitly passed
+        if allow_uncensored is None:
+            try:
+                from app.services.settings_service import get_settings_service
+                allow_uncensored = get_settings_service().allow_uncensored_models()
+            except Exception:
+                allow_uncensored = False
+
+        if not allow_uncensored:
+            logger.warning(
+                "Model '%s' je abliterated/uncensored — nevhodný pro structured reasoning, "
+                "přepínám na fallback '%s'",
+                model,
+                LLM_FALLBACK_MODEL,
+            )
+            return LLM_FALLBACK_MODEL
 
     return model
 

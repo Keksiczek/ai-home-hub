@@ -482,7 +482,7 @@ function handleWsMessage(msg) {
   if (msg.type === 'agent_update') updateAgentCard(msg.agent);
   else if (msg.type === 'notification') handleNotificationWs(msg);
   else if (msg.type === 'ingest_progress') handleIngestProgress(msg);
-  else if (msg.type === 'job_update') handleJobUpdate(msg.job);
+  else if (msg.type === 'job_update') handleJobUpdate(msg.job || { id: msg.job_id, status: msg.status, title: msg.title });
   else if (msg.type === 'status_alert') handleStatusAlert(msg);
   else if (msg.type === 'resident_tick') handleResidentTick(msg);
   else if (msg.type === 'resident_action') handleResidentAction(msg);
@@ -4752,6 +4752,20 @@ let _jobsPollTimer = null;
 let _selectedJobId = null;
 let _jobsLimit = 50;
 
+/**
+ * Normalize jobs API response into a consistent array.
+ * Handles: {jobs:[...]}, {queue:[...]}, {items:[...]}, {data:[...]}, [...], null
+ */
+function normalizeJobsResponse(payload) {
+  if (!payload) return [];
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload.jobs)) return payload.jobs;
+  if (Array.isArray(payload.queue)) return payload.queue;
+  if (Array.isArray(payload.items)) return payload.items;
+  if (Array.isArray(payload.data)) return payload.data;
+  return [];
+}
+
 function bindJobsEvents() {
   const refreshBtn = document.getElementById('refresh-jobs-btn');
   if (refreshBtn) refreshBtn.addEventListener('click', loadJobs);
@@ -4792,6 +4806,11 @@ async function loadJobs() {
   const container = document.getElementById('jobs-list');
   if (!container) return;
 
+  // Show loading only on first load (cache empty)
+  if (_jobsCache.length === 0 && !container.querySelector('.jobs-table')) {
+    container.innerHTML = '<p class="empty-state">Načítám joby…</p>';
+  }
+
   // Read filter values
   const statusFilter = (document.getElementById('jobs-filter-status') || {}).value || '';
   const typeFilter = (document.getElementById('jobs-filter-type') || {}).value || '';
@@ -4804,7 +4823,7 @@ async function loadJobs() {
     const res = await fetch(url);
     if (!res.ok) throw new Error(await res.text());
     const data = await res.json();
-    _jobsCache = data.jobs || [];
+    _jobsCache = normalizeJobsResponse(data);
     renderJobsList(_jobsCache);
 
     // Populate type dropdown from unique types (only once if empty)
@@ -4819,7 +4838,17 @@ async function loadJobs() {
       });
     }
   } catch (err) {
-    container.innerHTML = `<div class="resident-error-box"><span>Chyba: ${escHtml(err.message)}</span><button class="btn btn--ghost btn--small" onclick="loadJobs()">Zkusit znovu</button></div>`;
+    // If primary endpoint fails, try history as fallback
+    try {
+      const fallbackRes = await fetch('/api/jobs/history?limit=20');
+      if (fallbackRes.ok) {
+        const fallbackData = await fallbackRes.json();
+        _jobsCache = normalizeJobsResponse(fallbackData);
+        renderJobsList(_jobsCache);
+        return;
+      }
+    } catch (_) { /* fallback also failed */ }
+    container.innerHTML = `<div class="resident-error-box"><span>Nepodařilo se načíst joby.</span><button class="btn btn--ghost btn--small" onclick="loadJobs()">Zkusit znovu</button></div>`;
   }
 
   // Set up polling while on jobs tab
@@ -4839,7 +4868,7 @@ function renderJobsList(jobs) {
   if (!container) return;
 
   if (!jobs.length) {
-    container.innerHTML = '<p class="empty-state">Zadne joby.</p>';
+    container.innerHTML = '<p class="empty-state">Zatím tu nejsou žádné joby.</p>';
     return;
   }
 
@@ -5037,14 +5066,30 @@ function closeJobDetail() {
 async function loadJobHistory() {
   const container = document.getElementById('job-history-list');
   if (!container) return;
+
+  // Show loading only if container is empty
+  if (!container.children.length || container.querySelector('.empty-state')) {
+    container.innerHTML = '<p class="empty-state">Načítám historii…</p>';
+  }
+
   try {
     const res = await fetch('/api/jobs/history?limit=20');
     if (!res.ok) throw new Error(await res.text());
     const data = await res.json();
-    renderJobHistory(data.jobs || []);
+    renderJobHistory(normalizeJobsResponse(data));
     loadKbStats();
   } catch (err) {
-    container.innerHTML = `<div class="resident-error-box"><span>Chyba: ${escHtml(err.message)}</span></div>`;
+    // Fallback: try mobile-summary endpoint
+    try {
+      const fallbackRes = await fetch('/api/jobs/mobile-summary?limit=20');
+      if (fallbackRes.ok) {
+        const fallbackData = await fallbackRes.json();
+        renderJobHistory(normalizeJobsResponse(fallbackData));
+        loadKbStats();
+        return;
+      }
+    } catch (_) { /* fallback also failed */ }
+    container.innerHTML = `<div class="resident-error-box"><span>Nepodařilo se načíst historii.</span><button class="btn btn--ghost btn--small" onclick="loadJobHistory()">Zkusit znovu</button></div>`;
   }
 }
 
@@ -5052,7 +5097,7 @@ function renderJobHistory(jobs) {
   const container = document.getElementById('job-history-list');
   if (!container) return;
   if (!jobs.length) {
-    container.innerHTML = '<p class="empty-state">Zatim zadna historie jobu.</p>';
+    container.innerHTML = '<p class="empty-state">Historie je zatím prázdná.</p>';
     return;
   }
 
@@ -9009,7 +9054,7 @@ async function loadControlRoom() {
       const data = await res.json();
       const el = document.getElementById('cr-jobs-list');
       if (el) {
-        const jobs = data.queue || [];
+        const jobs = normalizeJobsResponse(data);
         if (jobs.length === 0) {
           el.innerHTML = '<p class="empty-state">Žádné aktivní joby</p>';
         } else {
@@ -9565,10 +9610,10 @@ async function loadJobQueue() {
     const resp = await fetch('/api/jobs/queue');
     if (!resp.ok) throw new Error(await resp.text());
     const data = await resp.json();
-    const queue = data.queue || [];
+    const queue = normalizeJobsResponse(data);
 
     if (queue.length === 0) {
-      list.innerHTML = '<p class="empty-state">\u017d\u00e1dn\u00e9 aktivn\u00ed joby</p>';
+      list.innerHTML = '<p class="empty-state">Žádné aktivní joby</p>';
       return;
     }
 
@@ -9576,11 +9621,11 @@ async function loadJobQueue() {
       return '<div class="job-queue-item">' +
         '<span class="job-queue-title">' + escHtml(j.title) + '</span>' +
         '<span class="job-queue-status job-queue-status--' + j.status + '">' + j.status + '</span>' +
-        '<button class="btn btn--ghost btn--small" onclick="cancelJobFromQueue(\'' + j.id + '\')" title="Zru\u0161it">\u2715</button>' +
+        '<button class="btn btn--ghost btn--small" onclick="cancelJobFromQueue(\'' + j.id + '\')" title="Zrušit">\u2715</button>' +
         '</div>';
     }).join('');
   } catch (e) {
-    list.innerHTML = '<p class="empty-state">Chyba: ' + escHtml(e.message) + '</p>';
+    list.innerHTML = '<p class="empty-state">Nepodařilo se načíst frontu.</p>';
   }
 }
 
@@ -10552,15 +10597,26 @@ async function loadLLMSettingsTab() {
     const modelsData = await modelsResp.json();
     const models = modelsData.models || [];
 
-    // Populate model selects
+    // Load uncensored toggle state
+    const allowUncensored = modelsData.allow_uncensored_models || false;
+    const uncensoredToggle = document.getElementById('llm-allow-uncensored');
+    if (uncensoredToggle) uncensoredToggle.checked = allowUncensored;
+    const uncensoredWarnEl = document.getElementById('llm-uncensored-warning');
+    if (uncensoredWarnEl) uncensoredWarnEl.classList.toggle('hidden', !allowUncensored);
+
+    // Populate model selects – disable uncensored models when toggle is OFF
     const roles = ['chat', 'vision', 'code', 'agent'];
     roles.forEach(role => {
       const sel = document.getElementById('llm-' + role + '-model');
-      sel.innerHTML = models.map(m =>
-        '<option value="' + escHtml(m.name) + '"' +
-        (m.name === (settings.active_models || {})[role] ? ' selected' : '') +
-        '>' + escHtml(m.name) + '</option>'
-      ).join('');
+      sel.innerHTML = models.map(m => {
+        const isUncensored = m.is_uncensored || false;
+        const disabled = isUncensored && !allowUncensored;
+        const label = escHtml(m.name) + (isUncensored ? ' \u26A0\uFE0F uncensored' : '');
+        return '<option value="' + escHtml(m.name) + '"' +
+          (m.name === (settings.active_models || {})[role] ? ' selected' : '') +
+          (disabled ? ' disabled' : '') +
+          '>' + label + '</option>';
+      }).join('');
     });
 
     // Set parameter sliders
@@ -10617,6 +10673,28 @@ async function saveLLMSettings() {
     }
   } catch (err) {
     showToast('\u{274C} ' + err.message, 'error');
+  }
+}
+
+async function toggleUncensoredModels(enabled) {
+  const warnEl = document.getElementById('llm-uncensored-warning');
+  if (warnEl) warnEl.classList.toggle('hidden', !enabled);
+
+  try {
+    await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ settings: { llm: { allow_uncensored_models: enabled } } })
+    });
+    showToast(enabled ? 'Uncensored modely povoleny' : 'Uncensored modely zakázány', 'success');
+    // Reload model selectors to reflect new eligibility
+    loadLLMSettingsTab();
+  } catch (err) {
+    showToast('Chyba: ' + err.message, 'error');
+    // Revert toggle
+    const toggle = document.getElementById('llm-allow-uncensored');
+    if (toggle) toggle.checked = !enabled;
+    if (warnEl) warnEl.classList.toggle('hidden', enabled);
   }
 }
 
