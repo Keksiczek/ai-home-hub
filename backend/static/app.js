@@ -370,18 +370,18 @@ function initMobileChatCompact() {
 
 /**
  * ReconnectingWS – drop-in wrapper around native WebSocket that:
- *  - reconnects automatically with exponential back-off (up to 30 s)
+ *  - reconnects automatically with exponential back-off (1s→2s→4s→8s→16s→30s max)
  *  - sends a JSON ping every 30 s to keep the connection alive
- *  - updates the status indicator in three states: connected / reconnecting / disconnected
+ *  - drives the offline banner, sidebar indicator, and live-button state
  */
 class ReconnectingWS {
   constructor(url) {
     this.url = url;
     this.ws = null;
     this.reconnectAttempts = 0;
-    this.maxReconnectAttempts = 10;
-    this.reconnectDelay = 500;   // base delay (ms); doubled each retry
+    this.maxReconnectAttempts = 20;
     this.pingInterval = null;
+    this._countdownTimer = null;
     this.connect();
   }
 
@@ -389,8 +389,10 @@ class ReconnectingWS {
     this.ws = new WebSocket(this.url);
 
     this.ws.onopen = () => {
+      const wasReconnecting = this.reconnectAttempts > 0;
+      this._clearCountdown();
       this.reconnectAttempts = 0;
-      setWsStatus('connected');
+      setWsStatus('connected', wasReconnecting);
       this._startPing();
     };
 
@@ -404,7 +406,6 @@ class ReconnectingWS {
 
     this.ws.onclose = () => {
       this._stopPing();
-      setWsStatus('reconnecting');
       this._scheduleReconnect();
     };
 
@@ -430,18 +431,35 @@ class ReconnectingWS {
     }
   }
 
+  _clearCountdown() {
+    if (this._countdownTimer) {
+      clearInterval(this._countdownTimer);
+      this._countdownTimer = null;
+    }
+  }
+
   _scheduleReconnect() {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      setWsStatus('disconnected');
+      setWsStatus('failed');
       return;
     }
-    // Exponential back-off with jitter, capped at 30 s
-    const delay = Math.min(
-      this.reconnectDelay * Math.pow(2, this.reconnectAttempts) + Math.random() * 1000,
-      30000,
-    );
+    // Exponential back-off: 1s→2s→4s→8s→16s→30s (no jitter for accurate countdown)
+    const delayMs = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
     this.reconnectAttempts++;
-    setTimeout(() => this.connect(), delay);
+
+    setWsStatus('reconnecting', false, this.reconnectAttempts, Math.ceil(delayMs / 1000));
+
+    // Tick the banner countdown every second
+    let remaining = Math.ceil(delayMs / 1000);
+    this._clearCountdown();
+    this._countdownTimer = setInterval(() => {
+      remaining = Math.max(0, remaining - 1);
+      const el = document.getElementById('offline-countdown');
+      if (el) el.textContent = remaining;
+      if (remaining <= 0) this._clearCountdown();
+    }, 1000);
+
+    setTimeout(() => this.connect(), delayMs);
   }
 
   /** Send arbitrary data when the socket is open (no-op otherwise). */
@@ -463,20 +481,130 @@ function initWebSocket() {
 }
 
 /**
- * Update the sidebar status indicator.
- * @param {'connected'|'reconnecting'|'disconnected'} state
+ * Update sidebar indicator, offline banner, activity-bar status, and live-button states.
+ * @param {'connected'|'reconnecting'|'failed'} state
+ * @param {boolean} [wasReconnecting]  - true when recovering from offline
+ * @param {number}  [attempt]          - current reconnect attempt (1-based)
+ * @param {number}  [secondsLeft]      - seconds until next attempt
  */
-function setWsStatus(state) {
-  const dot = document.getElementById('ws-dot');
+function setWsStatus(state, wasReconnecting = false, attempt = 0, secondsLeft = 0) {
+  const dot   = document.getElementById('ws-dot');
   const label = document.getElementById('ws-label');
-  const map = {
-    connected:    ['ws-dot--connected',    'Live'],
-    reconnecting: ['ws-dot--reconnecting', 'Reconnecting…'],
-    disconnected: ['ws-dot--disconnected', 'Offline'],
-  };
-  const [cls, text] = map[state] || map.disconnected;
-  if (dot) dot.className = `ws-dot ${cls}`;
-  if (label) label.textContent = text;
+
+  if (state === 'connected') {
+    if (dot) {
+      dot.className = 'ws-dot ws-dot--connected ws-dot--flash';
+      setTimeout(() => dot.classList.remove('ws-dot--flash'), 400);
+    }
+    if (label) label.textContent = 'Live';
+    _hideOfflineBanner();
+    _setLiveButtonsDisabled(false);
+    _setActivityBarOfflineText(null);
+    if (wasReconnecting) {
+      // Brief green flash on the activity-bar pulse to signal recovery
+      const pulse = document.getElementById('activity-pulse');
+      if (pulse) {
+        pulse.classList.add('activity-pulse--reconnected');
+        setTimeout(() => pulse.classList.remove('activity-pulse--reconnected'), 400);
+      }
+    }
+
+  } else if (state === 'reconnecting') {
+    if (dot) dot.className = 'ws-dot ws-dot--reconnecting';
+    if (label) label.textContent = `Reconn. (${attempt}/20)`;
+    _showOfflineBanner(attempt, secondsLeft);
+    _setLiveButtonsDisabled(true);
+    _setActivityBarOfflineText(`🔄 Reconnecting (${attempt}/20)…`);
+
+  } else { // 'failed'
+    if (dot) dot.className = 'ws-dot ws-dot--disconnected';
+    if (label) label.textContent = 'Offline';
+    _showOfflineBannerFailed();
+    _setLiveButtonsDisabled(true);
+    _setActivityBarOfflineText('⚠️ Připojení selhalo');
+  }
+}
+
+/** Show the yellow sticky banner with live countdown. */
+function _showOfflineBanner(attempt, secondsLeft) {
+  const banner = document.getElementById('offline-banner');
+  const text   = document.getElementById('offline-banner-text');
+  if (!banner) return;
+  if (text) text.innerHTML =
+    `⚡ Offline – reconnecting in <span id="offline-countdown">${secondsLeft}</span>s… (${attempt}/20)`;
+  banner.classList.remove('offline-banner--hiding');
+  banner.hidden = false;
+  requestAnimationFrame(() => _adjustActivityBarTop());
+}
+
+/** Replace the banner with a permanent failure message. */
+function _showOfflineBannerFailed() {
+  const banner = document.getElementById('offline-banner');
+  const text   = document.getElementById('offline-banner-text');
+  if (!banner) return;
+  if (text) text.textContent = '⚠️ Připojení selhalo – zkus obnovit stránku';
+  banner.classList.remove('offline-banner--hiding');
+  banner.hidden = false;
+  requestAnimationFrame(() => _adjustActivityBarTop());
+}
+
+/** Slide the banner up and hide it. */
+function _hideOfflineBanner() {
+  const banner = document.getElementById('offline-banner');
+  if (!banner || banner.hidden) return;
+  banner.classList.add('offline-banner--hiding');
+  setTimeout(() => {
+    banner.hidden = true;
+    banner.classList.remove('offline-banner--hiding');
+    _adjustActivityBarTop();
+  }, 260);
+}
+
+/**
+ * Keep the activity bar below the offline banner so they don't overlap.
+ * Both are `position: sticky; top: 0`, so we offset the bar by the banner height.
+ */
+function _adjustActivityBarTop() {
+  const banner      = document.getElementById('offline-banner');
+  const activityBar = document.getElementById('activity-bar');
+  if (!activityBar) return;
+  activityBar.style.top = (banner && !banner.hidden) ? `${banner.offsetHeight}px` : '0';
+}
+
+/** Show or clear the reconnect status text inside the activity bar. */
+function _setActivityBarOfflineText(text) {
+  const el = document.getElementById('activity-ws-offline');
+  if (!el) return;
+  if (text) {
+    el.textContent = text;
+    el.classList.remove('hidden');
+  } else {
+    el.classList.add('hidden');
+  }
+}
+
+/** Disable/enable buttons that require a live WebSocket connection. */
+function _setLiveButtonsDisabled(disabled) {
+  const ids = [
+    'resident-trigger-reasoning-btn',
+    'job-run-now-btn',
+    'cleanup-run-now-btn',
+    'retention-run-btn',
+  ];
+  const offlineTitle = 'Offline – nedostupné bez živého připojení';
+  ids.forEach(id => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    if (disabled) {
+      if (!btn.dataset.origTitle) btn.dataset.origTitle = btn.title || '';
+      btn.disabled = true;
+      btn.title = offlineTitle;
+    } else {
+      btn.disabled = false;
+      btn.title = btn.dataset.origTitle || '';
+      delete btn.dataset.origTitle;
+    }
+  });
 }
 
 function handleWsMessage(msg) {

@@ -125,6 +125,11 @@
   <!-- ===== MAIN CONTENT ===== -->
   <main class="main-content" id="main-content">
 
+    <!-- ===== OFFLINE RECONNECT BANNER ===== -->
+    <div class="offline-banner" id="offline-banner" role="alert" aria-live="assertive" hidden>
+      <span id="offline-banner-text">&#9889; Offline – reconnecting in <span id="offline-countdown">5</span>s&hellip;</span>
+    </div>
+
     <!-- ===== LIVE ACTIVITY BAR ===== -->
     <div class="activity-bar" id="activity-bar">
       <span class="activity-pulse" id="activity-pulse"></span>
@@ -144,6 +149,8 @@
         <span class="activity-divider">|</span>&#128188; Jobs: <span id="act-active-jobs-m">?</span>
         <span class="activity-divider">|</span>&#128257; <span id="act-agent-cycles">?</span> cyklů
       </span>
+      <!-- WS reconnect status – hidden when connected, shown when offline -->
+      <span class="activity-item activity-ws-offline hidden" id="activity-ws-offline"></span>
     </div>
 
     <!-- ======================== CHAT TAB ======================== -->
