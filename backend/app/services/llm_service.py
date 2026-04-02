@@ -28,6 +28,7 @@ from app.utils.circuit_breaker import (
 )
 from app.utils.constants import (
     ABLITERATED_MODEL_TAGS,
+    BLOCKED_MODEL_NAMES,
     LLM_CPU_BACKEND,
     LLM_FALLBACK_MODEL,
     LLM_MAX_CONCURRENT_REQUESTS,
@@ -254,9 +255,13 @@ def get_model_quality_info(model_name: str) -> dict:
 
 
 def is_abliterated_model(model_name: str) -> bool:
-    """Check if a model name contains abliterated/uncensored tags."""
+    """Check if a model name contains abliterated/uncensored tags or is explicitly blocked."""
     name_lower = model_name.lower()
-    return any(tag in name_lower for tag in ABLITERATED_MODEL_TAGS)
+    # Check substring tags
+    if any(tag in name_lower for tag in ABLITERATED_MODEL_TAGS):
+        return True
+    # Check explicit blocklist (prefix match, case-insensitive)
+    return any(name_lower.startswith(blocked) for blocked in BLOCKED_MODEL_NAMES)
 
 
 def resolve_model(

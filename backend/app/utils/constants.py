@@ -100,13 +100,13 @@ LLM_FALLBACK_MODEL: str = __import__("os").environ.get(
 #: Timeouts (seconds) per logical request type.  Overridable per-type via
 #: LLM_TIMEOUT_CHAT_STREAM / LLM_TIMEOUT_AGENT_STEP / LLM_TIMEOUT_BACKGROUND_JOB.
 LLM_TIMEOUT_CHAT_STREAM: float = float(
-    __import__("os").environ.get("LLM_TIMEOUT_CHAT_STREAM", "90")
+    __import__("os").environ.get("LLM_TIMEOUT_CHAT_STREAM", "45")
 )
 LLM_TIMEOUT_AGENT_STEP: float = float(
-    __import__("os").environ.get("LLM_TIMEOUT_AGENT_STEP", "90")
+    __import__("os").environ.get("LLM_TIMEOUT_AGENT_STEP", "60")
 )
 LLM_TIMEOUT_BACKGROUND_JOB: float = float(
-    __import__("os").environ.get("LLM_TIMEOUT_BACKGROUND_JOB", "180")
+    __import__("os").environ.get("LLM_TIMEOUT_BACKGROUND_JOB", "120")
 )
 
 #: Timeout (seconds) for embedding HTTP requests.  Embedding on CPU with a
@@ -135,6 +135,14 @@ ABLITERATED_MODEL_TAGS: tuple[str, ...] = (
     "abliterated",
     "abliterate",
     "uncensored",
+    "huihui",
+)
+
+# Explicit model names that must never be selected for reasoner/chat,
+# regardless of tag matching.  Checked via exact prefix match.
+BLOCKED_MODEL_NAMES: tuple[str, ...] = (
+    "hf.co/quantfactory/llama-3.2-3b-instruct-abliterated-gguf",
+    "huihui.ai/llama3.2-abliterate3b-instruct",
 )
 
 # ── Proactive check throttled timeout ────────────────────────────────────────

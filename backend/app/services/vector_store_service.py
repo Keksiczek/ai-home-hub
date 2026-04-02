@@ -10,6 +10,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+import os
+
+# Disable ChromaDB/Posthog telemetry via env before importing chromadb
+os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
+os.environ.setdefault("CHROMA_TELEMETRY_IMPL", "none")
+
 import chromadb
 from chromadb.config import Settings
 

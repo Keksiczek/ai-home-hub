@@ -139,7 +139,11 @@ async def _check_embedding_dim(
             async with httpx.AsyncClient(timeout=60.0) as client:
                 resp = await client.post(
                     f"{ollama_url}{ep_path}",
-                    json={"model": model, "input": "startup dim probe"},
+                    json={
+                        "model": model,
+                        "input": "startup dim probe",
+                        "options": {"num_ctx": 2048},
+                    },
                 )
                 if resp.status_code == 404:
                     continue
@@ -253,12 +257,13 @@ async def run_startup_checks(ollama_url: str) -> Dict[str, Any]:
         result["ollama_models"] = available_models
 
         # Warn about abliterated/uncensored models
-        from app.utils.constants import ABLITERATED_MODEL_TAGS
+        from app.utils.constants import ABLITERATED_MODEL_TAGS, BLOCKED_MODEL_NAMES
 
         abliterated_models = [
             m
             for m in available_models
             if any(tag in m.lower() for tag in ABLITERATED_MODEL_TAGS)
+            or any(m.lower().startswith(b) for b in BLOCKED_MODEL_NAMES)
         ]
         if abliterated_models:
             logger.warning(

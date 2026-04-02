@@ -187,8 +187,8 @@ class NotificationService:
         try:
             cfg = self._settings.get_notification_config()
             if cfg.get("enabled", False):
-                # Check notification type filters
-                if not self._should_push_ntfy(cfg, source, level, importance):
+                # Check notification type filters (with granular categories)
+                if not self._should_push_ntfy(cfg, source, level, importance, title=title):
                     pass  # Skip ntfy push based on filters
                 else:
                     # Check ntfy quiet hours
@@ -199,10 +199,10 @@ class NotificationService:
                         topic = cfg.get("topic", "ai-home-hub")
                         url = f"{ntfy_url}/{topic}"
 
-                        # Map priority
+                        # Map priority – prefer per-category priority, then caller, then global default
                         ntfy_priority = priority
                         if ntfy_priority == "default":
-                            ntfy_priority = cfg.get("ntfy_priority_default", "default")
+                            ntfy_priority = self._get_category_priority(cfg, source, level, title=title)
 
                         headers = {
                             "Title": title,
@@ -230,15 +230,56 @@ class NotificationService:
 
         return True
 
+    def _resolve_category(self, source: str, level: str, title: str = "") -> str:
+        """Map source + level + title to a notification category key."""
+        title_lower = title.lower()
+
+        if source == "resource_monitor":
+            return "resource_warnings"
+        if source == "system" and level == "alert":
+            return "system_errors"
+        if source == "job_worker":
+            if level == "alert" or "selhal" in title_lower or "failed" in title_lower:
+                return "job_failed"
+            return "job_succeeded"
+        if source == "agent":
+            return "agent_complete"
+        if source == "resident_agent":
+            if "block" in title_lower or "paused" in title_lower:
+                return "resident_blocked"
+            return "resident_action"
+        if source == "kb" or "reindex" in title_lower or "kb" in title_lower:
+            return "kb_changes"
+        if source == "night_scheduler" or "noční" in title_lower or "nightly" in title_lower:
+            return "night_jobs"
+        if source == "llm" or "timeout" in title_lower or "ollama" in title_lower:
+            return "llm_errors"
+
+        # Fall back to legacy source-based check
+        return ""
+
     def _should_push_ntfy(
-        self, cfg: dict, source: str, level: str, importance: int
+        self, cfg: dict, source: str, level: str, importance: int,
+        title: str = "",
     ) -> bool:
-        """Check if this notification should be pushed to ntfy based on filter settings."""
+        """Check if this notification should be pushed to ntfy based on filter settings.
+
+        Uses the new granular ``categories`` config if available, falling back
+        to the legacy ``notify_on_*`` boolean flags for backward compatibility.
+        """
         min_imp = cfg.get("min_importance", 6)
         if importance < min_imp:
             return False
 
-        # Source-based filters
+        # Try new granular categories first
+        categories = cfg.get("categories", {})
+        if categories:
+            category = self._resolve_category(source, level, title)
+            if category and category in categories:
+                cat_cfg = categories[category]
+                return cat_cfg.get("enabled", False)
+
+        # Legacy fallback: simple boolean flags
         if source == "system" and level == "alert" and cfg.get("notify_on_error", True):
             return True
         if source == "agent" and cfg.get("notify_on_agent_complete", False):
@@ -252,6 +293,15 @@ class NotificationService:
 
         # Default: push if importance is high enough
         return importance >= min_imp
+
+    def _get_category_priority(self, cfg: dict, source: str, level: str, title: str = "") -> str:
+        """Get the per-category ntfy priority, falling back to the global default."""
+        categories = cfg.get("categories", {})
+        if categories:
+            category = self._resolve_category(source, level, title)
+            if category and category in categories:
+                return categories[category].get("priority", cfg.get("ntfy_priority_default", "default"))
+        return cfg.get("ntfy_priority_default", "default")
 
     def _is_ntfy_quiet_hours(self, cfg: dict) -> bool:
         """Check if current time is within ntfy quiet hours."""

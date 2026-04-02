@@ -113,7 +113,11 @@ class EmbeddingsService:
                     ) as client:
                         resp = await client.post(
                             f"{ollama_url}{ep_path}",
-                            json={"model": model, "input": text},
+                            json={
+                                "model": model,
+                                "input": text,
+                                "options": {"num_ctx": 2048},
+                            },
                         )
                         if resp.status_code == 404:
                             logger.debug(

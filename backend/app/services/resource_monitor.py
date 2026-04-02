@@ -145,7 +145,6 @@ class ResourceMonitor:
                     if policy.tier.value == "critical":
                         try:
                             from app.services.notification_service import get_notification_service
-                            import asyncio
                             asyncio.create_task(
                                 get_notification_service().notify_resource_critical(
                                     policy.tier.value, snap.ram_used_percent

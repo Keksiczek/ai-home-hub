@@ -2240,6 +2240,131 @@
           <input type="text" class="input" id="ntfy-tab-server" placeholder="https://ntfy.sh" />
         </div>
 
+        <div class="form-group">
+          <label class="form-label" for="ntfy-tab-token">Auth token (voliteln&#233;):</label>
+          <input type="password" class="input" id="ntfy-tab-token" placeholder="ntfy token" />
+        </div>
+
+        <!-- Granular notification categories -->
+        <div style="margin-top:1rem;border-top:1px solid var(--border);padding-top:0.75rem">
+          <h3 style="font-size:0.95rem;margin-bottom:0.5rem">Na co chci dost&aacute;vat notifikace:</h3>
+
+          <div class="form-group" style="margin-bottom:0.25rem">
+            <label class="form-label" style="display:flex;align-items:center;gap:0.5rem">
+              <input type="checkbox" id="ntfy-cat-system_errors" />
+              <span>Syst&eacute;mov&eacute; chyby a p&aacute;dy slu&#382;eb</span>
+              <select class="select" id="ntfy-pri-system_errors" style="width:auto;margin-left:auto;font-size:0.8rem;padding:2px 6px">
+                <option value="low">Low</option><option value="default">Default</option><option value="high" selected>High</option><option value="urgent">Urgent</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="form-group" style="margin-bottom:0.25rem">
+            <label class="form-label" style="display:flex;align-items:center;gap:0.5rem">
+              <input type="checkbox" id="ntfy-cat-resource_warnings" />
+              <span>RAM/CPU nad limitem, throttle</span>
+              <select class="select" id="ntfy-pri-resource_warnings" style="width:auto;margin-left:auto;font-size:0.8rem;padding:2px 6px">
+                <option value="low">Low</option><option value="default">Default</option><option value="high" selected>High</option><option value="urgent">Urgent</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="form-group" style="margin-bottom:0.25rem">
+            <label class="form-label" style="display:flex;align-items:center;gap:0.5rem">
+              <input type="checkbox" id="ntfy-cat-llm_errors" />
+              <span>LLM / Ollama timeouty a chyby</span>
+              <select class="select" id="ntfy-pri-llm_errors" style="width:auto;margin-left:auto;font-size:0.8rem;padding:2px 6px">
+                <option value="low">Low</option><option value="default" selected>Default</option><option value="high">High</option><option value="urgent">Urgent</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="form-group" style="margin-bottom:0.25rem">
+            <label class="form-label" style="display:flex;align-items:center;gap:0.5rem">
+              <input type="checkbox" id="ntfy-cat-job_failed" />
+              <span>Selh&aacute;n&iacute; background job&#367;</span>
+              <select class="select" id="ntfy-pri-job_failed" style="width:auto;margin-left:auto;font-size:0.8rem;padding:2px 6px">
+                <option value="low">Low</option><option value="default">Default</option><option value="high" selected>High</option><option value="urgent">Urgent</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="form-group" style="margin-bottom:0.25rem">
+            <label class="form-label" style="display:flex;align-items:center;gap:0.5rem">
+              <input type="checkbox" id="ntfy-cat-job_succeeded" />
+              <span>&#218;sp&#283;&#353;n&eacute; dokon&#269;en&iacute; job&#367;</span>
+              <select class="select" id="ntfy-pri-job_succeeded" style="width:auto;margin-left:auto;font-size:0.8rem;padding:2px 6px">
+                <option value="low">Low</option><option value="default" selected>Default</option><option value="high">High</option><option value="urgent">Urgent</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="form-group" style="margin-bottom:0.25rem">
+            <label class="form-label" style="display:flex;align-items:center;gap:0.5rem">
+              <input type="checkbox" id="ntfy-cat-resident_action" />
+              <span>Akce rezidentn&iacute;ho agenta</span>
+              <select class="select" id="ntfy-pri-resident_action" style="width:auto;margin-left:auto;font-size:0.8rem;padding:2px 6px">
+                <option value="low">Low</option><option value="default" selected>Default</option><option value="high">High</option><option value="urgent">Urgent</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="form-group" style="margin-bottom:0.25rem">
+            <label class="form-label" style="display:flex;align-items:center;gap:0.5rem">
+              <input type="checkbox" id="ntfy-cat-resident_blocked" />
+              <span>Agent blokov&aacute;n (zdroje, quiet hours)</span>
+              <select class="select" id="ntfy-pri-resident_blocked" style="width:auto;margin-left:auto;font-size:0.8rem;padding:2px 6px">
+                <option value="low">Low</option><option value="default" selected>Default</option><option value="high">High</option><option value="urgent">Urgent</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="form-group" style="margin-bottom:0.25rem">
+            <label class="form-label" style="display:flex;align-items:center;gap:0.5rem">
+              <input type="checkbox" id="ntfy-cat-agent_complete" />
+              <span>Dokon&#269;en&iacute; orchestrovan&eacute;ho agenta</span>
+              <select class="select" id="ntfy-pri-agent_complete" style="width:auto;margin-left:auto;font-size:0.8rem;padding:2px 6px">
+                <option value="low">Low</option><option value="default" selected>Default</option><option value="high">High</option><option value="urgent">Urgent</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="form-group" style="margin-bottom:0.25rem">
+            <label class="form-label" style="display:flex;align-items:center;gap:0.5rem">
+              <input type="checkbox" id="ntfy-cat-kb_changes" />
+              <span>Zm&#283;ny v Knowledge Base</span>
+              <select class="select" id="ntfy-pri-kb_changes" style="width:auto;margin-left:auto;font-size:0.8rem;padding:2px 6px">
+                <option value="low" selected>Low</option><option value="default">Default</option><option value="high">High</option><option value="urgent">Urgent</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="form-group" style="margin-bottom:0.25rem">
+            <label class="form-label" style="display:flex;align-items:center;gap:0.5rem">
+              <input type="checkbox" id="ntfy-cat-night_jobs" />
+              <span>No&#269;n&iacute; batch joby</span>
+              <select class="select" id="ntfy-pri-night_jobs" style="width:auto;margin-left:auto;font-size:0.8rem;padding:2px 6px">
+                <option value="low" selected>Low</option><option value="default">Default</option><option value="high">High</option><option value="urgent">Urgent</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <!-- Quiet hours -->
+        <div style="margin-top:0.75rem;border-top:1px solid var(--border);padding-top:0.75rem">
+          <div class="form-group" style="margin-bottom:0.25rem">
+            <label class="form-label">
+              <input type="checkbox" id="ntfy-tab-quiet-hours" /> Tich&eacute; hodiny (ne push)
+            </label>
+          </div>
+          <div style="display:flex;gap:0.5rem;align-items:center">
+            <label class="form-label" for="ntfy-tab-quiet-start" style="min-width:2rem">Od:</label>
+            <input type="time" class="input" id="ntfy-tab-quiet-start" value="22:00" style="width:auto" />
+            <label class="form-label" for="ntfy-tab-quiet-end" style="min-width:2rem">Do:</label>
+            <input type="time" class="input" id="ntfy-tab-quiet-end" value="07:00" style="width:auto" />
+          </div>
+        </div>
+
         <div style="display:flex;gap:0.5rem;align-items:center;margin-top:0.75rem">
           <button class="btn btn--primary btn--small" id="save-ntfy-btn">Ulo&#382;it</button>
           <button class="btn btn--ghost btn--small" id="test-ntfy-btn">&#128241; Test notifikace</button>
