@@ -135,7 +135,6 @@ ABLITERATED_MODEL_TAGS: tuple[str, ...] = (
     "abliterated",
     "abliterate",
     "uncensored",
-    "dolphin",
     "huihui",
 )
 

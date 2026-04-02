@@ -137,14 +137,12 @@ async def _check_embedding_dim(
     for ep_path in ("/api/embed", "/api/embeddings"):
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
-                # Cap context to model training limit (nomic-embed-text: 2048)
-                embed_ctx = 2048 if "nomic" in model.lower() else 2048
                 resp = await client.post(
                     f"{ollama_url}{ep_path}",
                     json={
                         "model": model,
                         "input": "startup dim probe",
-                        "options": {"num_ctx": embed_ctx},
+                        "options": {"num_ctx": 2048},
                     },
                 )
                 if resp.status_code == 404:

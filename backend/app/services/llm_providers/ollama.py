@@ -127,8 +127,8 @@ class OllamaProvider(LLMProvider):
         *,
         num_ctx: int = 2048,
     ) -> List[float]:
-        # Cap context to model's training limit (nomic-embed-text: 2048)
-        effective_ctx = min(num_ctx, 2048) if "nomic" in model.lower() else num_ctx
+        # Safety clamp: nomic-embed-text trained on 2048, never exceed that
+        effective_ctx = min(num_ctx, 2048)
         payload: Dict[str, Any] = {
             "model": model,
             "input": text,
