@@ -200,6 +200,7 @@ class JobWorker(BackgroundService):
         self._running_job_ids: Set[str] = set()
         self._cancel_requested: Set[str] = set()
         self._night_scheduler = NightScheduler(job_service, get_settings, broadcast_fn)
+        self._tick_count: int = 0
 
     def set_broadcast(self, fn: Callable[[Dict[str, Any]], Coroutine]) -> None:
         self._broadcast_fn = fn
@@ -399,7 +400,14 @@ class JobWorker(BackgroundService):
 
     async def _tick(self) -> None:
         """Poll for queued jobs and dispatch them, then sleep until the next poll."""
+        self._tick_count += 1
         try:
+            # Run stale job cleanup every ~10 minutes (60 ticks × 10s)
+            if self._tick_count % 60 == 0:
+                try:
+                    self._job_service.cleanup_stale_queued_jobs()
+                except Exception as exc:
+                    logger.warning("Job cleanup error: %s", exc)
             await self._poll_and_dispatch()
         except Exception as exc:
             logger.error("JobWorker poll error: %s", exc, exc_info=True)
@@ -407,7 +415,7 @@ class JobWorker(BackgroundService):
 
     async def _poll_and_dispatch(self) -> None:
         job_settings = self._get_settings()
-        max_concurrent = job_settings.get("max_concurrent_jobs", 1)
+        max_concurrent = min(job_settings.get("max_concurrent_jobs", 1), 1)  # hard cap: 1 on this HW
 
         # Check how many slots are available
         running_count = len(self._running_job_ids)
@@ -468,6 +476,8 @@ async def start_job_worker(
 
     # Reset stale running jobs from previous server run
     job_service.reset_stale_running_jobs()
+    # Clean up old queued jobs on startup
+    job_service.cleanup_stale_queued_jobs()
 
     _job_worker = JobWorker(job_service, get_settings, broadcast_fn)
     return _job_worker.start()

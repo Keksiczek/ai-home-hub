@@ -111,9 +111,16 @@ class EmbeddingsService:
                     async with httpx.AsyncClient(
                         timeout=LLM_TIMEOUT_EMBEDDING
                     ) as client:
+                        # Cap num_ctx to model training limit
+                        # nomic-embed-text is trained on 2048 tokens
+                        embed_ctx = 2048 if "nomic" in model.lower() else 2048
                         resp = await client.post(
                             f"{ollama_url}{ep_path}",
-                            json={"model": model, "input": text},
+                            json={
+                                "model": model,
+                                "input": text,
+                                "options": {"num_ctx": embed_ctx},
+                            },
                         )
                         if resp.status_code == 404:
                             logger.debug(

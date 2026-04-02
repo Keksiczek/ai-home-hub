@@ -125,12 +125,14 @@ class OllamaProvider(LLMProvider):
         text: str,
         model: str,
         *,
-        num_ctx: int = 512,
+        num_ctx: int = 2048,
     ) -> List[float]:
+        # Cap context to model's training limit (nomic-embed-text: 2048)
+        effective_ctx = min(num_ctx, 2048) if "nomic" in model.lower() else num_ctx
         payload: Dict[str, Any] = {
             "model": model,
             "input": text,
-            "options": {"num_ctx": num_ctx},
+            "options": {"num_ctx": effective_ctx},
         }
         for endpoint in ("/api/embed", "/api/embeddings"):
             try:

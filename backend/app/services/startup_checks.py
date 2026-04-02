@@ -137,9 +137,15 @@ async def _check_embedding_dim(
     for ep_path in ("/api/embed", "/api/embeddings"):
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
+                # Cap context to model training limit (nomic-embed-text: 2048)
+                embed_ctx = 2048 if "nomic" in model.lower() else 2048
                 resp = await client.post(
                     f"{ollama_url}{ep_path}",
-                    json={"model": model, "input": "startup dim probe"},
+                    json={
+                        "model": model,
+                        "input": "startup dim probe",
+                        "options": {"num_ctx": embed_ctx},
+                    },
                 )
                 if resp.status_code == 404:
                     continue
@@ -253,12 +259,13 @@ async def run_startup_checks(ollama_url: str) -> Dict[str, Any]:
         result["ollama_models"] = available_models
 
         # Warn about abliterated/uncensored models
-        from app.utils.constants import ABLITERATED_MODEL_TAGS
+        from app.utils.constants import ABLITERATED_MODEL_TAGS, BLOCKED_MODEL_NAMES
 
         abliterated_models = [
             m
             for m in available_models
             if any(tag in m.lower() for tag in ABLITERATED_MODEL_TAGS)
+            or any(m.lower().startswith(b) for b in BLOCKED_MODEL_NAMES)
         ]
         if abliterated_models:
             logger.warning(

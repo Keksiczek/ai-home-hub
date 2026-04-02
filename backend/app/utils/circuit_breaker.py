@@ -212,8 +212,8 @@ def get_timeout_for_request(request_type: str, model: str = "") -> float:
     """Return the appropriate Ollama timeout (seconds) for *request_type*.
 
     request_type values:
-        ``"chat_stream"``     – 25 s  (streaming chat, fast first token)
-        ``"agent_step"``      – 40 s  (agent orchestration step)
+        ``"chat_stream"``     – 45 s  (streaming chat, fast first token)
+        ``"agent_step"``      – 60 s  (agent orchestration step)
         ``"background_job"``  – 120 s (summarisation, KB indexing, overnight)
         anything else         – falls back to ``"agent_step"`` timeout
 

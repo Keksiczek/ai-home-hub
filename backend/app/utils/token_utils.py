@@ -15,9 +15,9 @@ def estimate_messages_tokens(messages: List[Dict[str, str]]) -> int:
 
 # Known context limits for common Ollama models
 _MODEL_CONTEXT_LIMITS: Dict[str, int] = {
-    "llama3.2": 8192,
-    "llama3.2:1b": 8192,
-    "llama3.2:3b": 8192,
+    "llama3.2": 4096,  # 8192 native, but 4096 safer on 8GB CPU-only
+    "llama3.2:1b": 4096,
+    "llama3.2:3b": 4096,
     "llama3.1": 131072,
     "llama3.1:8b": 131072,
     "llama3.1:70b": 131072,
@@ -25,11 +25,13 @@ _MODEL_CONTEXT_LIMITS: Dict[str, int] = {
     "phi3": 4096,
     "phi3.5": 4096,
     "gemma2": 8192,
-    "qwen2.5": 32768,
+    "qwen2.5": 4096,  # 32768 native, but 4096 for CPU-only
+    "qwen2.5-coder": 4096,
     "llava": 4096,
     "llava:7b": 4096,
     "deepseek-coder": 16384,
     "codellama": 16384,
+    "nomic-embed-text": 2048,  # trained on 2048, do not exceed
 }
 
 
@@ -39,7 +41,7 @@ def get_model_context_limit(model_name: str) -> int:
     for key, limit in _MODEL_CONTEXT_LIMITS.items():
         if name.startswith(key):
             return limit
-    return 4096  # conservative default
+    return 2048  # conservative default for CPU-only / unknown models
 
 
 def trim_messages_to_fit(

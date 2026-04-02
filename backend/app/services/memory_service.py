@@ -7,10 +7,15 @@ in a dedicated ChromaDB collection named "memory".
 
 import asyncio
 import logging
+import os
 import uuid
 from datetime import datetime, timezone
 from dataclasses import dataclass, asdict
 from typing import Any, Callable, Dict, List, Optional
+
+# Disable ChromaDB/Posthog telemetry via env before importing chromadb
+os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
+os.environ.setdefault("CHROMA_TELEMETRY_IMPL", "none")
 
 import chromadb
 from chromadb.config import Settings

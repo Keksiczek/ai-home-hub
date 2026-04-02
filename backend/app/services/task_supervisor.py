@@ -7,8 +7,8 @@ from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-_MAX_RESTARTS = 3
-_MAX_BACKOFF_S = 60
+_MAX_RESTARTS = 0  # 0 = unlimited restarts (never give up)
+_MAX_BACKOFF_S = 300  # cap at 5 minutes between retries
 
 # Patchable sleep for testing
 _sleep = asyncio.sleep
@@ -109,7 +109,11 @@ class TaskSupervisor:
             elif task.cancelled():
                 state = "cancelled"
             elif task.exception() is not None:
-                state = "error"
+                # If a pending restart is scheduled, report as "restarting"
+                if entry._pending_restart and not entry._pending_restart.done():
+                    state = "restarting"
+                else:
+                    state = "error"
             else:
                 state = "done"
             result[name] = {
@@ -153,7 +157,7 @@ class TaskSupervisor:
                 )
                 return
 
-            if entry.restart_count >= _MAX_RESTARTS:
+            if _MAX_RESTARTS > 0 and entry.restart_count >= _MAX_RESTARTS:
                 logger.critical(
                     "TaskSupervisor: task %r has crashed %d times (max %d); "
                     "giving up – feature may be unavailable",
@@ -162,6 +166,20 @@ class TaskSupervisor:
                     _MAX_RESTARTS,
                 )
                 return
+
+            # Log escalating severity based on restart count
+            if entry.restart_count >= 10:
+                logger.error(
+                    "TaskSupervisor: task %r has crashed %d times – still retrying with backoff",
+                    name,
+                    entry.restart_count,
+                )
+            elif entry.restart_count >= 5:
+                logger.warning(
+                    "TaskSupervisor: task %r has crashed %d times – still retrying",
+                    name,
+                    entry.restart_count,
+                )
 
             # Exponential backoff: 1s, 2s, 4s, …, capped at 60s
             delay = min(2**entry.restart_count, _MAX_BACKOFF_S)

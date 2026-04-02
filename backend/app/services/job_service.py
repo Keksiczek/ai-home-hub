@@ -4,7 +4,7 @@ import json
 import logging
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -191,6 +191,54 @@ class JobService:
                 return True
         return False
 
+    def cleanup_stale_queued_jobs(self) -> int:
+        """Cancel queued jobs that are older than STALE_JOB_DAYS or exceed queue depth limits.
+
+        Returns number of jobs cancelled.
+        """
+        cancelled = 0
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(days=STALE_JOB_DAYS)
+        ).isoformat()
+
+        with self._lock:
+            jobs = self._read_raw()
+            # 1. Cancel stale queued jobs (any type)
+            for j in jobs:
+                if (
+                    j.get("status") == "queued"
+                    and j.get("created_at", "") < cutoff
+                ):
+                    j["status"] = "cancelled"
+                    j["last_error"] = f"Auto-cancelled: queued > {STALE_JOB_DAYS} days"
+                    j["finished_at"] = _now()
+                    cancelled += 1
+
+            # 2. Enforce max queued low-priority jobs (keep newest, cancel oldest)
+            low_prio_queued = [
+                j for j in jobs
+                if j.get("status") == "queued"
+                and j.get("type") in LOW_PRIORITY_JOB_TYPES
+            ]
+            # Sort oldest first
+            low_prio_queued.sort(key=lambda j: j.get("created_at", ""))
+            excess = len(low_prio_queued) - MAX_QUEUED_LOW_PRIORITY
+            if excess > 0:
+                for j in low_prio_queued[:excess]:
+                    j["status"] = "cancelled"
+                    j["last_error"] = (
+                        f"Auto-cancelled: exceeded max {MAX_QUEUED_LOW_PRIORITY} "
+                        f"queued low-priority jobs"
+                    )
+                    j["finished_at"] = _now()
+                    cancelled += 1
+
+            if cancelled:
+                self._write_raw(jobs)
+        if cancelled:
+            logger.info("Job queue cleanup: cancelled %d stale/excess jobs", cancelled)
+        return cancelled
+
     def reset_stale_running_jobs(self) -> int:
         """On startup, reset any 'running' jobs back to 'queued'
         (they were interrupted by a server restart)."""
@@ -209,6 +257,15 @@ class JobService:
         if count:
             logger.info("Reset %d stale running jobs back to queued", count)
         return count
+
+
+# ── Job queue governance constants ────────────────────────────────────────────
+# Maximum number of queued low-priority jobs before old ones are auto-cancelled.
+MAX_QUEUED_LOW_PRIORITY: int = 10
+# Jobs older than this many days in "queued" status are auto-cancelled.
+STALE_JOB_DAYS: int = 7
+# Low-priority job types subject to governance limits
+LOW_PRIORITY_JOB_TYPES: set = {"git_sweep", "kb_reindex", "nightly_summary"}
 
 
 def _now() -> str:
