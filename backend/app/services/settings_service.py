@@ -119,6 +119,59 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         "quiet_hours_enabled": False,
         "quiet_hours_start": "22:00",
         "quiet_hours_end": "07:00",
+        # ── Granular notification categories ──
+        "categories": {
+            "system_errors": {
+                "enabled": True,
+                "priority": "high",
+                "description": "Systémové chyby a pády služeb",
+            },
+            "resource_warnings": {
+                "enabled": True,
+                "priority": "high",
+                "description": "RAM/CPU nad limitem, resource throttle",
+            },
+            "job_failed": {
+                "enabled": True,
+                "priority": "high",
+                "description": "Selhání background jobů",
+            },
+            "job_succeeded": {
+                "enabled": False,
+                "priority": "default",
+                "description": "Úspěšné dokončení background jobů",
+            },
+            "resident_action": {
+                "enabled": False,
+                "priority": "default",
+                "description": "Akce rezidentního agenta",
+            },
+            "resident_blocked": {
+                "enabled": False,
+                "priority": "default",
+                "description": "Agent blokován (zdroje, quiet hours)",
+            },
+            "agent_complete": {
+                "enabled": False,
+                "priority": "default",
+                "description": "Dokončení orchestrovaného agenta",
+            },
+            "kb_changes": {
+                "enabled": False,
+                "priority": "low",
+                "description": "Změny v Knowledge Base (reindex, rebuild)",
+            },
+            "night_jobs": {
+                "enabled": False,
+                "priority": "low",
+                "description": "Start/dokončení nočních batch jobů",
+            },
+            "llm_errors": {
+                "enabled": True,
+                "priority": "default",
+                "description": "Timeouty a chyby LLM / Ollama",
+            },
+        },
     },
     "agents": {
         "max_concurrent": 3,

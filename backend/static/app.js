@@ -2801,6 +2801,21 @@ async function loadSettings() {
     setChecked('ntfy-tab-enabled', s.notifications?.enabled);
     setVal('ntfy-tab-topic', s.notifications?.topic || '');
     setVal('ntfy-tab-server', s.notifications?.ntfy_url || 'https://ntfy.sh');
+    setVal('ntfy-tab-token', s.notifications?.ntfy_token || '');
+    // Quiet hours
+    setChecked('ntfy-tab-quiet-hours', s.notifications?.quiet_hours_enabled);
+    setVal('ntfy-tab-quiet-start', s.notifications?.quiet_hours_start || '22:00');
+    setVal('ntfy-tab-quiet-end', s.notifications?.quiet_hours_end || '07:00');
+    // Granular notification categories
+    const cats = s.notifications?.categories || {};
+    const catKeys = ['system_errors','resource_warnings','llm_errors','job_failed','job_succeeded',
+                     'resident_action','resident_blocked','agent_complete','kb_changes','night_jobs'];
+    for (const key of catKeys) {
+      const cat = cats[key] || {};
+      setChecked('ntfy-cat-' + key, cat.enabled);
+      const priSel = document.getElementById('ntfy-pri-' + key);
+      if (priSel) priSel.value = cat.priority || 'default';
+    }
 
     // Update model badge
     updateModelBadge();
@@ -12519,6 +12534,17 @@ async function toggleGitProject(name, enabled) {
 
 async function saveNtfySettings() {
   try {
+    // Build granular categories
+    const catKeys = ['system_errors','resource_warnings','llm_errors','job_failed','job_succeeded',
+                     'resident_action','resident_blocked','agent_complete','kb_changes','night_jobs'];
+    const categories = {};
+    for (const key of catKeys) {
+      categories[key] = {
+        enabled: getChecked('ntfy-cat-' + key),
+        priority: document.getElementById('ntfy-pri-' + key)?.value || 'default',
+      };
+    }
+
     const res = await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -12528,6 +12554,11 @@ async function saveNtfySettings() {
             enabled: getChecked('ntfy-tab-enabled'),
             topic: getVal('ntfy-tab-topic'),
             ntfy_url: getVal('ntfy-tab-server') || 'https://ntfy.sh',
+            ntfy_token: getVal('ntfy-tab-token') || '',
+            quiet_hours_enabled: getChecked('ntfy-tab-quiet-hours'),
+            quiet_hours_start: getVal('ntfy-tab-quiet-start') || '22:00',
+            quiet_hours_end: getVal('ntfy-tab-quiet-end') || '07:00',
+            categories: categories,
           },
         },
       }),
