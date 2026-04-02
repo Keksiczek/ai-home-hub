@@ -72,6 +72,11 @@
         <span class="nav-label">Control Room</span>
       </button>
       <button class="nav-item" role="tab" aria-selected="false"
+              data-tab="creative" title="Creative Studio">
+        <span class="nav-icon">&#10024;</span>
+        <span class="nav-label">Creative</span>
+      </button>
+      <button class="nav-item" role="tab" aria-selected="false"
               data-tab="overnight" title="Overnight Jobs">
         <span class="nav-icon">&#127769;</span>
         <span class="nav-label">No&#269;n&iacute; &uacute;lohy</span>
@@ -2837,6 +2842,209 @@
       </section>
 
     </div><!-- /tab-control-room -->
+
+    <!-- ===== CREATIVE STUDIO ===== -->
+    <div class="tab-panel hidden" id="tab-creative" role="tabpanel">
+
+      <div class="panel-header">
+        <h1 class="panel-title">&#10024; Creative Studio</h1>
+        <span class="badge badge--accent">MVP</span>
+      </div>
+
+      <!-- Sub-tabs -->
+      <div class="creative-tabs">
+        <button class="btn btn--ghost creative-tab creative-tab--active" data-ctab="game" onclick="switchCreativeTab('game')">&#127918; Hry</button>
+        <button class="btn btn--ghost creative-tab" data-ctab="scad" onclick="switchCreativeTab('scad')">&#129482; 3D Objekty</button>
+        <button class="btn btn--ghost creative-tab" data-ctab="ascii" onclick="switchCreativeTab('ascii')">&#128221; ASCII</button>
+      </div>
+
+      <!-- GAME tab -->
+      <div class="creative-panel" id="creative-panel-game">
+        <div class="creative-layout">
+          <div class="creative-form">
+            <section class="card">
+              <h2 class="card-title">&#127918; Generovat hru</h2>
+              <textarea id="creative-game-prompt" class="input creative-textarea" rows="3" placeholder="Popiš hru, kterou chceš vytvořit..."></textarea>
+              <div class="creative-examples">
+                <button class="chip" onclick="setCreativePrompt('game','simple snake game')">snake</button>
+                <button class="chip" onclick="setCreativePrompt('game','breakout / brick breaker game')">breakout</button>
+                <button class="chip" onclick="setCreativePrompt('game','dodge falling asteroids game')">dodge asteroids</button>
+              </div>
+              <div class="creative-model-row">
+                <select id="creative-game-model" class="input creative-model-select"><option value="">V&yacute;choz&iacute; model</option></select>
+              </div>
+              <div class="creative-btn-row">
+                <button class="btn btn--primary" id="creative-game-gen-btn" onclick="creativeGenerate('game')">&#9889; Generovat</button>
+                <button class="btn btn--ghost" onclick="creativeClear('game')">Vymazat</button>
+              </div>
+              <div class="creative-warnings hidden" id="creative-game-warnings"></div>
+            </section>
+          </div>
+          <div class="creative-preview" id="creative-game-preview">
+            <section class="card creative-preview-card">
+              <div class="creative-preview-empty" id="creative-game-empty">
+                <span style="font-size:2.5rem">&#127918;</span>
+                <p>Zde se zobraz&iacute; preview hry</p>
+              </div>
+              <div class="creative-preview-loading hidden" id="creative-game-loading">
+                <div class="creative-spinner"></div>
+                <p>Generuji hru&hellip;</p>
+              </div>
+              <div class="creative-preview-result hidden" id="creative-game-result">
+                <div class="creative-preview-header">
+                  <h3 id="creative-game-title"></h3>
+                  <div class="creative-preview-actions">
+                    <button class="btn btn--ghost btn--small" onclick="creativeGenerate('game')" title="Regenerovat">&#128260;</button>
+                    <button class="btn btn--ghost btn--small" onclick="creativeDownloadGame()" title="St&aacute;hnout HTML">&#128190;</button>
+                    <button class="btn btn--ghost btn--small" onclick="creativeFullscreen('game')" title="Fullscreen">&#9974;</button>
+                  </div>
+                </div>
+                <div class="creative-iframe-wrap">
+                  <iframe id="creative-game-iframe" sandbox="allow-scripts" class="creative-iframe"></iframe>
+                </div>
+              </div>
+              <div class="creative-preview-error hidden" id="creative-game-error">
+                <span style="font-size:1.5rem">&#9888;</span>
+                <p id="creative-game-error-msg"></p>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+
+      <!-- SCAD tab -->
+      <div class="creative-panel hidden" id="creative-panel-scad">
+        <div class="creative-layout">
+          <div class="creative-form">
+            <section class="card">
+              <h2 class="card-title">&#129482; Generovat 3D objekt</h2>
+              <textarea id="creative-scad-prompt" class="input creative-textarea" rows="3" placeholder="Popiš 3D objekt, kter&yacute; chceš vytvo&#345;it..."></textarea>
+              <div class="creative-examples">
+                <button class="chip" onclick="setCreativePrompt('scad','small desk cable clip')">cable clip</button>
+                <button class="chip" onclick="setCreativePrompt('scad','phone stand / holder')">phone stand</button>
+                <button class="chip" onclick="setCreativePrompt('scad','six-sided dice with dots')">dice</button>
+              </div>
+              <div class="creative-model-row">
+                <select id="creative-scad-model" class="input creative-model-select"><option value="">V&yacute;choz&iacute; model</option></select>
+              </div>
+              <div class="creative-btn-row">
+                <button class="btn btn--primary" id="creative-scad-gen-btn" onclick="creativeGenerate('scad')">&#9889; Generovat</button>
+                <button class="btn btn--ghost" onclick="creativeClear('scad')">Vymazat</button>
+              </div>
+              <div class="creative-warnings hidden" id="creative-scad-warnings"></div>
+            </section>
+          </div>
+          <div class="creative-preview" id="creative-scad-preview">
+            <section class="card creative-preview-card">
+              <div class="creative-preview-empty" id="creative-scad-empty">
+                <span style="font-size:2.5rem">&#129482;</span>
+                <p>Zde se zobraz&iacute; 3D preview</p>
+              </div>
+              <div class="creative-preview-loading hidden" id="creative-scad-loading">
+                <div class="creative-spinner"></div>
+                <p>Generuji 3D objekt&hellip;</p>
+              </div>
+              <div class="creative-preview-result hidden" id="creative-scad-result">
+                <div class="creative-preview-header">
+                  <h3 id="creative-scad-title"></h3>
+                  <div class="creative-preview-actions">
+                    <button class="btn btn--ghost btn--small" onclick="creativeGenerate('scad')" title="Regenerovat">&#128260;</button>
+                    <button class="btn btn--ghost btn--small" onclick="creativeDownloadScad()" title="St&aacute;hnout .scad">&#128190;</button>
+                    <button class="btn btn--ghost btn--small" onclick="creativeCopyScad()" title="Kop&iacute;rovat k&oacute;d">&#128203;</button>
+                  </div>
+                </div>
+                <div class="creative-3d-canvas-wrap">
+                  <canvas id="creative-scad-canvas" class="creative-3d-canvas"></canvas>
+                  <div class="creative-3d-fallback hidden" id="creative-scad-fallback">
+                    <p>Preview nen&iacute; dostupn&yacute; pro tuto SCAD strukturu &ndash; k&oacute;d je st&aacute;le platn&yacute;.</p>
+                  </div>
+                </div>
+                <details class="creative-code-details">
+                  <summary>OpenSCAD k&oacute;d</summary>
+                  <pre class="creative-code-block" id="creative-scad-code"></pre>
+                </details>
+              </div>
+              <div class="creative-preview-error hidden" id="creative-scad-error">
+                <span style="font-size:1.5rem">&#9888;</span>
+                <p id="creative-scad-error-msg"></p>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+
+      <!-- ASCII tab -->
+      <div class="creative-panel hidden" id="creative-panel-ascii">
+        <div class="creative-layout">
+          <div class="creative-form">
+            <section class="card">
+              <h2 class="card-title">&#128221; Generovat ASCII art</h2>
+              <textarea id="creative-ascii-prompt" class="input creative-textarea" rows="3" placeholder="Popiš, co chceš nakreslit v ASCII..."></textarea>
+              <div class="creative-examples">
+                <button class="chip" onclick="setCreativePrompt('ascii','skull')">skull</button>
+                <button class="chip" onclick="setCreativePrompt('ascii','robot face')">robot face</button>
+                <button class="chip" onclick="setCreativePrompt('ascii','spaceship')">spaceship</button>
+              </div>
+              <div class="creative-model-row">
+                <select id="creative-ascii-model" class="input creative-model-select"><option value="">V&yacute;choz&iacute; model</option></select>
+                <label class="creative-width-label">&#352;&iacute;&#345;ka:
+                  <input type="range" id="creative-ascii-width" min="30" max="120" value="60" class="creative-width-slider">
+                  <span id="creative-ascii-width-val">60</span>
+                </label>
+              </div>
+              <div class="creative-btn-row">
+                <button class="btn btn--primary" id="creative-ascii-gen-btn" onclick="creativeGenerate('ascii')">&#9889; Generovat</button>
+                <button class="btn btn--ghost" onclick="creativeClear('ascii')">Vymazat</button>
+              </div>
+              <div class="creative-warnings hidden" id="creative-ascii-warnings"></div>
+            </section>
+          </div>
+          <div class="creative-preview" id="creative-ascii-preview">
+            <section class="card creative-preview-card">
+              <div class="creative-preview-empty" id="creative-ascii-empty">
+                <span style="font-size:2.5rem">&#128221;</span>
+                <p>Zde se zobraz&iacute; ASCII art</p>
+              </div>
+              <div class="creative-preview-loading hidden" id="creative-ascii-loading">
+                <div class="creative-spinner"></div>
+                <p>Generuji ASCII art&hellip;</p>
+              </div>
+              <div class="creative-preview-result hidden" id="creative-ascii-result">
+                <div class="creative-preview-header">
+                  <h3 id="creative-ascii-title"></h3>
+                  <div class="creative-preview-actions">
+                    <button class="btn btn--ghost btn--small" onclick="creativeGenerate('ascii')" title="Regenerovat">&#128260;</button>
+                    <button class="btn btn--ghost btn--small" onclick="creativeDownloadAscii()" title="St&aacute;hnout .txt">&#128190;</button>
+                    <button class="btn btn--ghost btn--small" onclick="creativeCopyAscii()" title="Kop&iacute;rovat">&#128203;</button>
+                  </div>
+                </div>
+                <div class="creative-ascii-display-wrap">
+                  <div class="creative-font-size-row">
+                    <button class="btn btn--ghost btn--small" onclick="creativeAsciiSize('s')">S</button>
+                    <button class="btn btn--ghost btn--small creative-size-active" onclick="creativeAsciiSize('m')">M</button>
+                    <button class="btn btn--ghost btn--small" onclick="creativeAsciiSize('l')">L</button>
+                  </div>
+                  <pre class="creative-ascii-art" id="creative-ascii-art"></pre>
+                </div>
+              </div>
+              <div class="creative-preview-error hidden" id="creative-ascii-error">
+                <span style="font-size:1.5rem">&#9888;</span>
+                <p id="creative-ascii-error-msg"></p>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+
+      <!-- History -->
+      <section class="card" id="creative-history-section">
+        <h2 class="card-title">&#128337; Ned&aacute;vn&eacute; v&yacute;tvory</h2>
+        <div id="creative-history-list" class="creative-history-list">
+          <p class="text-muted">Zat&iacute;m nic nevygenerov&aacute;no.</p>
+        </div>
+      </section>
+
+    </div><!-- /tab-creative -->
 
   </main>
 

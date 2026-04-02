@@ -293,6 +293,7 @@ function switchTab(tabName) {
   if (tabName === 'knowledge') { loadKBDashboard(); loadKbOverview(); loadKBFiles(); loadRetentionConfig(); loadKBManagerCollections(); }
   if (tabName === 'models') loadModelsTab();
   if (tabName === 'llm-settings') loadLLMSettingsTab();
+  if (tabName === 'creative') loadCreativeStudio();
 }
 
 function bindMobileMenu() {
@@ -11532,6 +11533,7 @@ const STATIC_COMMANDS = [
   { label: 'LLM Settings',       icon: '⚙️', tag: 'nav',    action: () => switchTab('llm-settings') },
   { label: 'File Manager',       icon: '📁', tag: 'nav',    action: () => switchTab('files-manager') },
   { label: 'Noční úlohy',        icon: '🌙', tag: 'nav',    action: () => switchTab('overnight') },
+  { label: 'Creative Studio',    icon: '✨', tag: 'nav',    action: () => switchTab('creative') },
   { label: 'Nastavení',          icon: '🔧', tag: 'nav',    action: () => switchTab('settings') },
   { label: 'Spustit Job teď',    icon: '▶️', tag: 'action', action: () => switchTab('jobs') },
   { label: 'Pause Agent',        icon: '⏸️', tag: 'action', action: async () => {
@@ -12693,3 +12695,492 @@ document.addEventListener('DOMContentLoaded', () => {
   initKeyboardShortcuts();
   initShortcutsHint();
 });
+
+/* ============================================================
+   CREATIVE STUDIO
+   ============================================================ */
+
+// State
+let _creativeCurrentTab = 'game';
+let _creativeLastGame = null;
+let _creativeLastScad = null;
+let _creativeLastAscii = null;
+let _creativeModelsLoaded = false;
+let _creativeThreeLoaded = false;
+let _creativeThreeScene = null;
+let _creativeThreeRenderer = null;
+let _creativeThreeCamera = null;
+let _creativeThreeControls = null;
+let _creativeThreeAnimId = null;
+
+function loadCreativeStudio() {
+  if (!_creativeModelsLoaded) {
+    _creativeModelsLoaded = true;
+    _loadCreativeModels();
+  }
+  loadCreativeHistory();
+
+  // Width slider binding
+  const ws = document.getElementById('creative-ascii-width');
+  if (ws) {
+    ws.oninput = () => {
+      document.getElementById('creative-ascii-width-val').textContent = ws.value;
+    };
+  }
+}
+
+function switchCreativeTab(tab) {
+  _creativeCurrentTab = tab;
+  document.querySelectorAll('.creative-tab').forEach(b => {
+    b.classList.toggle('creative-tab--active', b.dataset.ctab === tab);
+  });
+  document.querySelectorAll('.creative-panel').forEach(p => {
+    p.classList.toggle('hidden', p.id !== `creative-panel-${tab}`);
+  });
+}
+
+function setCreativePrompt(type, text) {
+  const el = document.getElementById(`creative-${type}-prompt`);
+  if (el) el.value = text;
+}
+
+function creativeClear(type) {
+  const el = document.getElementById(`creative-${type}-prompt`);
+  if (el) el.value = '';
+  _creativeShowState(type, 'empty');
+}
+
+async function _loadCreativeModels() {
+  try {
+    const resp = await fetch('/api/models/installed');
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const models = (data.models || data || []).filter(m => !m.is_embedding);
+    ['game', 'scad', 'ascii'].forEach(type => {
+      const sel = document.getElementById(`creative-${type}-model`);
+      if (!sel) return;
+      // Keep first option
+      while (sel.options.length > 1) sel.remove(1);
+      models.forEach(m => {
+        const name = m.name || m;
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name + (m.size_gb ? ` (${m.size_gb} GB)` : '');
+        sel.appendChild(opt);
+      });
+    });
+  } catch (e) {
+    // Fallback – selects stay with default option only
+  }
+}
+
+function _creativeShowState(type, state) {
+  ['empty', 'loading', 'result', 'error'].forEach(s => {
+    const el = document.getElementById(`creative-${type}-${s}`);
+    if (el) el.classList.toggle('hidden', s !== state);
+  });
+}
+
+function _creativeShowWarnings(type, warnings) {
+  const el = document.getElementById(`creative-${type}-warnings`);
+  if (!el) return;
+  if (warnings && warnings.length > 0) {
+    el.innerHTML = warnings.map(w => `<div>⚠ ${_escCreative(w)}</div>`).join('');
+    el.classList.remove('hidden');
+  } else {
+    el.classList.add('hidden');
+  }
+}
+
+function _escCreative(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+async function creativeGenerate(type) {
+  const prompt = document.getElementById(`creative-${type}-prompt`)?.value?.trim();
+  if (!prompt) {
+    showToast('Zadej prompt', 'error');
+    return;
+  }
+
+  const model = document.getElementById(`creative-${type}-model`)?.value || null;
+  const genBtn = document.getElementById(`creative-${type}-gen-btn`);
+  if (genBtn) genBtn.disabled = true;
+
+  _creativeShowState(type, 'loading');
+  _creativeShowWarnings(type, []);
+
+  let endpoint, body;
+  if (type === 'ascii') {
+    const width = parseInt(document.getElementById('creative-ascii-width')?.value || '60');
+    endpoint = '/api/creative/ascii';
+    body = { prompt, model, width };
+  } else {
+    endpoint = `/api/creative/${type}`;
+    body = { prompt, model };
+  }
+
+  try {
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+      throw new Error(err.detail || `HTTP ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    _creativeShowWarnings(type, data.warnings);
+
+    if (type === 'game') _creativeRenderGame(data);
+    else if (type === 'scad') _creativeRenderScad(data);
+    else if (type === 'ascii') _creativeRenderAscii(data);
+
+    _creativeShowState(type, 'result');
+    loadCreativeHistory();
+
+  } catch (err) {
+    const errEl = document.getElementById(`creative-${type}-error-msg`);
+    if (errEl) errEl.textContent = err.message;
+    _creativeShowState(type, 'error');
+  } finally {
+    if (genBtn) genBtn.disabled = false;
+  }
+}
+
+// ── Game preview ─────────────────────────────────────────────
+
+function _creativeRenderGame(data) {
+  _creativeLastGame = data;
+  document.getElementById('creative-game-title').textContent = data.title;
+  const iframe = document.getElementById('creative-game-iframe');
+  if (iframe) iframe.srcdoc = data.preview_html;
+}
+
+function creativeDownloadGame() {
+  if (!_creativeLastGame) return;
+  _creativeDownloadFile(
+    `${_creativeLastGame.title || 'game'}.html`,
+    _creativeLastGame.html,
+    'text/html'
+  );
+}
+
+function creativeFullscreen(type) {
+  if (type === 'game') {
+    const iframe = document.getElementById('creative-game-iframe');
+    if (iframe?.requestFullscreen) iframe.requestFullscreen();
+    else if (iframe?.webkitRequestFullscreen) iframe.webkitRequestFullscreen();
+  }
+}
+
+// ── SCAD preview (Three.js) ──────────────────────────────────
+
+function _creativeRenderScad(data) {
+  _creativeLastScad = data;
+  document.getElementById('creative-scad-title').textContent = data.title;
+  document.getElementById('creative-scad-code').textContent = data.scad_code;
+
+  const spec = data.preview_spec;
+  if (spec.raw_only || !spec.objects || spec.objects.length === 0) {
+    document.getElementById('creative-scad-fallback').classList.remove('hidden');
+    const canvas = document.getElementById('creative-scad-canvas');
+    if (canvas) canvas.style.display = 'none';
+    return;
+  }
+
+  document.getElementById('creative-scad-fallback').classList.add('hidden');
+  const canvas = document.getElementById('creative-scad-canvas');
+  if (canvas) canvas.style.display = 'block';
+
+  _creativeLoad3D(() => _creativeRender3DPreview(spec));
+}
+
+function _creativeLoad3D(callback) {
+  if (_creativeThreeLoaded) { callback(); return; }
+  // Load Three.js from CDN (es module compatible version via importmap isn't needed – use classic script)
+  const script = document.createElement('script');
+  script.src = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
+  script.onload = () => {
+    // Load OrbitControls
+    const script2 = document.createElement('script');
+    script2.src = 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js';
+    script2.onload = () => {
+      _creativeThreeLoaded = true;
+      callback();
+    };
+    script2.onerror = () => {
+      // OrbitControls optional – proceed without
+      _creativeThreeLoaded = true;
+      callback();
+    };
+    document.head.appendChild(script2);
+  };
+  script.onerror = () => {
+    showToast('Nepodařilo se načíst Three.js pro 3D preview', 'error');
+  };
+  document.head.appendChild(script);
+}
+
+function _creativeRender3DPreview(spec) {
+  if (typeof THREE === 'undefined') return;
+
+  const canvas = document.getElementById('creative-scad-canvas');
+  if (!canvas) return;
+
+  // Cleanup previous
+  if (_creativeThreeAnimId) cancelAnimationFrame(_creativeThreeAnimId);
+  if (_creativeThreeRenderer) _creativeThreeRenderer.dispose();
+
+  const w = canvas.clientWidth || 400;
+  const h = canvas.clientHeight || 380;
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0a0a1a);
+
+  // Lights
+  scene.add(new THREE.AmbientLight(0x404060, 0.6));
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+  dirLight.position.set(50, 80, 60);
+  scene.add(dirLight);
+
+  // Grid
+  const grid = new THREE.GridHelper(100, 20, 0x2a2a4a, 0x1a1a3a);
+  scene.add(grid);
+
+  // Add objects
+  const material = new THREE.MeshPhongMaterial({
+    color: 0x6366f1,
+    shininess: 60,
+    flatShading: true,
+  });
+  const material2 = new THREE.MeshPhongMaterial({
+    color: 0x22c55e,
+    shininess: 60,
+    flatShading: true,
+  });
+
+  let bbox = new THREE.Box3();
+  spec.objects.forEach((obj, i) => {
+    let geom;
+    if (obj.type === 'cube') {
+      const s = obj.size || [10, 10, 10];
+      geom = new THREE.BoxGeometry(s[0], s[1], s[2]);
+    } else if (obj.type === 'sphere') {
+      geom = new THREE.SphereGeometry(obj.r || 5, 24, 24);
+    } else if (obj.type === 'cylinder') {
+      const r1 = obj.r1 ?? obj.r ?? 5;
+      const r2 = obj.r2 ?? obj.r ?? 5;
+      geom = new THREE.CylinderGeometry(r2, r1, obj.h || 10, 24);
+    } else {
+      return;
+    }
+
+    const mesh = new THREE.Mesh(geom, i % 2 === 0 ? material : material2);
+    const pos = obj.position || [0, 0, 0];
+    mesh.position.set(pos[0], pos[2] || 0, pos[1] || 0); // OpenSCAD: Z-up → Three.js Y-up
+    const rot = obj.rotation || [0, 0, 0];
+    mesh.rotation.set(
+      THREE.MathUtils.degToRad(rot[0]),
+      THREE.MathUtils.degToRad(rot[2] || 0),
+      THREE.MathUtils.degToRad(rot[1] || 0)
+    );
+    scene.add(mesh);
+    bbox.expandByObject(mesh);
+  });
+
+  // Camera
+  const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 1000);
+  const center = new THREE.Vector3();
+  bbox.getCenter(center);
+  const size = new THREE.Vector3();
+  bbox.getSize(size);
+  const maxDim = Math.max(size.x, size.y, size.z, 10);
+  const dist = maxDim * 2.5;
+  const cam = spec.camera || {};
+  const yaw = (cam.yaw || 35) * Math.PI / 180;
+  const pitch = (cam.pitch || 20) * Math.PI / 180;
+  camera.position.set(
+    center.x + dist * Math.cos(pitch) * Math.sin(yaw),
+    center.y + dist * Math.sin(pitch),
+    center.z + dist * Math.cos(pitch) * Math.cos(yaw)
+  );
+  camera.lookAt(center);
+
+  // Renderer
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setSize(w, h);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+  // OrbitControls
+  let controls = null;
+  if (THREE.OrbitControls) {
+    controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.target.copy(center);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.1;
+    controls.update();
+  }
+
+  _creativeThreeScene = scene;
+  _creativeThreeRenderer = renderer;
+  _creativeThreeCamera = camera;
+  _creativeThreeControls = controls;
+
+  function animate() {
+    _creativeThreeAnimId = requestAnimationFrame(animate);
+    if (controls) controls.update();
+    renderer.render(scene, camera);
+  }
+  animate();
+}
+
+function creativeDownloadScad() {
+  if (!_creativeLastScad) return;
+  _creativeDownloadFile(
+    `${_creativeLastScad.title || 'model'}.scad`,
+    _creativeLastScad.scad_code,
+    'text/plain'
+  );
+}
+
+function creativeCopyScad() {
+  if (!_creativeLastScad) return;
+  navigator.clipboard.writeText(_creativeLastScad.scad_code).then(
+    () => showToast('SCAD kód zkopírován', 'success'),
+    () => showToast('Kopírování selhalo', 'error')
+  );
+}
+
+// ── ASCII preview ────────────────────────────────────────────
+
+function _creativeRenderAscii(data) {
+  _creativeLastAscii = data;
+  document.getElementById('creative-ascii-title').textContent = data.title;
+  document.getElementById('creative-ascii-art').textContent = data.art;
+}
+
+function creativeDownloadAscii() {
+  if (!_creativeLastAscii) return;
+  _creativeDownloadFile(
+    `${_creativeLastAscii.title || 'ascii'}.txt`,
+    _creativeLastAscii.art,
+    'text/plain'
+  );
+}
+
+function creativeCopyAscii() {
+  if (!_creativeLastAscii) return;
+  navigator.clipboard.writeText(_creativeLastAscii.art).then(
+    () => showToast('ASCII art zkopírován', 'success'),
+    () => showToast('Kopírování selhalo', 'error')
+  );
+}
+
+function creativeAsciiSize(size) {
+  const el = document.getElementById('creative-ascii-art');
+  if (!el) return;
+  const sizes = { s: '0.6rem', m: '0.75rem', l: '0.95rem' };
+  el.style.fontSize = sizes[size] || sizes.m;
+  document.querySelectorAll('.creative-font-size-row .btn').forEach(b => {
+    b.classList.toggle('creative-size-active', b.textContent.trim().toLowerCase() === size);
+  });
+}
+
+// ── History ──────────────────────────────────────────────────
+
+async function loadCreativeHistory() {
+  try {
+    const resp = await fetch('/api/creative/history?limit=20');
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const list = document.getElementById('creative-history-list');
+    if (!list) return;
+
+    if (!data.items || data.items.length === 0) {
+      list.innerHTML = '<p class="text-muted">Zatím nic nevygenerováno.</p>';
+      return;
+    }
+
+    list.innerHTML = data.items.map(item => {
+      const typeLabel = { game: '🎮 Hra', scad: '🧊 3D', ascii: '📝 ASCII' }[item.type] || item.type;
+      const timeAgo = _creativeTimeAgo(item.created_at);
+      return `<div class="creative-history-card" onclick="creativeOpenHistory('${_escCreative(item.id)}', '${_escCreative(item.type)}')">
+        <div class="creative-history-card__header">
+          <span class="creative-history-card__title">${_escCreative(item.title)}</span>
+          <span class="creative-history-card__type">${typeLabel}</span>
+        </div>
+        <div class="creative-history-card__prompt">${_escCreative(item.prompt)}</div>
+        <div class="creative-history-card__time">${timeAgo}</div>
+        <div class="creative-history-card__actions">
+          <button class="btn btn--ghost btn--small" onclick="event.stopPropagation();creativeReusePrompt('${_escCreative(item.type)}',${JSON.stringify(item.prompt)})">Použít prompt</button>
+        </div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    // silent
+  }
+}
+
+async function creativeOpenHistory(id, type) {
+  try {
+    const resp = await fetch(`/api/creative/history/${id}`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const payload = data.payload;
+
+    switchCreativeTab(type);
+
+    // Set prompt
+    const promptEl = document.getElementById(`creative-${type}-prompt`);
+    if (promptEl) promptEl.value = data.prompt;
+
+    // Render result
+    if (type === 'game') _creativeRenderGame(payload);
+    else if (type === 'scad') _creativeRenderScad(payload);
+    else if (type === 'ascii') _creativeRenderAscii(payload);
+
+    _creativeShowState(type, 'result');
+    _creativeShowWarnings(type, payload.warnings || []);
+  } catch (e) {
+    showToast('Nepodařilo se načíst historii', 'error');
+  }
+}
+
+function creativeReusePrompt(type, prompt) {
+  switchCreativeTab(type);
+  const el = document.getElementById(`creative-${type}-prompt`);
+  if (el) el.value = prompt;
+}
+
+function _creativeTimeAgo(isoStr) {
+  try {
+    const d = new Date(isoStr);
+    const diff = (Date.now() - d.getTime()) / 1000;
+    if (diff < 60) return 'právě teď';
+    if (diff < 3600) return `před ${Math.floor(diff / 60)} min`;
+    if (diff < 86400) return `před ${Math.floor(diff / 3600)} h`;
+    return `před ${Math.floor(diff / 86400)} d`;
+  } catch {
+    return '';
+  }
+}
+
+// ── Utilities ────────────────────────────────────────────────
+
+function _creativeDownloadFile(filename, content, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}

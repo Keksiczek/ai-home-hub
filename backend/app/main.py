@@ -38,6 +38,7 @@ from app.routers import control as control_router
 from app.routers import notifications as notifications_router
 from app.routers import agent as agent_router
 from app.routers import health as health_router
+from app.routers import creative as creative_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -131,6 +132,7 @@ app.include_router(cleanup_router.router, prefix="/api", tags=["cleanup"])
 app.include_router(alerting_router.router, prefix="/api", tags=["alerting"])
 app.include_router(control_router.router, prefix="/api", tags=["control"])
 app.include_router(notifications_router.router, prefix="/api", tags=["notifications"])
+app.include_router(creative_router.router, prefix="/api", tags=["creative"])
 
 # Agent endpoints (extracted from main.py)
 app.include_router(agent_router.router, prefix="/api", tags=["agent"])
