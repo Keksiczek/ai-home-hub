@@ -123,6 +123,13 @@ async def lifespan(app: FastAPI):
     resource_task = resource_mon.start()
     _supervisor.register("resource_monitor", resource_task, resource_mon.start)
 
+    # Start AdaptiveKeepAliveManager – adjusts Ollama keep_alive based on RAM pressure
+    from app.services.adaptive_keep_alive import get_adaptive_keep_alive_manager
+
+    aka_manager = get_adaptive_keep_alive_manager()
+    aka_task = aka_manager.start()
+    _supervisor.register("adaptive_keep_alive", aka_task, aka_manager.start)
+
     # Notification service – initialize singleton with WS broadcast
     from app.services.notification_service import get_notification_service
 

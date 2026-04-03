@@ -9384,6 +9384,26 @@ function handleActivityUpdate(msg) {
     const total = (resources.ram_total_mb / 1024).toFixed(1);
     ramUsage.textContent = `${used}/${total}GB`;
   }
+
+  // RAM pressure dot: colour reflects AdaptiveKeepAlive pressure level
+  const pressureDot = document.getElementById('act-ram-pressure-dot');
+  if (pressureDot) {
+    const level = msg.ram_pressure_level || 'normal';
+    const dotColors = {
+      normal:     'var(--success)',
+      reduced:    'var(--warning)',
+      aggressive: '#ff8800',   // orange – between warning and danger
+      critical:   'var(--danger)',
+    };
+    const dotLabels = {
+      normal:     'RAM pressure: normal',
+      reduced:    'RAM pressure: reduced (keep_alive 2m)',
+      aggressive: 'RAM pressure: aggressive (keep_alive 30s)',
+      critical:   'RAM pressure: critical – unloading models',
+    };
+    pressureDot.style.background = dotColors[level] || dotColors.normal;
+    pressureDot.title = dotLabels[level] || `RAM pressure: ${level}`;
+  }
 }
 
 /* ============================================================

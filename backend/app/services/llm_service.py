@@ -467,9 +467,22 @@ class LLMService:
         start = time.monotonic()
 
         keep_alive_default = cfg.get("keep_alive_default")
-        keep_alive = get_keep_alive_for_model(
-            cfg["model"], for_overnight=for_overnight, config_default=keep_alive_default
-        )
+        # Use AdaptiveKeepAliveManager when available; fall back to static helper
+        try:
+            from app.services.adaptive_keep_alive import get_adaptive_keep_alive_manager
+
+            _aka_manager = get_adaptive_keep_alive_manager()
+            keep_alive = _aka_manager.get_keep_alive(profile or "general")
+            # Override with 0 for overnight/batch jobs regardless of pressure level
+            if for_overnight:
+                keep_alive = "0"
+        except Exception:
+            keep_alive = get_keep_alive_for_model(
+                cfg["model"],
+                for_overnight=for_overnight,
+                config_default=keep_alive_default,
+            )
+            _aka_manager = None
 
         if provider == "ollama":
             # Determine priority: chat/user modes get priority 1, resident gets 2, rest gets 3
@@ -487,15 +500,22 @@ class LLMService:
                     timeout=LLM_SEMAPHORE_TIMEOUT,
                     label=f"generate/{mode}",
                 ):
-                    reply, meta = await self._generate_ollama(
-                        message,
-                        mode,
-                        history or [],
-                        cfg,
-                        keep_alive=keep_alive,
-                        profile=profile,
-                        allow_uncensored=allow_uncensored,
-                    )
+                    _model_for_tracking = cfg["model"]
+                    if _aka_manager is not None:
+                        _aka_manager.track_request_start(_model_for_tracking)
+                    try:
+                        reply, meta = await self._generate_ollama(
+                            message,
+                            mode,
+                            history or [],
+                            cfg,
+                            keep_alive=keep_alive,
+                            profile=profile,
+                            allow_uncensored=allow_uncensored,
+                        )
+                    finally:
+                        if _aka_manager is not None:
+                            _aka_manager.track_request_end(_model_for_tracking)
             except asyncio.TimeoutError:
                 raise LLMOverloadedError(LLM_SEMAPHORE_TIMEOUT)
         else:

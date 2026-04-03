@@ -138,6 +138,14 @@ class ActivityService:
         except Exception:
             result["ollama"] = {"status": "unknown"}
 
+        # RAM pressure level from AdaptiveKeepAliveManager
+        try:
+            from app.services.adaptive_keep_alive import get_adaptive_keep_alive_manager
+
+            result["ram_pressure_level"] = get_adaptive_keep_alive_manager()._level
+        except Exception:
+            result["ram_pressure_level"] = "normal"
+
         return result
 
 
