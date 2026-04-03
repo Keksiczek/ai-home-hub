@@ -162,6 +162,25 @@ async def disk_usage() -> dict:
     }
 
 
+@router.get("/system/ram-pressure", tags=["system"])
+async def ram_pressure() -> dict:
+    """Return current RAM pressure level and AdaptiveKeepAlive state.
+
+    Response fields:
+    - level: "normal" | "reduced" | "aggressive" | "critical"
+    - ram_pct: current system RAM usage in percent
+    - keep_alive: the keep_alive string currently used for new Ollama requests
+    - lru_model: model that would be evicted next (or null)
+    - concurrent_requests: map of model → active request count
+    """
+    try:
+        from app.services.adaptive_keep_alive import get_adaptive_keep_alive_manager
+
+        return get_adaptive_keep_alive_manager().get_status()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"AdaptiveKeepAlive error: {exc}")
+
+
 @router.get("/metrics/summary", tags=["system"])
 async def metrics_summary() -> dict:
     """Metrics summary stub – forward-compatible with future health/metrics subsystems."""
