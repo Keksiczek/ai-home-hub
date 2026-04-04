@@ -22,7 +22,9 @@ VENV_DIR="$BACKEND_DIR/.venv"
 LOG_FILE="$SCRIPT_DIR/ai-home-hub-$(date +%Y%m%d).log"
 APP_PORT=8000
 OLLAMA_PORT=11434
+OPENWEBUI_PORT=8080
 HEALTH_URL="http://localhost:${APP_PORT}/api/health/live"
+OPENWEBUI_HEALTH_URL="http://localhost:${OPENWEBUI_PORT}/health"
 OLLAMA_MODELS=("llama3.2" "qwen2.5-coder:3b" "llava:7b")
 
 MODE="${1:-dev}"
@@ -30,6 +32,7 @@ MODE="${1:-dev}"
 # ── PID tracking ──────────────────────────────────────────────────────────────
 OLLAMA_PID=""
 APP_PID=""
+OPENWEBUI_PID=""
 
 # ── Graceful shutdown ─────────────────────────────────────────────────────────
 cleanup() {
@@ -37,6 +40,7 @@ cleanup() {
     info "Shutting down…"
     [[ -n "$APP_PID" ]]    && kill "$APP_PID"    2>/dev/null && ok "App stopped (PID $APP_PID)"
     [[ -n "$OLLAMA_PID" ]] && kill "$OLLAMA_PID" 2>/dev/null && ok "Ollama stopped (PID $OLLAMA_PID)"
+    [[ -n "$OPENWEBUI_PID" ]] && kill "$OPENWEBUI_PID" 2>/dev/null && ok "OpenWebUI stopped (PID $OPENWEBUI_PID)"
     ok "Goodbye."
     exit 0
 }
@@ -54,6 +58,7 @@ stop_all() {
     info "Stopping existing processes…"
     pkill -f "uvicorn app.main" 2>/dev/null && ok "Killed uvicorn" || true
     pkill -f "ollama serve"     2>/dev/null && ok "Killed ollama"  || true
+    pkill -f "uvicorn open_webui.main" 2>/dev/null && ok "Killed open-webui" || true
     sleep 1
 }
 
@@ -169,6 +174,14 @@ fi
 APP_PID=$!
 ok "App started (PID $APP_PID)"
 
+# ── Start OpenWebUI ───────────────────────────────────────────────────────────
+if [[ -f "$SCRIPT_DIR/run_openwebui.sh" ]]; then
+    info "Starting OpenWebUI service…"
+    "$SCRIPT_DIR/run_openwebui.sh" >> "$LOG_FILE" 2>&1 &
+    OPENWEBUI_PID=$!
+    ok "OpenWebUI started (PID $OPENWEBUI_PID)"
+fi
+
 # ── Health check ──────────────────────────────────────────────────────────────
 info "Waiting for app to be healthy…"
 HEALTH_OK=false
@@ -180,6 +193,25 @@ for i in $(seq 1 30); do
     fi
     sleep 1
 done
+
+info "Waiting for OpenWebUI to be healthy…"
+OPENWEBUI_OK=false
+if [[ -n "$OPENWEBUI_PID" ]]; then
+    for i in $(seq 1 30); do
+        if curl -sf "$OPENWEBUI_HEALTH_URL" &>/dev/null; then
+            OPENWEBUI_OK=true
+            ok "OpenWebUI health check passed (${i}s)"
+            break
+        fi
+        sleep 1
+    done
+else
+    # Check if maybe it was already running outside this script
+    if curl -sf "$OPENWEBUI_HEALTH_URL" &>/dev/null; then
+        OPENWEBUI_OK=true
+        ok "OpenWebUI already running and healthy"
+    fi
+fi
 
 if [[ "$HEALTH_OK" == false ]]; then
     err "App did not become healthy within 30s"
@@ -197,6 +229,7 @@ echo ""
 echo -e "${GREEN}┌─────────────────────────────────────────┐${NC}"
 echo -e "${GREEN}│  AI Home Hub is running!                │${NC}"
 echo -e "${GREEN}│  Dashboard : http://localhost:${APP_PORT}/   │${NC}"
+echo -e "${GREEN}│  OpenWebUI : http://localhost:${OPENWEBUI_PORT}/   │${NC}"
 echo -e "${GREEN}│  API       : http://localhost:${APP_PORT}/api│${NC}"
 echo -e "${GREEN}│  Logs      : $(basename "$LOG_FILE")  │${NC}"
 echo -e "${GREEN}│  Press Ctrl+C to stop                   │${NC}"

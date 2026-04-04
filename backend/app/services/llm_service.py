@@ -699,16 +699,14 @@ class LLMService:
         if keep_alive is not None:
             payload["keep_alive"] = keep_alive
 
-        # Use request-type-aware timeout; fall back to settings value if larger
         rt_timeout = get_timeout_for_request(request_type, model)
         settings_timeout = cfg.get("timeout_seconds", 180)
         try:
             settings_timeout = max(10, min(3600, float(settings_timeout)))
         except (ValueError, TypeError):
             settings_timeout = 180.0
-        # For non-streaming requests prefer the request-type timeout unless
-        # the operator configured a longer one explicitly.
-        timeout = rt_timeout if rt_timeout <= settings_timeout else settings_timeout
+        # Make adaptive timeouts actually adaptive by taking the MAXIMUM of the two
+        timeout = max(rt_timeout, settings_timeout)
         meta_base = {
             "provider": "ollama",
             "model": model,

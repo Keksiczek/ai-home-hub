@@ -1,0 +1,3583 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#6366f1" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="AI Hub" />
+  <title>AI Home Hub – Mac Control Center</title>
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="apple-touch-icon" href="/icon-192.png" />
+</head>
+<body>
+
+  <!-- ===== SIDEBAR ===== -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <span class="sidebar-logo">&#129302;</span>
+      <span class="sidebar-title">AI Home Hub</span>
+    </div>
+    <nav class="sidebar-nav" role="tablist" aria-label="Main navigation">
+      <button class="nav-item nav-item--active" role="tab" aria-selected="true"
+              data-tab="chat" title="Chat">
+        <span class="nav-icon">&#128172;</span>
+        <span class="nav-label">Chat</span>
+      </button>
+      <button class="nav-item" role="tab" aria-selected="false"
+              data-tab="files-manager" title="Files">
+        <span class="nav-icon">&#128193;</span>
+        <span class="nav-label">Soubory</span>
+      </button>
+      <button class="nav-item" role="tab" aria-selected="false"
+              data-tab="agents" title="Agents">
+        <span class="nav-icon">&#129302;</span>
+        <span class="nav-label">Agenti</span>
+      </button>
+      <button class="nav-item" role="tab" aria-selected="false"
+              data-tab="skills" title="Skills">
+        <span class="nav-icon">&#9889;</span>
+        <span class="nav-label">Skills</span>
+      </button>
+      <button class="nav-item" role="tab" aria-selected="false"
+              data-tab="status" title="Status">
+        <span class="nav-icon">&#128994;</span>
+        <span class="nav-label">Status</span>
+      </button>
+      <button class="nav-item" role="tab" aria-selected="false"
+              data-tab="jobs" title="Jobs">
+        <span class="nav-icon">&#9203;</span>
+        <span class="nav-label">Joby</span>
+      </button>
+      <button class="nav-item" role="tab" aria-selected="false"
+              data-tab="knowledge" title="Knowledge Base">
+        <span class="nav-icon">&#128218;</span>
+        <span class="nav-label">Knowledge</span>
+      </button>
+      <button class="nav-item" role="tab" aria-selected="false"
+              data-tab="actions" title="Actions">
+        <span class="nav-icon">&#9881;</span>
+        <span class="nav-label">Akce</span>
+      </button>
+      <button class="nav-item" role="tab" aria-selected="false"
+              data-tab="resident" title="Resident Agent">
+        <span class="nav-icon">&#129302;</span>
+        <span class="nav-label">Resident</span>
+      </button>
+      <button class="nav-item" role="tab" aria-selected="false"
+              data-tab="control-room" title="Control Room">
+        <span class="nav-icon">&#127918;</span>
+        <span class="nav-label">Control Room</span>
+      </button>
+      <button class="nav-item" role="tab" aria-selected="false"
+              data-tab="creative" title="Creative Studio">
+        <span class="nav-icon">&#10024;</span>
+        <span class="nav-label">Creative</span>
+      </button>
+      <button class="nav-item" role="tab" aria-selected="false"
+              data-tab="overnight" title="Overnight Jobs">
+        <span class="nav-icon">&#127769;</span>
+        <span class="nav-label">No&#269;n&iacute; &uacute;lohy</span>
+      </button>
+      <button class="nav-item" role="tab" aria-selected="false"
+              data-tab="models" title="Models">
+        <span class="nav-icon">&#129504;</span>
+        <span class="nav-label">Modely</span>
+      </button>
+      <button class="nav-item" role="tab" aria-selected="false"
+              data-tab="llm-settings" title="LLM Settings">
+        <span class="nav-icon">&#9881;</span>
+        <span class="nav-label">LLM</span>
+      </button>
+      <button class="nav-item" role="tab" aria-selected="false"
+              data-tab="settings" title="Settings">
+        <span class="nav-icon">&#128736;</span>
+        <span class="nav-label">Nastaven&iacute;</span>
+      </button>
+    </nav>
+    <div class="sidebar-footer">
+      <!-- Notification bell -->
+      <div class="notif-bell-wrap" id="notif-bell-wrap">
+        <button class="notif-bell-btn" id="notif-bell-btn" title="Notifikace" aria-label="Notifikace">
+          &#128276;<span class="notif-badge" id="notif-badge" style="display:none">0</span>
+        </button>
+        <div class="notif-dropdown" id="notif-dropdown" style="display:none">
+          <div class="notif-dropdown-header">Notifikace</div>
+          <div class="notif-dropdown-list" id="notif-dropdown-list"></div>
+          <div class="notif-dropdown-footer">
+            <button class="notif-read-all-btn" id="notif-read-all-btn">Ozna&#269;it v&#353;e jako p&#345;e&#269;ten&eacute;</button>
+          </div>
+        </div>
+      </div>
+      <div class="ws-status" id="ws-status" title="WebSocket">
+        <span class="ws-dot ws-dot--disconnected" id="ws-dot"></span>
+        <span class="ws-label" id="ws-label">Offline</span>
+      </div>
+      <span class="sidebar-version" id="app-version">v0.5.0</span>
+    </div>
+  </aside>
+
+  <!-- ===== SIDEBAR OVERLAY (mobile) ===== -->
+  <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+  <!-- ===== MAIN CONTENT ===== -->
+  <main class="main-content" id="main-content">
+
+    <!-- ===== OFFLINE RECONNECT BANNER ===== -->
+    <div class="offline-banner" id="offline-banner" role="alert" aria-live="assertive" hidden>
+      <span id="offline-banner-text">&#9889; Offline – reconnecting in <span id="offline-countdown">5</span>s&hellip;</span>
+    </div>
+
+    <!-- ===== LIVE ACTIVITY BAR ===== -->
+    <div class="activity-bar" id="activity-bar">
+      <span class="activity-pulse" id="activity-pulse"></span>
+      <span class="activity-item" id="activity-resident" title="Resident Agent">&#129302; <span id="act-resident-status">idle</span></span>
+      <span class="activity-divider">|</span>
+      <span class="activity-item" id="activity-jobs" title="Active Jobs">&#128188; Jobs: <span id="act-jobs-count">0</span></span>
+      <span class="activity-divider">|</span>
+      <span class="activity-item" id="activity-kb" title="Knowledge Base">&#129504; KB: <span id="act-kb-chunks">0</span> chunks</span>
+      <span class="activity-divider">|</span>
+      <span class="activity-item" id="activity-ollama" title="Ollama">&#9898; <span id="act-ollama-status">?</span></span>
+      <span class="activity-divider">|</span>
+      <span class="activity-item" id="activity-ram" title="RAM pressure level">&#128190; RAM: <span id="act-ram-usage">?</span> <span id="act-ram-pressure-dot" title="RAM pressure: normal" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--success);vertical-align:middle;margin-left:3px"></span></span>
+      <span class="activity-divider">|</span>
+      <span class="activity-item" id="activity-metrics" title="Prometheus metriky">
+        &#128172; <span id="act-chat-total">?</span> req
+        <span class="activity-divider">|</span>&#9889; <span id="act-chat-latency">?</span>s avg
+        <span class="activity-divider">|</span>&#128188; Jobs: <span id="act-active-jobs-m">?</span>
+        <span class="activity-divider">|</span>&#128257; <span id="act-agent-cycles">?</span> cyklů
+      </span>
+      <!-- WS reconnect status – hidden when connected, shown when offline -->
+      <span class="activity-item activity-ws-offline hidden" id="activity-ws-offline"></span>
+    </div>
+
+    <!-- ======================== CHAT TAB ======================== -->
+    <div class="tab-panel tab-panel--chat" id="tab-chat" role="tabpanel">
+
+      <!-- Chat sessions sidebar -->
+      <div class="chat-sidebar" id="chat-sidebar">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:0.75rem 1rem 0">
+          <button class="btn btn--primary btn--small" id="new-chat-btn" style="display:flex;align-items:center;gap:0.5rem;flex:1;justify-content:center">
+            + Nov&yacute; chat
+          </button>
+          <button class="btn btn--ghost btn--small" id="chat-sidebar-collapse" title="Skr&yacute;t sidebar" style="margin-left:0.5rem">&laquo;</button>
+        </div>
+        <div class="sessions-list" id="sessions-list">
+          <div class="empty-state">Na&#269;&iacute;t&aacute;m...</div>
+        </div>
+      </div>
+      <div class="chat-sidebar-backdrop" id="chat-sidebar-backdrop"></div>
+
+      <!-- Chat main area -->
+      <div class="chat-main" style="position:relative;overflow:hidden">
+
+        <!-- Memory slide-in panel -->
+        <div class="chat-memory-panel" id="chat-memory-panel">
+          <div class="chat-memory-panel__header">
+            <span class="chat-memory-panel__title">&#129504; Pam&#283;&#357;</span>
+            <button class="chat-memory-panel__close" id="chat-memory-panel-close" title="Zav&#345;&#237;t">&#10005;</button>
+          </div>
+          <div class="chat-memory-panel__actions">
+            <button class="btn btn--ghost btn--small" id="memory-save-session-btn" style="width:100%;color:#64748b">
+              &#128190; Ulo&#382;it konverzaci do pam&#283;ti
+            </button>
+          </div>
+          <div class="chat-memory-panel__list" id="chat-memory-list">
+            <span style="color:#64748b;font-size:0.85rem">Klikni pro na&#269;ten&#237; pam&#283;t&#237;</span>
+          </div>
+        </div>
+
+        <div class="panel-header">
+          <h1 class="panel-title">Chat</h1>
+          <div class="chat-session-bar">
+            <span class="session-badge" id="session-label">Nov&aacute; relace</span>
+            <button class="btn btn--ghost btn--small" id="summarize-session-btn" title="Zobrazit / ulo&#382;it pam&#283;ti">&#129504; Pam&#283;&#357;</button>
+            <button class="btn btn--ghost btn--small" id="chat-sidebar-toggle" title="Historie">&#9776; Historie</button>
+          </div>
+        </div>
+
+        <!-- Profile pills -->
+        <div class="profile-pills" id="profile-pills">
+          <button class="pill pill--active" data-profile="lean_ci" title="Lean/CI Expert">&#128202; Lean</button>
+          <button class="pill" data-profile="pbi_dax" title="Power BI/DAX Pro">&#128200; PBI</button>
+          <button class="pill" data-profile="mac_admin" title="Mac Admin">&#128187; Mac</button>
+          <button class="pill" data-profile="ai_dev" title="AI Dev">&#129302; AI</button>
+          <button class="pill" data-profile="vision" title="Vision">&#128270; Vision</button>
+          <button class="pill pill--custom-add" id="custom-profile-btn" title="Custom profile">&#10133; Custom</button>
+          <button class="pill profile-more-btn" id="profile-more-btn" title="V&iacute;ce profil&#367;">&#9660;</button>
+        </div>
+        <select class="chat-model-select" id="chat-model-select" title="Vyber model">
+          <option value="">Výchozí model</option>
+        </select>
+        <div class="model-badge" id="model-badge">llama3.2</div>
+
+        <!-- Chat meta bar -->
+        <div class="chat-meta-bar" id="chat-meta-bar">
+          <span class="model-label" id="chat-meta-model">&#129302; Model: <span id="chat-meta-model-name">llama3.2</span></span>
+          <button class="view-toggle-btn" id="view-toggle-btn" title="P&#345;epnout hustotu zobrazen&iacute;">
+            &#9681; Kompaktn&iacute;
+          </button>
+        </div>
+
+        <!-- Chat history -->
+        <div class="chat-area">
+          <div class="chat-history" id="chat-history" role="log" aria-live="polite"></div>
+        </div>
+
+        <!-- Chat input -->
+        <div class="chat-input-area">
+          <div class="chat-image-controls">
+            <button class="btn btn--ghost btn--small" id="image-attach-btn" title="Pridat obrazek">
+              &#128247; Obr&aacute;zek
+            </button>
+            <button class="btn btn--ghost btn--small" id="screenshot-btn" title="Screenshot">
+              &#128248; Screenshot
+            </button>
+            <input type="file" id="image-input" multiple accept="image/png,image/jpeg,image/gif,image/webp" hidden />
+          </div>
+          <div id="image-preview" class="chat-image-preview hidden"></div>
+          <div id="vision-mode-indicator" class="vision-mode-badge hidden">
+            &#128270; Vision mode aktivn&iacute;
+          </div>
+          <!-- Uncensored model warning -->
+          <div class="uncensored-warning hidden" id="uncensored-warning">
+            &#9888;&#65039; Použ&iacute;v&aacute;š uncensored model. Odpov&#283;di mohou b&yacute;t nevhodn&eacute;.
+          </div>
+          <!-- Model indicator -->
+          <div class="chat-model-indicator" id="chat-model-indicator" title="Klikni pro zm&#283;nu modelu">
+            <span class="chat-model-indicator__dot"></span>
+            <span id="chat-model-indicator-text">&#128172; Na&#269;&iacute;t&aacute;m model...</span>
+          </div>
+          <!-- Inline model picker (hidden by default) -->
+          <div class="model-picker-inline hidden" id="model-picker-inline"></div>
+          <!-- Quick Action Skills -->
+          <div class="quick-actions" id="quickActions">
+            <span class="quick-actions-label">Rychlé akce:</span>
+            <button class="quick-btn" data-prompt="Zkontroluj aktuální počasí v Nymburku">
+              🌤️ Počasí
+            </button>
+            <button class="quick-btn" data-prompt="Zobraz aktuální stav systému – CPU, RAM, disk">
+              💻 Systém
+            </button>
+            <button class="quick-btn" data-prompt="Vyhledej na webu: ">
+              🌐 Web Search
+            </button>
+            <button class="quick-btn" data-prompt="Zobraz lean metriky za posledních 24 hodin">
+              📈 Metriky
+            </button>
+            <button class="quick-btn" data-prompt="Zkontroluj GitHub CI status pro keksiczek/ai-home-hub">
+              🔄 CI Status
+            </button>
+            <button class="quick-btn" data-prompt="Zobraz dnešní kalendář">
+              📅 Kalendář
+            </button>
+            <button class="quick-btn actions-more-btn" id="actions-more-btn" title="V&iacute;ce akc&iacute;">…</button>
+          </div>
+          <!-- Quick prompts -->
+          <div class="quick-prompts-bar" id="quick-prompts-bar">
+            <button class="quick-prompt-btn" data-prompt="Shr&#328; n&iacute;&#382;e uveden&yacute; text do maxim&aacute;ln&#283; 5 odr&aacute;&#382;ek:">&#128221; Shrnutí</button>
+            <button class="quick-prompt-btn" data-prompt="Analyzuj n&iacute;&#382;e uveden&yacute; k&oacute;d a vysv&#283;tli, co d&#283;l&aacute;:">&#128187; Analyzuj kód</button>
+            <button class="quick-prompt-btn" data-prompt="Vysv&#283;tli n&aacute;sleduj&iacute;c&iacute; jednoduche, jako bych byl za&#269;&aacute;te&#269;n&iacute;k:">&#128161; Vysvětli</button>
+          </div>
+          <div class="chat-input-row">
+            <button class="btn-icon attach-btn" id="attach-btn" title="Pridat soubor">
+              &#128206;
+            </button>
+            <span class="chat-input-inline-icons">
+              <button class="btn-icon" id="inline-image-btn" title="P&#345;idat obr&aacute;zek">&#128247;</button>
+              <button class="btn-icon" id="inline-screenshot-btn" title="Screenshot">&#128248;</button>
+            </span>
+            <input type="file" id="file-input" multiple hidden
+                   accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.mp3,.wav,.m4a,.ogg,.mp4,.epub,.html,.zip,.py,.js,.ts,.json,.yaml,.csv" />
+            <textarea class="chat-textarea" id="chat-input" rows="2"
+                      placeholder="Napi&#353; dotaz&#8230; Enter = odeslat, Shift+Enter = nov&yacute; &#345;&aacute;dek"></textarea>
+            <button class="btn btn--primary btn--send" id="send-btn">
+              &#10148;
+              <span class="spinner spinner--small hidden" id="chat-spinner" aria-label="Odes&iacute;l&aacute;m..."></span>
+            </button>
+          </div>
+          <!-- Streaming indicator – visible only during active stream -->
+          <div id="chat-streaming-indicator" class="chat-streaming-indicator hidden" aria-live="polite">
+            <span class="chat-streaming-dot"></span>
+            <span class="chat-streaming-dot"></span>
+            <span class="chat-streaming-dot"></span>
+            <span class="chat-streaming-text">AI p&iacute;&scaron;e&hellip;</span>
+          </div>
+          <div id="attached-files" class="attached-files hidden"></div>
+        </div>
+      </div>
+
+    </div><!-- /tab-chat -->
+
+    <!-- ======================== FILES MANAGER TAB ======================== -->
+    <div class="tab-panel hidden" id="tab-files-manager" role="tabpanel">
+      <div class="panel-header">
+        <h1 class="panel-title">&#128193; Spr&aacute;vce soubor&#367;</h1>
+        <div style="display:flex;gap:0.5rem">
+          <button class="btn btn--ghost btn--small" id="refresh-files-btn">Obnovit</button>
+        </div>
+      </div>
+
+      <section class="card">
+        <div class="form-group" style="display:flex;gap:0.5rem;align-items:center">
+          <input class="input" id="files-path-input" placeholder="Cesta k adres&aacute;&#345;i, nap&#345;. /Users/keks/projects" style="flex:1" />
+          <button class="btn btn--ghost btn--small browse-picker-btn" data-target="files-path-input" data-type="directory" title="Vybrat slo&#382;ku">&#128193;</button>
+          <button class="btn btn--primary btn--small" id="files-browse-btn">Proch&aacute;zet</button>
+        </div>
+      </section>
+
+      <section class="card" id="files-tree-container">
+        <div class="empty-state">Zadej cestu a klikni Proch&aacute;zet</div>
+      </section>
+
+      <!-- File preview panel -->
+      <section class="card hidden" id="files-preview-panel">
+        <div class="panel-header" style="padding:0 0 0.75rem">
+          <h2 class="card-title" id="files-preview-title">N&aacute;hled</h2>
+          <button class="btn btn--ghost btn--small" id="files-preview-close">&#10005;</button>
+        </div>
+        <div id="files-preview-content" class="files-preview-content"></div>
+      </section>
+    </div><!-- /tab-files-manager -->
+
+    <!-- ======================== AGENTS TAB ======================== -->
+    <div class="tab-panel hidden" id="tab-agents" role="tabpanel">
+
+      <div class="panel-header">
+        <h1 class="panel-title">Agenti</h1>
+        <div style="display:flex;gap:0.5rem">
+          <button class="btn btn--ghost btn--small" id="refresh-agents-btn">Obnovit</button>
+          <button class="btn btn--ghost btn--small" id="cleanup-agents-btn">Vy&#269;istit</button>
+        </div>
+      </div>
+
+      <section class="card">
+        <h2 class="card-title">Spustit nov&eacute;ho agenta</h2>
+
+        <div class="form-group">
+          <label class="form-label">Typ:</label>
+          <div class="pill-group" id="agent-type-pills">
+            <button class="pill pill--active" data-value="general">General</button>
+            <button class="pill" data-value="code">Code</button>
+            <button class="pill" data-value="research">Research</button>
+            <button class="pill" data-value="testing">Testing</button>
+            <button class="pill" data-value="devops">DevOps</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="agent-goal">C&iacute;l:</label>
+          <textarea class="textarea" id="agent-goal" rows="2"
+                    placeholder="Popi&#353; c&iacute;l agenta..."></textarea>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="agent-workspace">Workspace:</label>
+          <input type="text" class="input" id="agent-workspace"
+                 placeholder="/cesta/k/projektu (voliteln&eacute;)" />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Skills:</label>
+          <div class="skill-select-list" id="agent-skill-select">
+            <p class="hint-text">Na&#269;&iacute;t&aacute;m skills...</p>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Agent Skills (SKILL.md):</label>
+          <div class="skill-select-list" id="agent-fs-skill-select">
+            <p class="hint-text">Na&#269;&iacute;t&aacute;m agent skills...</p>
+          </div>
+        </div>
+
+        <div class="form-group form-group--right">
+          <button class="btn btn--primary" id="spawn-btn">
+            Spustit agenta
+            <span class="spinner spinner--small hidden" id="spawn-spinner"></span>
+          </button>
+        </div>
+      </section>
+
+      <section id="agents-list" class="agents-grid">
+        <p class="empty-state">&#381;&aacute;dn&iacute; agenti neb&ecaron;&zcaron;&iacute;.</p>
+      </section>
+
+      <!-- Agent Memory section -->
+      <section class="card agent-memory" style="margin-top:1.5rem">
+        <div class="section-header" style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem">
+          <h3 class="card-title" style="margin:0">&#129504; Agent Pam&#283;&#357;</h3>
+          <span class="memory-count hint-text" id="agent-memory-count"></span>
+          <div style="margin-left:auto;display:flex;gap:0.5rem">
+            <button class="btn btn--ghost btn--small" onclick="loadAgentMemoryTable()">&#8635; Obnovit</button>
+            <button class="btn btn--ghost btn--small" onclick="exportAgentMemory()">&#128196; Export JSON</button>
+            <button class="btn btn--danger btn--small" onclick="clearAllAgentMemory()">&#128465; Vymazat v&#353;e</button>
+          </div>
+        </div>
+
+        <div class="memory-search" style="margin-bottom:0.75rem;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+          <input type="text" class="input" placeholder="Hledat v pam&#283;ti agenta..." id="memorySearchInput"
+            oninput="filterAgentMemory(this.value)" style="max-width:300px" minlength="3" />
+          <button class="btn btn--ghost btn--small" id="memorySearchBtn" onclick="searchAgentMemory()">&#128269; Hledat</button>
+          <button class="btn btn--ghost btn--small" id="memoryClearSearch" style="display:none" onclick="clearAgentMemorySearch()">&#10005; Zru&#353;it</button>
+          <span id="memorySearchWarning" style="display:none;color:var(--warning,#f59e0b);font-size:0.8em">Zadej alespo&#328; 3 znaky</span>
+        </div>
+
+        <div style="overflow-x:auto">
+          <table class="memory-table" id="agent-memory-table">
+            <thead>
+              <tr><th>#</th><th>&#268;as</th><th>Obsah</th><th>Tagy</th><th></th></tr>
+            </thead>
+            <tbody id="agent-memory-rows">
+              <tr><td colspan="5" class="hint-text" style="text-align:center;padding:1rem">Na&#269;&iacute;t&aacute;m...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Add memory manually -->
+        <div class="memory-add" style="margin-top:0.75rem;display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center">
+          <input type="text" class="input" id="agent-new-memory" placeholder="P&#345;idat pozn&aacute;mku do pam&#283;ti..." style="flex:2;min-width:180px" />
+          <input type="text" class="input" id="agent-new-memory-tags" placeholder="tagy: #lean #ci" style="flex:1;min-width:120px" />
+          <button class="btn btn--primary btn--small" onclick="addAgentMemoryItem()">&#10133; P&#345;idat</button>
+        </div>
+      </section>
+
+    </div><!-- /tab-agents -->
+
+    <!-- ======================== SKILLS TAB ======================== -->
+    <div class="tab-panel hidden" id="tab-skills" role="tabpanel">
+
+      <!-- ── Marketplace header ── -->
+      <div class="panel-header">
+        <div>
+          <h1 class="panel-title">Skills Marketplace</h1>
+          <p class="panel-subtitle" style="color:#94a3b8;font-size:0.875rem;margin-top:0.25rem">Spravuj schopnosti AI agenta</p>
+        </div>
+        <button class="btn btn--primary btn--small" id="add-skill-btn">+ Nov&yacute; Skill</button>
+      </div>
+
+      <!-- ── Search + category tabs ── -->
+      <div class="skills-toolbar">
+        <input type="text" class="input search-input" id="mp-search"
+               placeholder="Hledat skills..." style="max-width:320px" />
+        <div class="mp-category-tabs" id="mp-category-tabs">
+          <button class="pill pill--tag pill--active" data-cat="">V&scaron;e</button>
+          <button class="pill pill--tag" data-cat="web">&#127760; Web</button>
+          <button class="pill pill--tag" data-cat="system">&#128421;&#65039; System</button>
+          <button class="pill pill--tag" data-cat="git">&#128268; Git</button>
+          <button class="pill pill--tag" data-cat="ai">&#129302; AI</button>
+          <button class="pill pill--tag" data-cat="custom">&#9889; Custom</button>
+        </div>
+      </div>
+
+      <!-- ── Marketplace grid ── -->
+      <div class="skills-grid" id="mp-grid">
+        <p class="empty-state">Na&#269;&iacute;t&aacute;m skills...</p>
+      </div>
+
+      <!-- ── GitHub Discovery ── -->
+      <div style="margin-top:2.5rem;border-top:1px solid #2d3348;padding-top:1.5rem">
+        <h2 class="panel-title" style="font-size:1.25rem">&#128269; Objevuj nov&eacute; skills</h2>
+        <p style="color:#94a3b8;font-size:0.8125rem;margin:0.25rem 0 1rem">Prohled&aacute;vej GitHub a najdi komunitn&iacute; skills pro AI Home Hub</p>
+        <div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:1rem">
+          <input type="text" class="input search-input" id="gh-discover-search"
+                 placeholder="Hledat na GitHubu..." style="max-width:320px" />
+          <button class="btn btn--primary btn--small" id="gh-discover-btn">&#128269; Hledat na GitHubu</button>
+        </div>
+        <div class="skills-grid" id="gh-discover-grid">
+          <p class="empty-state">Zadej hled&aacute;n&iacute; nebo klikni pro na&#269;ten&iacute; doporu&#269;en&yacute;ch</p>
+        </div>
+      </div>
+
+      <!-- ── Prompt Skills (legacy) section ── -->
+      <div style="margin-top:2.5rem;border-top:1px solid #2d3348;padding-top:1.5rem">
+        <h2 class="panel-title" style="font-size:1.25rem">&#128218; Prompt Skill Profily</h2>
+        <p style="color:#94a3b8;font-size:0.8125rem;margin:0.25rem 0 1rem">Vlastn&iacute; prompt profily pro agenta (DAX Expert, Git Operations&hellip;)</p>
+        <div class="skills-toolbar">
+          <input type="text" class="input search-input" id="skills-search"
+                 placeholder="Hledat prompt skills..." />
+          <div class="tag-pills" id="skills-tag-pills"></div>
+        </div>
+        <div class="skills-grid" id="skills-grid">
+          <p class="empty-state">Na&#269;&iacute;t&aacute;m skills...</p>
+        </div>
+      </div>
+
+      <!-- Skill edit modal (prompt skills) -->
+      <div class="modal-overlay hidden" id="skill-modal">
+        <div class="modal">
+          <div class="modal-header">
+            <h2 class="modal-title" id="skill-modal-title">Nov&yacute; Skill</h2>
+            <button class="btn-icon modal-close" id="skill-modal-close">&#10005;</button>
+          </div>
+          <div class="modal-body">
+            <input type="hidden" id="skill-edit-id" value="" />
+            <div class="form-group">
+              <label class="form-label" for="skill-name">N&aacute;zev:</label>
+              <input type="text" class="input" id="skill-name" placeholder="N&aacute;zev skill" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="skill-description">Popis:</label>
+              <input type="text" class="input" id="skill-description" placeholder="Kr&aacute;tk&yacute; popis" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="skill-icon">Ikona (emoji):</label>
+              <input type="text" class="input" id="skill-icon" placeholder="&#128200;" style="max-width:80px" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="skill-prompt">Syst&eacute;mov&yacute; prompt:</label>
+              <textarea class="textarea" id="skill-prompt" rows="4"
+                        placeholder="Dopl&#328;kov&yacute; syst&eacute;mov&yacute; prompt pro agenta..."></textarea>
+            </div>
+            <div class="form-group">
+              <label class="form-label">N&aacute;stroje:</label>
+              <div class="checkbox-group">
+                <label class="checkbox-label"><input type="checkbox" value="filesystem" class="skill-tool-cb" /> Filesystem</label>
+                <label class="checkbox-label"><input type="checkbox" value="git" class="skill-tool-cb" /> Git</label>
+                <label class="checkbox-label"><input type="checkbox" value="vscode" class="skill-tool-cb" /> VS Code</label>
+                <label class="checkbox-label"><input type="checkbox" value="macos" class="skill-tool-cb" /> macOS</label>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="skill-tags">Tagy (odd&#283;len&eacute; &#269;&aacute;rkou):</label>
+              <input type="text" class="input" id="skill-tags" placeholder="powerbi, analytics" />
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn--ghost" id="skill-modal-cancel">Zru&#353;it</button>
+            <button class="btn btn--primary" id="skill-modal-save">Ulo&#382;it</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Skill config modal (marketplace) -->
+      <div class="modal-overlay hidden" id="mp-config-modal">
+        <div class="modal">
+          <div class="modal-header">
+            <h2 class="modal-title" id="mp-config-title">Konfigurovat skill</h2>
+            <button class="btn-icon modal-close" id="mp-config-close">&#10005;</button>
+          </div>
+          <div class="modal-body" id="mp-config-body"></div>
+          <div class="modal-footer">
+            <button class="btn btn--ghost" id="mp-config-cancel">Zru&#353;it</button>
+            <button class="btn btn--primary" id="mp-config-save">Ulo&#382;it</button>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /tab-skills -->
+
+    <!-- ======================== STATUS TAB ======================== -->
+    <div class="tab-panel hidden" id="tab-status" role="tabpanel">
+
+      <div class="panel-header">
+        <h1 class="panel-title">System Status</h1>
+        <div style="display:flex;gap:0.5rem;align-items:center">
+          <span id="status-timestamp" class="status-timestamp"></span>
+          <button class="btn btn--ghost btn--small" id="refresh-status-btn">Obnovit</button>
+        </div>
+      </div>
+
+      <!-- Resource Monitor Widget -->
+      <div class="card resource-monitor" id="resource-monitor">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem">
+          <h2 class="card-title" style="margin:0">&#128202; Monitorov&aacute;n&iacute; zdroj&#367;</h2>
+          <span class="hint-text" id="resource-updated-at"></span>
+        </div>
+        <div id="resource-banners"></div>
+        <div class="resource-gauges" id="resource-gauges">
+          <p class="empty-state">Na&#269;&iacute;t&aacute;m...</p>
+        </div>
+      </div>
+
+      <div id="overall-status-card" class="card" style="margin-bottom:1rem">
+        <div style="display:flex;align-items:center;gap:1rem">
+          <h2 class="card-title" style="margin:0">Overall Status</h2>
+          <span id="overall-status-badge" class="status-badge">--</span>
+        </div>
+      </div>
+
+      <div class="status-grid" id="status-grid">
+        <p class="empty-state">Na&#269;&iacute;t&aacute;m status...</p>
+      </div>
+
+      <div id="status-alerts" class="status-alerts"></div>
+
+    </div><!-- /tab-status -->
+
+    <!-- ======================== RESIDENT AGENT TAB ======================== -->
+    <div class="tab-panel hidden" id="tab-resident" role="tabpanel">
+
+      <!-- Status bar -->
+      <div class="resident-statusbar" id="resident-statusbar">
+        <div class="resident-statusbar__left">
+          <span class="resident-status-indicator resident-status--stopped" id="resident-status-indicator">
+            <span class="resident-status-dot"></span>
+            <span id="resident-status-text">Zastaven</span>
+          </span>
+          <span class="resident-uptime" id="resident-uptime"></span>
+          <span class="resident-heartbeat hidden" id="resident-heartbeat"></span>
+        </div>
+        <div class="resident-statusbar__right" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+          <div class="resident-mode-switcher" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <span id="resident-mode-icon" class="resident-mode-icon" aria-hidden="true">&#129300;</span>
+            <select class="input input--small" id="resident-mode-select" onchange="residentSetMode(this.value)" title="Re&zcaron;im autonomie">
+              <option value="observer">Observer</option>
+              <option value="advisor" selected>Advisor</option>
+              <option value="autonomous">Autonomous</option>
+            </select>
+            <span id="resident-mode-badge" style="display:none;padding:2px 8px;border-radius:12px;font-size:0.75em;font-weight:600;color:#fff;background:#888"></span>
+            <span id="resident-mode-pending-badge" style="display:none;padding:2px 8px;border-radius:12px;font-size:0.75em;font-weight:600;color:#fff;background:#f39c12" title="N&aacute;vrhy &ccaron;ekaj&iacute; na schv&aacute;len&iacute;"></span>
+            <span class="resident-mode-hint" id="resident-mode-hint">Navrhuje akce, ty klikne&#353; Spustit</span>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+            <!-- Panic / toggle autonomy – always visible, prominent -->
+            <button class="btn btn--danger btn--small" id="resident-panic-btn"
+                    onclick="toggleResidentAutonomy()"
+                    title="Okam&#382;it&#283; pozastavit autonomn&iacute; re&#382;im Residenta">
+              &#9208;&#65039; Pozastavit autonomii
+            </button>
+            <button class="btn btn--primary btn--small" id="resident-start-btn">Spustit</button>
+            <button class="btn btn--ghost btn--small" id="resident-stop-btn" disabled>Zastavit</button>
+          </div>
+          <div id="resident-autonomous-warning" class="resident-autonomous-warning hidden" style="width:100%;margin-top:4px">
+            &#9888; Agent jedn&aacute; samostatn&#283; &ndash; sleduj activity log. Bezpe&#269;n&eacute; akce se spou&#353;t&#283;j&iacute; automaticky.
+          </div>
+          <div id="resident-observer-info" class="hidden" style="width:100%;margin-top:4px;font-size:0.8em;color:var(--text-secondary)">
+            &#128065;&#65039; Observer m&oacute;d &ndash; agent sleduje syst&eacute;m, nevolá LLM ani nezpracov&aacute;v&aacute; tasky.
+          </div>
+        </div>
+      </div>
+
+      <!-- Mode Switcher -->
+      <div class="mode-switcher" id="modeSwitcher">
+        <div class="mode-switcher-header">
+          <span class="mode-label">Režim agenta:</span>
+          <span class="mode-badge" id="modeBadge">···</span>
+          <span class="mode-description" id="modeDescription"></span>
+        </div>
+        <div class="mode-switcher__buttons mode-buttons">
+          <button class="mode-btn" data-mode="observer" title="Agent pouze sleduje a loguje">
+            👁️ Observer
+          </button>
+          <button class="mode-btn" data-mode="advisor" title="Agent navrhuje akce, čeká na souhlas">
+            💡 Advisor
+          </button>
+          <button class="mode-btn mode-btn--danger" data-mode="autonomous"
+                  title="Agent jedná samostatně">
+            ⚡ Autonomous
+          </button>
+        </div>
+        <div class="mode-switcher__desc" id="modeSwitcherDesc"></div>
+        <div class="mode-stats" id="modeStats"></div>
+        <div class="mode-warning" id="modeWarning" style="display:none">
+          ⚠️ Autonomous mód – agent jedná samostatně. Sleduj activity log.
+        </div>
+      </div>
+
+      <!-- Pending Actions Panel (advisor mode only) -->
+      <div class="pending-actions" id="pendingActionsPanel" style="display:none">
+        <div class="pending-actions__header">
+          <span>⏳ Čekající akce</span>
+          <span class="pending-count" id="pendingCount">0</span>
+        </div>
+        <div class="pending-actions__list" id="pendingActionsList">
+          <!-- dynamicky generováno -->
+        </div>
+      </div>
+
+      <!-- Live Agent Thoughts Panel (SSE) -->
+      <section class="card hidden" id="resident-thought-panel">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <h2 class="card-title" id="resident-thought-panel-title">&#129504; Co agent d&#283;l&#225;</h2>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn--ghost btn--small" id="resident-thought-copy-btn" onclick="copyThoughtLog()" title="Kop&iacute;rovat log">&#128203; Kop&iacute;rovat log</button>
+            <button class="btn btn--ghost btn--small" id="resident-thought-toggle-btn" onclick="toggleThoughtPanel()">Minimalizovat</button>
+          </div>
+        </div>
+        <div id="resident-thought-log" class="resident-thought-log"></div>
+      </section>
+
+      <!-- Live Agent Widget -->
+      <section class="card agent-widget" id="agent-live-widget">
+        <div class="agent-widget-header">
+          <span>&#129302; Resident Agent</span>
+          <button class="btn btn--ghost btn--small" id="agent-widget-pause-btn" title="Pozastavit">&#9208;&#65039; Pause</button>
+        </div>
+        <div class="agent-widget-body">
+          <div class="agent-widget-row">
+            <span class="agent-widget-label">Status:</span>
+            <span class="agent-widget-value" id="aw-status">&#128993; idle</span>
+          </div>
+          <div class="agent-widget-row">
+            <span class="agent-widget-label">My&#353;lenka:</span>
+            <span class="agent-widget-value agent-widget-thought" id="aw-thought">&mdash;</span>
+          </div>
+          <div class="agent-widget-row">
+            <span class="agent-widget-label">Posledn&iacute;:</span>
+            <span class="agent-widget-value" id="aw-last-action">&mdash;</span>
+          </div>
+          <div class="agent-widget-row">
+            <span class="agent-widget-label">Cyklus:</span>
+            <span class="agent-widget-value" id="aw-cycle">#0 | Dal&#353;&iacute; za: &mdash;</span>
+          </div>
+          <div class="agent-widget-row" style="display:none">
+            <span class="agent-widget-label">Skills:</span>
+            <span class="agent-widget-value" id="aw-skills"></span>
+          </div>
+          <div class="agent-widget-actions">
+            <button class="btn btn--ghost btn--small" id="aw-log-btn" onclick="openResidentLogModal()">&#128203; Log</button>
+            <button class="btn btn--ghost btn--small" id="aw-settings-btn" onclick="openResidentSettingsModal()">&#9881; Nastaven&iacute;</button>
+          </div>
+        </div>
+      </section>
+
+      <div class="panel-header">
+        <h1 class="panel-title">Resident Agent Dashboard</h1>
+      </div>
+
+      <!-- Loading skeleton -->
+      <div id="resident-loading" class="resident-loading hidden">
+        <div class="skeleton skeleton--card"></div>
+        <div class="skeleton skeleton--card"></div>
+      </div>
+
+      <!-- Error state with retry -->
+      <div id="resident-error" class="hidden"></div>
+
+      <!-- Dashboard content -->
+      <div id="resident-dashboard-content">
+
+        <!-- Agent Status Widget + Cycle Progress -->
+        <div class="card" id="resident-status-widget" style="margin-bottom:12px">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+            <div style="display:flex;align-items:center;gap:10px">
+              <span id="resident-status-widget-text" style="font-size:1.1em;font-weight:600">Načítám...</span>
+            </div>
+            <span id="resident-cycle-count" style="font-size:0.8em;color:var(--text-muted)"></span>
+          </div>
+          <div id="resident-cycle-bar-wrap" style="margin-top:10px;display:none">
+            <div style="display:flex;align-items:center;justify-content:space-between;font-size:0.8em;color:var(--text-muted);margin-bottom:4px">
+              <span>Příští cyklus</span>
+              <span id="resident-cycle-timer">0s / 0s</span>
+            </div>
+            <div style="width:100%;height:8px;border-radius:4px;background:var(--surface-alt,rgba(255,255,255,0.06));overflow:hidden">
+              <div id="resident-cycle-bar" style="height:100%;border-radius:4px;background:var(--accent,#3b82f6);transition:width 1s linear;width:0%"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Activity Feed -->
+        <div class="card" id="resident-activity-feed-card" style="margin-bottom:12px">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <h3 class="card-title" style="font-size:0.95em;margin:0">Aktivita agenta</h3>
+            <button class="btn btn--ghost btn--small" onclick="loadActivityFeed()">Obnovit</button>
+          </div>
+          <div id="resident-activity-feed" style="margin-top:8px;max-height:320px;overflow-y:auto">
+            <p class="empty-state" style="font-size:0.85em">Načítám...</p>
+          </div>
+        </div>
+
+        <!-- Agent Autonomy Dashboard Widgets -->
+        <div class="resident-autonomy-widgets" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <!-- Last Thought Widget -->
+          <div class="card" id="resident-last-thought-widget" style="margin:0">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <h3 class="card-title" style="font-size:0.95em;margin:0">Posledn&iacute; my&scaron;lenky agenta</h3>
+              <a href="#" onclick="event.preventDefault();showResidentTab('thoughts')" style="font-size:0.8em;color:var(--accent)">Zobrazit v&scaron;e &rarr;</a>
+            </div>
+            <div id="resident-last-thoughts-content" style="margin-top:8px">
+              <p class="empty-state" style="font-size:0.85em">&Zcaron;&aacute;dn&eacute; my&scaron;lenky</p>
+            </div>
+          </div>
+          <!-- Curiosity Backlog Widget -->
+          <div class="card" id="resident-curiosity-widget" style="margin:0">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <h3 class="card-title" style="font-size:0.95em;margin:0">Curiosity backlog</h3>
+              <a href="#" onclick="event.preventDefault();showResidentTab('curiosity')" style="font-size:0.8em;color:var(--accent)">Zobrazit v&scaron;e &rarr;</a>
+            </div>
+            <div id="resident-curiosity-widget-content" style="margin-top:8px">
+              <p class="empty-state" style="font-size:0.85em">&Zcaron;&aacute;dn&eacute; polo&zcaron;ky</p>
+            </div>
+          </div>
+          <!-- Budget Widget -->
+          <div class="card" id="resident-budget-widget" style="margin:0;grid-column:1/-1">
+            <h3 class="card-title" style="font-size:0.95em;margin:0">Budget agenta</h3>
+            <div id="resident-budget-widget-content" style="margin-top:8px;display:flex;gap:16px;flex-wrap:wrap;font-size:0.85em">
+              <span>Na&ccaron;&iacute;t&aacute;m...</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Thought Log + Curiosity Tabs -->
+        <section class="card" id="resident-autonomy-panel">
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <button class="btn btn--small" id="resident-tab-thoughts-btn" onclick="showResidentTab('thoughts')" style="font-weight:600">
+              &#128173; Den&iacute;k agenta
+            </button>
+            <button class="btn btn--ghost btn--small" id="resident-tab-curiosity-btn" onclick="showResidentTab('curiosity')">
+              &#128270; Curiosity backlog
+            </button>
+          </div>
+
+          <!-- Thought Log Tab -->
+          <div id="resident-tab-thoughts" style="margin-top:12px">
+            <div id="resident-thought-feed" class="resident-thought-feed">
+              <p class="empty-state">&Zcaron;&aacute;dn&eacute; z&aacute;znamy</p>
+            </div>
+          </div>
+
+          <!-- Curiosity Tab -->
+          <div id="resident-tab-curiosity" style="margin-top:12px;display:none">
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+              <label style="font-size:0.85em"><input type="checkbox" id="curiosity-filter-open" checked onchange="loadCuriosityList()"> open</label>
+              <label style="font-size:0.85em"><input type="checkbox" id="curiosity-filter-in-progress" checked onchange="loadCuriosityList()"> in_progress</label>
+              <label style="font-size:0.85em"><input type="checkbox" id="curiosity-filter-done" onchange="loadCuriosityList()"> done</label>
+            </div>
+            <div id="resident-curiosity-feed" class="resident-curiosity-feed">
+              <p class="empty-state">&Zcaron;&aacute;dn&eacute; polo&zcaron;ky</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- KB warning -->
+        <div id="resident-kb-warning" class="hidden" style="background:var(--warning-soft,#7c6a0033);color:var(--warning,#eab308);padding:8px 12px;border-radius:8px;margin-bottom:8px;font-size:0.9em"></div>
+
+        <!-- Current task -->
+        <section class="card hidden" id="resident-current-task-card">
+          <h2 class="card-title">Aktu&aacute;ln&iacute; &uacute;kol</h2>
+          <div id="resident-current-task-info"></div>
+        </section>
+
+        <!-- Stat cards -->
+        <div class="resident-stats-grid" id="resident-stats-grid">
+          <div class="stat-card">
+            <div class="stat-card__value" id="resident-stat-total">-</div>
+            <div class="stat-card__label">&Uacute;koly (24h)</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__value" id="resident-stat-success">-</div>
+            <div class="stat-card__label">&Uacute;sp&#283;&#353;nost</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__value" id="resident-stat-duration">-</div>
+            <div class="stat-card__label">Pr&#367;m. doba</div>
+          </div>
+        </div>
+
+        <!-- Alerts -->
+        <section class="card hidden" id="resident-alerts-card">
+          <h2 class="card-title">Upozorn&#283;n&iacute;</h2>
+          <div id="resident-alerts-list"></div>
+        </section>
+
+        <!-- Reasoning History (tool calling) -->
+        <section class="card" id="resident-reasoning-card">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <h2 class="card-title">Reasoning (tool calling)</h2>
+            <button class="btn btn--secondary btn--small" id="resident-trigger-reasoning-btn" title="Spustit nov&yacute; reasoning cycle">
+              Spustit reasoning
+              <span class="spinner spinner--small hidden" id="resident-reasoning-spinner"></span>
+            </button>
+          </div>
+          <div id="resident-reasoning-list">
+            <p class="empty-state" id="resident-reasoning-empty">&Zcaron;&aacute;dn&eacute; reasoning cycles</p>
+          </div>
+        </section>
+
+        <!-- Suggestions from Resident Reasoner -->
+        <section class="card hidden" id="resident-suggestions-card">
+          <h2 class="card-title">N&aacute;vrhy Residenta</h2>
+          <div id="resident-suggestions-list"></div>
+        </section>
+
+        <!-- Autonomous Actions Logbook -->
+        <section class="card hidden" id="resident-auto-logbook-card">
+          <h2 class="card-title">Posledn&iacute; autonomn&iacute; akce</h2>
+          <div id="resident-auto-logbook-list"></div>
+        </section>
+
+        <!-- Mission Proposals -->
+        <section class="card" id="resident-proposals-card">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <h2 class="card-title">Navr&#382;en&#233; mise</h2>
+            <button class="btn btn--secondary btn--small" id="resident-generate-proposals-btn" onclick="residentGenerateProposals()">
+              Navrhnout mise
+              <span class="spinner spinner--small hidden" id="resident-proposals-spinner"></span>
+            </button>
+          </div>
+          <div id="resident-proposals-list">
+            <p class="empty-state" id="resident-proposals-empty">&#381;&aacute;dn&eacute; n&aacute;vrhy – klikni &quot;Navrhnout mise&quot;</p>
+          </div>
+        </section>
+
+        <!-- Missions -->
+        <section class="card" id="resident-missions-card">
+          <h2 class="card-title">Mise</h2>
+          <div class="form-group" style="display:flex;gap:8px;align-items:end">
+            <input type="text" class="input" id="resident-mission-goal" maxlength="500"
+                   placeholder="C&iacute;l mise (nap&#345;. Analyzuj KB k t&eacute;matu X)" style="flex:1" />
+            <button class="btn btn--primary btn--small" onclick="residentCreateMission()">Vytvo&#345;it</button>
+          </div>
+          <div id="resident-missions-list">
+            <p class="empty-state" id="resident-missions-empty">&Zcaron;&aacute;dn&eacute; mise</p>
+          </div>
+        </section>
+
+        <!-- Reflections logbook -->
+        <section class="card" id="resident-reflections-card">
+          <h2 class="card-title">Logbook (Reflexe)</h2>
+          <div id="resident-reflections-list">
+            <p class="empty-state" id="resident-reflections-empty">&Zcaron;&aacute;dn&eacute; reflexe</p>
+          </div>
+        </section>
+
+        <!-- Recent tasks table -->
+        <section class="card">
+          <h2 class="card-title">Posledn&iacute; &uacute;koly</h2>
+          <div id="resident-recent-tasks">
+            <p class="empty-state" id="resident-tasks-empty">&#381;&aacute;dn&eacute; &uacute;koly za 24 h</p>
+          </div>
+        </section>
+
+        <!-- Agent Log Viewer -->
+        <section class="card" id="resident-log-viewer-card">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+            <h2 class="card-title">Agent Log</h2>
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+              <select class="input input--small" id="log-level-filter" onchange="loadAgentLogs()" title="Filtr &#250;rovn&#283;">
+                <option value="">V&#353;echny</option>
+                <option value="INFO">INFO</option>
+                <option value="WARN">WARN</option>
+                <option value="ERROR">ERROR</option>
+              </select>
+              <input type="text" class="input input--small" id="log-cycle-filter"
+                     placeholder="Cyklus (nap&#345;. cycle-0042)" style="width:140px"
+                     onchange="loadAgentLogs()" />
+              <button class="btn btn--ghost btn--small" onclick="exportAgentLogs()" title="Export JSON">&#11015; Export</button>
+              <button class="btn btn--ghost btn--small btn--danger" onclick="clearAgentLogs()" title="Smazat log">&#128465; Smazat</button>
+            </div>
+          </div>
+          <div id="resident-log-list" class="resident-log-list">
+            <p class="empty-state">&#381;&#225;dn&#233; z&#225;znamy</p>
+          </div>
+        </section>
+
+        <!-- Agent Settings -->
+        <section class="card" id="resident-agent-settings-card">
+          <h2 class="card-title">Nastaven&#237; agenta</h2>
+          <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div>
+              <label class="form-label">Interval (s):</label>
+              <input type="number" class="input" id="agent-setting-interval" min="5" max="3600" value="30" />
+            </div>
+            <div>
+              <label class="form-label">Max cykl&#367;/den:</label>
+              <input type="number" class="input" id="agent-setting-max-cycles" min="1" max="10000" value="100" />
+            </div>
+            <div>
+              <label class="form-label">Tich&#253; re&#382;im od:</label>
+              <input type="time" class="input" id="agent-setting-quiet-start" value="22:00" />
+            </div>
+            <div>
+              <label class="form-label">Tich&#253; re&#382;im do:</label>
+              <input type="time" class="input" id="agent-setting-quiet-end" value="07:00" />
+            </div>
+          </div>
+          <div class="form-group" style="display:flex;align-items:center;gap:8px;margin-top:8px">
+            <label><input type="checkbox" id="agent-setting-quiet-enabled" /> Tich&#253; re&#382;im aktivn&#237;</label>
+          </div>
+          <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;border-top:1px solid #2d3348;padding-top:12px">
+            <div>
+              <label class="form-label">Interval navrhov&aacute;n&iacute;:</label>
+              <select class="input" id="agent-setting-proposal-interval">
+                <option value="15">15 min</option>
+                <option value="30">30 min</option>
+                <option value="60" selected>1 hod</option>
+                <option value="240">4 hod</option>
+                <option value="0">Manu&aacute;ln&#283;</option>
+              </select>
+            </div>
+            <div>
+              <label class="form-label">Max n&aacute;vrh&#367;:</label>
+              <input type="number" class="input" id="agent-setting-max-proposals" min="1" max="5" value="3" />
+            </div>
+          </div>
+          <div class="form-group" style="margin-top:8px">
+            <label class="form-label">T&eacute;mata z&aacute;jmu:</label>
+            <input type="text" class="input" id="agent-setting-interest-topics" placeholder="Power BI, Python, novinky v AI" />
+          </div>
+          <div class="form-group form-group--right" style="gap:8px;display:flex;margin-top:8px">
+            <button class="btn btn--primary btn--small" onclick="saveAgentSettings()">Ulo&#382;it</button>
+            <button class="btn btn--ghost btn--small" onclick="agentRunNow()">Spustit te&#271;</button>
+            <button class="btn btn--ghost btn--small btn--danger" onclick="agentReset()">Reset</button>
+          </div>
+        </section>
+
+        <!-- Mode History (collapsible) -->
+        <details class="card" id="mode-history-card">
+          <summary class="card-title" style="cursor:pointer">&#128203; Historie změn módu</summary>
+          <div id="modeHistoryList" style="margin-top:0.75rem">
+            <p class="empty-state">Načítám historii...</p>
+          </div>
+        </details>
+
+        <!-- Help tooltip -->
+        <details class="card resident-help-details">
+          <summary class="card-title resident-help-summary">Jak pou&#382;&iacute;vat Resident Agent?</summary>
+          <ul class="resident-help-list">
+            <li><strong>Observer</strong> &ndash; jen sleduje syst&eacute;m, nic nespou&#353;t&iacute;.</li>
+            <li><strong>Advisor</strong> &ndash; navrhuje akce, ty je ru&#269;n&#283; potvrd&iacute;&#353;.</li>
+            <li><strong>Autonomous</strong> &ndash; spou&#353;t&iacute; bezpe&#269;n&eacute; akce s&aacute;m; maz&aacute;n&iacute; v&#382;dy po&#382;aduje potvrzen&iacute;.</li>
+            <li><strong>Reasoning</strong> &ndash; agent pou&#382;&iacute;v&aacute; n&aacute;stroje (web, KB, metriky) pro lep&#353;&iacute; n&aacute;vrhy.</li>
+            <li><strong>Mise</strong> &ndash; v&iacute;cekrokov&eacute; &uacute;koly s automatick&yacute;m pl&aacute;nov&aacute;n&iacute;m.</li>
+            <li><strong>Tich&#253; re&#382;im</strong> &ndash; agent se pozastav&iacute; v nastaven&yacute;ch hodin&aacute;ch (nap&#345;. 22:00&ndash;07:00).</li>
+          </ul>
+        </details>
+
+        <!-- Task submit -->
+        <section class="card">
+          <h2 class="card-title">P&#345;idat &uacute;kol</h2>
+          <div class="form-group">
+            <label class="form-label" for="resident-task-name">N&aacute;zev &uacute;kolu:</label>
+            <input type="text" class="input" id="resident-task-name" maxlength="100"
+                   placeholder="N&aacute;zev &uacute;kolu (povinn&yacute;)" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="resident-task-desc">Popis:</label>
+            <textarea class="textarea" id="resident-task-desc" rows="2" maxlength="500"
+                      placeholder="Popis (voliteln&yacute;, max 500 znak&#367;)"></textarea>
+          </div>
+          <div class="form-group form-group--right">
+            <button class="btn btn--primary" id="resident-task-submit-btn" disabled
+                    title="Nejd&#345;&iacute;v spus&#357; agenta">
+              P&#345;idat &uacute;kol
+              <span class="spinner spinner--small hidden" id="resident-task-spinner"></span>
+            </button>
+          </div>
+        </section>
+      </div>
+
+    </div><!-- /tab-resident -->
+
+    <!-- ======================== OVERNIGHT JOBS TAB ======================== -->
+    <div class="tab-panel hidden" id="tab-overnight" role="tabpanel">
+
+      <div class="panel-header">
+        <h1 class="panel-title">No&#269;n&iacute; &uacute;lohy</h1>
+      </div>
+
+      <!-- C1: Status Overview -->
+      <section class="card" id="overnight-status-card">
+        <div class="overnight-status-overview" id="overnight-status-overview">
+          <p class="empty-state">Na&#269;&iacute;t&aacute;m...</p>
+        </div>
+      </section>
+
+      <!-- C2: Last Run Cards -->
+      <div class="overnight-jobs-grid" id="overnight-jobs-grid">
+        <!-- KB Reindex card -->
+        <section class="card overnight-job-card" id="overnight-kb-card">
+          <h2 class="card-title">&#128218; KB Reindexov&aacute;n&iacute;</h2>
+          <div class="overnight-job-body" id="overnight-kb-body">
+            <p class="empty-state">Na&#269;&iacute;t&aacute;m...</p>
+          </div>
+        </section>
+        <!-- Git Sweep card -->
+        <section class="card overnight-job-card" id="overnight-git-card">
+          <h2 class="card-title">&#128187; Git Sweep</h2>
+          <div class="overnight-job-body" id="overnight-git-body">
+            <p class="empty-state">Na&#269;&iacute;t&aacute;m...</p>
+          </div>
+        </section>
+        <!-- Nightly Summary card -->
+        <section class="card overnight-job-card" id="overnight-summary-card">
+          <h2 class="card-title">&#128196; No&#269;n&iacute; Summary</h2>
+          <div class="overnight-job-body" id="overnight-summary-body">
+            <p class="empty-state">Na&#269;&iacute;t&aacute;m...</p>
+          </div>
+        </section>
+      </div>
+
+      <!-- C3: Live progress -->
+      <section class="card hidden" id="overnight-progress-section">
+        <h2 class="card-title">Pr&#367;b&#283;h no&#269;n&iacute;ch &uacute;loh</h2>
+        <div class="progress-bar-wrap" style="height:10px">
+          <div class="progress-bar" id="overnight-progress-bar" style="width:0%"></div>
+        </div>
+        <p class="hint-text" id="overnight-progress-text" style="margin-top:0.5rem"></p>
+      </section>
+
+      <!-- C4: Nightly Report Widget -->
+      <section class="card" id="nightly-report-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem">
+          <h2 class="card-title" style="margin:0">&#128202; Nightly Report</h2>
+          <div style="display:flex;gap:0.5rem">
+            <button class="btn btn--ghost btn--small" id="nightly-export-btn" title="Export .md">&#11015;&#65039; Export .md</button>
+            <button class="btn btn--secondary btn--small" id="nightly-regenerate-btn">&#128260; Regenerovat</button>
+          </div>
+        </div>
+        <div id="nightly-report-body" style="margin-top:1rem">
+          <p class="empty-state">Na&#269;&iacute;t&aacute;m...</p>
+        </div>
+      </section>
+
+    </div><!-- /tab-overnight -->
+
+    <!-- ======================== JOBS TAB ======================== -->
+    <div class="tab-panel hidden" id="tab-jobs" role="tabpanel">
+
+      <div class="panel-header">
+        <h1 class="panel-title">Joby</h1>
+        <div style="display:flex;gap:0.5rem">
+          <button class="btn btn--ghost btn--small" id="refresh-jobs-btn">Obnovit</button>
+        </div>
+      </div>
+
+      <!-- Quick create buttons -->
+      <section class="card" id="jobs-create-section">
+        <h2 class="card-title">Vytvo&#345;it job</h2>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.75rem">
+          <button class="btn btn--secondary btn--small" id="create-dummy-job-btn">Dummy long task</button>
+          <button class="btn btn--secondary btn--small" id="create-llm-job-btn">Long LLM task</button>
+          <button class="btn btn--primary btn--small" id="open-doc-analysis-btn">Nov&aacute; anal&yacute;za dokument&#367;</button>
+        </div>
+        <!-- Run Now vs Schedule -->
+        <div style="border-top:1px solid #2d3348;padding-top:0.75rem">
+          <h3 style="margin-bottom:0.5rem;color:#e2e8f0">Spustit / Napl&aacute;novat</h3>
+          <div class="form-group">
+            <label class="form-label" for="job-run-type">Typ jobu:</label>
+            <select class="input input--small" id="job-run-type" style="max-width:250px">
+              <option value="kb_reindex">KB Reindex</option>
+              <option value="git_sweep">Git Sweep</option>
+              <option value="nightly_summary">Nightly Summary</option>
+              <option value="long_llm_task">Long LLM Task</option>
+              <option value="resident_task">Resident Task</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="job-run-title">N&aacute;zev:</label>
+            <input type="text" class="input" id="job-run-title" placeholder="M&#367;j job" style="max-width:350px" />
+          </div>
+          <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center">
+            <button class="btn btn--primary btn--small" id="job-run-now-btn">&#9654;&#65039; Spustit te&#271;</button>
+            <button class="btn btn--secondary btn--small" id="job-schedule-btn">&#128197; Napl&aacute;novat</button>
+            <input type="datetime-local" class="input input--small" id="job-schedule-datetime" style="max-width:250px" />
+            <button class="btn btn--ghost btn--small" id="job-queue-btn" onclick="loadJobQueue()">&#128202; Fronta</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Mobile Job History (real-time via WebSocket) -->
+      <section class="card" id="mobile-jobs-section">
+        <div class="mobile-jobs-header">
+          <span id="mobile-jobs-stats"></span>
+          <div style="display:flex;gap:0.5rem">
+            <select class="input input--small" id="mobile-jobs-mode-select" style="max-width:160px">
+              <option value="observer">Observer</option>
+              <option value="advisor">Advisor</option>
+              <option value="autonomous">Autonomous</option>
+            </select>
+            <button class="btn btn--ghost btn--small" id="mobile-jobs-refresh">&#8635;</button>
+          </div>
+        </div>
+        <div id="mobile-jobs-list" class="mobile-jobs-list"></div>
+      </section>
+
+      <!-- Job Queue (real-time) -->
+      <section class="card hidden" id="job-queue-section">
+        <h2 class="card-title">Fronta job&#367;</h2>
+        <div id="job-queue-list"></div>
+      </section>
+
+      <!-- Media Upload panel -->
+      <section class="card" id="media-upload-section">
+        <h2 class="card-title">Nahr&aacute;t m&eacute;dium (audio/video)</h2>
+        <div class="form-group">
+          <label class="form-label" for="media-file-input">Soubor:</label>
+          <input type="file" class="input" id="media-file-input"
+                 accept=".mp3,.mp4,.wav,.m4a,.ogg,.webm,.mov" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="media-language">Jazyk:</label>
+          <select class="select" id="media-language" style="max-width:200px">
+            <option value="auto">Auto-detect</option>
+            <option value="cs">&#268;e&#353;tina</option>
+            <option value="en">English</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="toggle-label">
+            <input type="checkbox" id="media-post-analysis" checked />
+            <strong>Po transkripci spustit anal&yacute;zu</strong>
+          </label>
+        </div>
+        <div class="form-group" id="media-task-group">
+          <label class="form-label" for="media-task">Co chce&#353; z m&eacute;dia zjistit?</label>
+          <textarea class="textarea" id="media-task" rows="2"
+                    placeholder="nap&#345;. Shr&#328; kl&iacute;&#269;ov&eacute; body a vytvo&#345; ak&#269;n&iacute; body..."></textarea>
+        </div>
+        <div class="form-group">
+          <button class="btn btn--primary" id="media-upload-btn">
+            Nahr&aacute;t a napl&aacute;novat
+            <span class="spinner spinner--small hidden" id="media-upload-spinner"></span>
+          </button>
+        </div>
+        <div id="media-upload-status" class="hidden" style="margin-top:0.5rem"></div>
+      </section>
+
+      <!-- Document Analysis wizard modal -->
+      <div class="modal-overlay hidden" id="doc-analysis-modal">
+        <div class="modal" style="max-width:700px">
+          <div class="modal-header">
+            <h2 class="modal-title">Nov&aacute; anal&yacute;za dokument&#367;</h2>
+            <button class="btn-icon modal-close" id="doc-analysis-modal-close">&#10005;</button>
+          </div>
+          <div class="modal-body">
+            <!-- Step 1: Select files -->
+            <div id="da-step-1">
+              <h3 style="margin-bottom:0.75rem">1. Vyber dokumenty</h3>
+              <div id="da-files-loading" class="empty-state">Na&#269;&iacute;t&aacute;m soubory...</div>
+              <div id="da-uploads-section" class="hidden" style="margin-bottom:1rem">
+                <h4 style="margin-bottom:0.5rem;color:#94a3b8">Nahran&eacute; soubory</h4>
+                <div id="da-uploads-list"></div>
+              </div>
+              <div id="da-kb-section" class="hidden">
+                <h4 style="margin-bottom:0.5rem;color:#94a3b8">Knowledge Base</h4>
+                <div id="da-kb-list"></div>
+              </div>
+              <div style="margin-top:1rem;display:flex;justify-content:flex-end">
+                <button class="btn btn--primary btn--small" id="da-step1-next" disabled>Pokra&#269;ovat</button>
+              </div>
+            </div>
+            <!-- Step 2: Task description -->
+            <div id="da-step-2" class="hidden">
+              <h3 style="margin-bottom:0.75rem">2. Zadej &uacute;kol</h3>
+              <div class="form-group">
+                <label class="form-label" for="da-task">Co chce&#353; zjistit nebo ud&#283;lat s t&#283;mito dokumenty?</label>
+                <textarea class="textarea" id="da-task" rows="3" placeholder="nap&#345;. Porovnej kl&iacute;&#269;ov&eacute; metriky..."></textarea>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="da-profile">Profil:</label>
+                <select class="select" id="da-profile" style="max-width:200px">
+                  <option value="general">General</option>
+                  <option value="lean">Lean</option>
+                  <option value="powerbi">Power BI</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="da-language">Jazyk v&yacute;stupu:</label>
+                <select class="select" id="da-language" style="max-width:200px">
+                  <option value="cs">&#268;e&#353;tina</option>
+                  <option value="en">English</option>
+                </select>
+              </div>
+              <div style="display:flex;justify-content:space-between;margin-top:1rem">
+                <button class="btn btn--ghost btn--small" id="da-step2-back">Zp&#283;t</button>
+                <button class="btn btn--primary btn--small" id="da-step2-submit">Spustit anal&yacute;zu</button>
+              </div>
+            </div>
+            <!-- Step 3: Confirmation -->
+            <div id="da-step-3" class="hidden">
+              <h3 style="margin-bottom:0.75rem">3. Spu&#353;t&#283;no</h3>
+              <div id="da-result-info"></div>
+              <div style="margin-top:1rem;display:flex;justify-content:flex-end">
+                <button class="btn btn--primary btn--small" id="da-step3-done">Zobrazit v Jobs</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- // KB INITIALIZATION – Job History with output summaries -->
+      <section class="card" id="job-history-section">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem">
+          <h2 class="card-title" style="margin:0">Job History</h2>
+          <div style="display:flex;gap:0.5rem;align-items:center">
+            <span class="hint-text" id="kb-stats-badge" style="font-size:0.75rem"></span>
+            <button class="btn btn--ghost btn--small" onclick="loadJobHistory()">Obnovit</button>
+          </div>
+        </div>
+        <div id="job-history-list">
+          <p class="empty-state">Na&#269;&iacute;t&aacute;m historii...</p>
+        </div>
+      </section>
+
+      <!-- Jobs list -->
+      <section class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.75rem">
+          <h2 class="card-title" style="margin:0">Seznam job&#367;</h2>
+          <div class="jobs-filter-bar" id="jobs-filter-bar">
+            <select class="input input--small" id="jobs-filter-status" onchange="loadJobs()">
+              <option value="">V&#353;echny stavy</option>
+              <option value="queued">Queued</option>
+              <option value="running">Running</option>
+              <option value="succeeded">Succeeded</option>
+              <option value="failed">Failed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+            <select class="input input--small" id="jobs-filter-type" onchange="loadJobs()">
+              <option value="">V&#353;echny typy</option>
+            </select>
+          </div>
+        </div>
+        <div class="jobs-limit-bar">
+          <span>Zobrazit:</span>
+          <button class="jobs-limit-toggle jobs-limit-toggle--active" id="jobs-limit-btn" data-limit="50">
+            Posledn&iacute;ch 50
+          </button>
+          <button class="jobs-limit-toggle" id="jobs-limit-all-btn" data-limit="0">
+            V&#353;echny
+          </button>
+        </div>
+        <div class="jobs-table-wrap">
+          <div id="jobs-list" class="jobs-list">
+            <p class="empty-state">&#381;&aacute;dn&eacute; joby.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Job detail -->
+      <section class="card hidden" id="job-detail-section">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem">
+          <h2 class="card-title" id="job-detail-title">Detail jobu</h2>
+          <button class="btn btn--ghost btn--small" id="job-detail-close">Zav&#345;&iacute;t</button>
+        </div>
+        <div id="job-detail-content"></div>
+      </section>
+
+    </div><!-- /tab-jobs -->
+
+    <!-- ======================== ACTIONS TAB ======================== -->
+    <div class="tab-panel hidden" id="tab-actions" role="tabpanel">
+
+      <div class="panel-header">
+        <h1 class="panel-title">Akce</h1>
+      </div>
+
+      <section class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
+          <div>
+            <h2 class="card-title">Rychl&eacute; akce</h2>
+            <p class="hint-text">P&#345;ednastaven&eacute; sekvence akc&iacute;.</p>
+          </div>
+          <button class="btn btn--primary btn--small" id="add-action-btn">+ Nov&aacute; akce</button>
+        </div>
+        <div id="quick-actions-list" class="actions-grid"></div>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">Mac OS Controls</h2>
+        <div class="mac-controls-grid">
+          <div class="mac-control-row">
+            <span class="mac-control-label">Volume</span>
+            <input type="range" id="volume-slider" min="0" max="100" value="50" class="slider" />
+            <span id="volume-value" class="mac-control-value">50%</span>
+            <button class="btn btn--secondary btn--small" id="set-volume-btn">Nastavit</button>
+          </div>
+          <div class="mac-control-row">
+            <span class="mac-control-label">Safari</span>
+            <input type="text" class="input" id="safari-url" placeholder="https://..." style="flex:1" />
+            <button class="btn btn--secondary btn--small" id="safari-open-btn">Otev&#345;&iacute;t</button>
+          </div>
+          <div class="mac-control-row">
+            <span class="mac-control-label">VS Code</span>
+            <select class="select" id="vscode-project-select" style="flex:1"></select>
+            <button class="btn btn--secondary btn--small" id="vscode-open-btn">Otev&#345;&iacute;t</button>
+          </div>
+          <div class="mac-control-row">
+            <span class="mac-control-label">Finder</span>
+            <input type="text" class="input" id="finder-path" placeholder="/cesta/ke/slo&#382;ce" style="flex:1" />
+            <button class="btn btn--secondary btn--small" id="finder-open-btn">Otev&#345;&iacute;t</button>
+          </div>
+          <div class="mac-control-row" style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid #2d3348">
+            <span class="mac-control-label" title="Zv&#253;&#353;&#237; nice prioritu backendu a Ollamy (-10) a nastav&#237; swap hint na 2 GB. Vy&#382;aduje sudo.">&#9889; V&#253;kon</span>
+            <button class="btn btn--primary btn--small" id="boost-priority-btn" title="Zv&#253;&#353;it procesn&#237; prioritu backendu a Ollamy (sudo renice -10)">&#9889; Boost prioritu</button>
+            <button class="btn btn--secondary btn--small" id="reset-boost-btn" title="Resetovat prioritu na v&#253;choz&#237; (renice 0)">&#8617; Reset priorit</button>
+          </div>
+        </div>
+        <div id="mac-action-result" class="result-box hidden" style="margin-top:0.75rem"></div>
+        <div id="boost-result" class="result-box hidden" style="margin-top:0.5rem;white-space:pre-wrap;font-family:monospace;font-size:0.78rem"></div>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">Git Controls</h2>
+        <div class="form-group">
+          <label class="form-label">Repo:</label>
+          <div style="display:flex;gap:0.5rem;flex:1">
+            <input type="text" class="input" id="git-repo-path" placeholder="/cesta/k/repo" style="flex:1" />
+            <button class="btn btn--ghost btn--small browse-picker-btn" data-target="git-repo-path" data-type="directory" title="Vybrat slo&#382;ku">&#128193; Browse</button>
+          </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:0.75rem">
+          <button class="btn btn--secondary btn--small" data-git="status">Status</button>
+          <button class="btn btn--secondary btn--small" data-git="pull">Pull</button>
+          <button class="btn btn--secondary btn--small" data-git="fetch">Fetch</button>
+          <button class="btn btn--secondary btn--small" data-git="log">Log</button>
+          <button class="btn btn--secondary btn--small" data-git="branches">V&#283;tve</button>
+        </div>
+        <div style="display:flex;gap:0.5rem;margin-top:0.5rem">
+          <input type="text" class="input" id="git-commit-msg" placeholder="Commit zpr&aacute;va..." style="flex:1" />
+          <button class="btn btn--primary btn--small" data-git="commit">Commit</button>
+          <button class="btn btn--secondary btn--small" data-git="push">Push</button>
+        </div>
+        <div id="git-result" class="result-box hidden" style="margin-top:0.75rem"></div>
+      </section>
+
+      <!-- OpenClaw -->
+      <section class="card">
+        <button class="card-toggle" id="openclaw-toggle" aria-expanded="false"
+                aria-controls="openclaw-body">
+          <h2 class="card-title card-title--inline">OpenClaw Akce</h2>
+          <span class="toggle-icon" aria-hidden="true">&#8250;</span>
+        </button>
+        <div class="card-collapsible collapsed" id="openclaw-body">
+          <div class="form-group" style="margin-top:0.75rem">
+            <label class="form-label" for="action-select">Akce:</label>
+            <select class="select" id="action-select">
+              <option value="screenshot">Screenshot</option>
+              <option value="start_whatsapp_agent">Start WhatsApp Agent</option>
+              <option value="restart_telegram_agent">Restart Telegram Agent</option>
+              <option value="run_workflow">Run Workflow</option>
+            </select>
+          </div>
+          <div class="form-group form-group--right">
+            <button class="btn btn--secondary" id="action-btn">
+              Spustit
+              <span class="spinner spinner--small hidden" id="action-spinner"></span>
+            </button>
+          </div>
+          <div id="action-result" class="result-box hidden"></div>
+        </div>
+      </section>
+
+      <!-- Run History -->
+      <section class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
+          <h2 class="card-title">Historie b&#283;h&#367;</h2>
+          <button class="btn btn--ghost btn--small" id="refresh-history-btn">Obnovit</button>
+        </div>
+        <div id="action-history-list">
+          <p class="empty-state">&#381;&aacute;dn&aacute; historie.</p>
+        </div>
+      </section>
+
+    </div><!-- /tab-actions -->
+
+    <!-- ======================== MODELS TAB ======================== -->
+    <div class="tab-panel hidden" id="tab-models" role="tabpanel">
+
+      <div class="panel-header">
+        <h1 class="panel-title">&#129504; Model Manager</h1>
+      </div>
+
+      <!-- Disk usage bar -->
+      <section class="card" id="models-disk-section">
+        <div class="models-disk-bar">
+          <span id="models-disk-label">&#128190; Disk: na&#269;&iacute;t&aacute;m...</span>
+          <div class="progress-bar-container" style="height:10px;border-radius:5px;background:rgba(255,255,255,0.08);margin-top:6px;overflow:hidden">
+            <div class="progress-bar" id="models-disk-progress" style="height:100%;border-radius:5px;background:linear-gradient(90deg,#3b82f6,#8b5cf6);width:0%;transition:width .3s"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Sub-tabs -->
+      <div class="models-subtabs" style="display:flex;gap:8px;margin-bottom:16px">
+        <button class="btn btn--ghost models-subtab models-subtab--active" data-subtab="installed" onclick="switchModelsSubtab('installed')">&#9989; Nainstalovan&eacute;</button>
+        <button class="btn btn--ghost models-subtab" data-subtab="ollama" onclick="switchModelsSubtab('ollama')">&#128218; Ollama Library</button>
+        <button class="btn btn--ghost models-subtab" data-subtab="huggingface" onclick="switchModelsSubtab('huggingface')">&#129303; HuggingFace</button>
+        <button class="btn btn--ghost models-subtab" data-subtab="recommended" onclick="switchModelsSubtab('recommended')">&#11088; Doporu&#269;en&eacute;</button>
+      </div>
+
+      <!-- Installed models sub-panel -->
+      <div class="models-subpanel" id="models-sub-installed">
+        <section class="card">
+          <h2 class="card-title">&#9989; Nainstalované modely</h2>
+          <div class="model-toolbar" id="model-toolbar">
+            <div class="model-search-wrap">
+              <input class="input" type="text" id="model-search-input" placeholder="&#128269; Hledat model nebo tag..." autocomplete="off" />
+              <button class="model-search-clear" id="model-search-clear" title="Vymazat">&times;</button>
+            </div>
+            <div class="model-filter-bar" id="model-filter-bar">
+              <button class="model-filter-btn model-filter-btn--active" data-filter="all">V&#353;e</button>
+              <button class="model-filter-btn" data-filter="instruct">Instruct</button>
+              <button class="model-filter-btn" data-filter="coder">Coder</button>
+              <button class="model-filter-btn" data-filter="vision">Vision</button>
+              <button class="model-filter-btn" data-filter="uncensored">Uncensored</button>
+              <button class="model-filter-btn" data-filter="embedding">Embedding</button>
+            </div>
+          </div>
+          <div class="model-cards-container" id="model-cards-container">
+            <div class="model-cards-grid" id="installed-models-list">
+              <div class="skeleton skeleton-card"></div>
+              <div class="skeleton skeleton-card"></div>
+              <div class="skeleton skeleton-card"></div>
+            </div>
+          </div>
+          <div class="model-no-results hidden" id="model-no-results">
+            &#381;&#225;dn&#253; model nenalezen pro '<span class="model-no-results__query" id="model-no-results-query"></span>'
+            <div style="margin-top:0.75rem">
+              <button class="btn btn--ghost btn--small" id="model-reset-filter-btn">Resetovat filtr</button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Ollama search sub-panel -->
+      <div class="models-subpanel hidden" id="models-sub-ollama">
+        <section class="card">
+          <h2 class="card-title">&#128218; Ollama Library</h2>
+          <div class="form-group" style="display:flex;gap:8px">
+            <input class="input" type="text" id="ollama-search-input" placeholder="&#128269; Hledat model (nap&#345;. llama, mistral, code...)" style="flex:1">
+            <button class="btn btn--primary" onclick="searchOllamaModels()">Hledat</button>
+          </div>
+          <div id="ollama-search-results" class="model-list"></div>
+        </section>
+      </div>
+
+      <!-- HuggingFace search sub-panel -->
+      <div class="models-subpanel hidden" id="models-sub-huggingface">
+        <section class="card">
+          <h2 class="card-title">&#129303; HuggingFace GGUF</h2>
+          <div class="form-group" style="display:flex;gap:8px">
+            <input class="input" type="text" id="hf-search-input" placeholder="&#128269; Hledat GGUF model na HuggingFace..." style="flex:1">
+            <button class="btn btn--primary" onclick="searchHuggingFaceModels()">Hledat</button>
+          </div>
+          <div id="hf-search-results" class="model-list"></div>
+          <div class="form-group" style="margin-top:16px;display:flex;gap:8px">
+            <input class="input" type="text" id="hf-custom-url" placeholder="hf.co/username/model-name-GGUF" style="flex:1">
+            <button class="btn btn--primary" onclick="pullModelByName(document.getElementById('hf-custom-url').value)">&#11015;&#65039; St&aacute;hnout</button>
+          </div>
+        </section>
+      </div>
+
+      <!-- Recommended sub-panel -->
+      <div class="models-subpanel hidden" id="models-sub-recommended">
+        <section class="card">
+          <h2 class="card-title">&#11088; Doporu&#269;en&eacute; pro 8GB Mac</h2>
+          <div id="recommended-models-list" class="model-list">
+            <p class="empty-state">Na&#269;&iacute;t&aacute;m...</p>
+          </div>
+        </section>
+      </div>
+
+      <!-- Download progress modal -->
+      <div class="download-overlay hidden" id="download-overlay">
+        <div class="download-modal-card">
+          <h3>&#11015;&#65039; Stahuji: <span id="dl-model-name"></span></h3>
+          <div class="progress-bar-container" style="height:14px;border-radius:7px;background:rgba(255,255,255,0.08);margin:16px 0;overflow:hidden">
+            <div class="progress-bar" id="dl-progress-bar" style="height:100%;border-radius:7px;background:linear-gradient(90deg,#3b82f6,#8b5cf6);width:0%;transition:width .3s"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;color:var(--text-muted);font-size:13px;margin-bottom:8px">
+            <span id="dl-percent">0%</span>
+            <span id="dl-size">0 MB / 0 MB</span>
+            <span id="dl-speed">0 MB/s</span>
+          </div>
+          <p id="dl-status" style="color:var(--text-muted);font-size:13px;margin-bottom:12px">P&#345;ipravuji stahov&aacute;n&iacute;...</p>
+          <button class="btn btn--ghost" onclick="cancelModelDownload()" style="width:100%">&#9209;&#65039; Zru&#353;it</button>
+        </div>
+      </div>
+
+    </div><!-- /tab-models -->
+
+    <!-- ======================== LLM SETTINGS TAB ======================== -->
+    <div class="tab-panel hidden" id="tab-llm-settings" role="tabpanel">
+
+      <div class="panel-header">
+        <h1 class="panel-title">&#9881; LLM Nastaven&iacute;</h1>
+      </div>
+
+      <!-- Active models -->
+      <section class="card settings-section">
+        <h2 class="card-title">&#129302; Aktivn&iacute; modely</h2>
+        <div class="form-group">
+          <label class="label">Chat model</label>
+          <div style="display:flex;align-items:center;gap:8px">
+            <select class="select" id="llm-chat-model" style="flex:1"></select>
+            <span class="llm-status-dot" id="llm-chat-status">&#128994;</span>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="label">Vision model</label>
+          <div style="display:flex;align-items:center;gap:8px">
+            <select class="select" id="llm-vision-model" style="flex:1"></select>
+            <span class="llm-status-dot" id="llm-vision-status">&#128994;</span>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="label">Code model</label>
+          <div style="display:flex;align-items:center;gap:8px">
+            <select class="select" id="llm-code-model" style="flex:1"></select>
+            <span class="llm-status-dot" id="llm-code-status">&#128994;</span>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="label">Agent model</label>
+          <div style="display:flex;align-items:center;gap:8px">
+            <select class="select" id="llm-agent-model" style="flex:1"></select>
+            <span class="llm-status-dot" id="llm-agent-status">&#128994;</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Parameters -->
+      <section class="card settings-section">
+        <h2 class="card-title">&#127777;&#65039; Parametry</h2>
+        <div class="form-group">
+          <label class="label">Temperature <span class="badge badge--info" id="llm-temp-val">0.3</span></label>
+          <input type="range" class="slider" id="llm-temperature" min="0" max="2" step="0.1" value="0.3"
+            oninput="document.getElementById('llm-temp-val').textContent = this.value">
+        </div>
+        <div class="form-group">
+          <label class="label">Max tokens <span class="badge badge--info" id="llm-tokens-val">2048</span></label>
+          <input type="range" class="slider" id="llm-max-tokens" min="512" max="8192" step="256" value="2048"
+            oninput="document.getElementById('llm-tokens-val').textContent = this.value">
+        </div>
+        <div class="form-group">
+          <label class="label">Context length <span class="badge badge--info" id="llm-ctx-val">4096</span></label>
+          <input type="range" class="slider" id="llm-context-length" min="1024" max="32768" step="1024" value="4096"
+            oninput="document.getElementById('llm-ctx-val').textContent = this.value">
+        </div>
+        <div class="form-group">
+          <label class="label">Top P <span class="badge badge--info" id="llm-topp-val">0.9</span></label>
+          <input type="range" class="slider" id="llm-top-p" min="0" max="1" step="0.05" value="0.9"
+            oninput="document.getElementById('llm-topp-val').textContent = this.value">
+        </div>
+      </section>
+
+      <!-- Uncensored models toggle -->
+      <section class="card settings-section">
+        <h2 class="card-title">&#9888;&#65039; Uncensored modely</h2>
+        <div class="form-group" style="display:flex;align-items:center;gap:12px">
+          <label class="switch">
+            <input type="checkbox" id="llm-allow-uncensored" onchange="toggleUncensoredModels(this.checked)">
+            <span class="switch-slider"></span>
+          </label>
+          <label class="label" for="llm-allow-uncensored" style="margin:0;cursor:pointer">Povolit uncensored / abliterated modely</label>
+        </div>
+        <p style="color:var(--text-muted);font-size:12px;margin:4px 0 0">
+          Zpř&iacute;stupn&iacute; tyto modely i pro primary a reasoner role.
+        </p>
+        <p id="llm-uncensored-warning" class="hidden" style="color:var(--warning);font-size:12px;margin:6px 0 0;padding:6px 10px;background:rgba(251,191,36,0.08);border-radius:6px">
+          &#9888;&#65039; Pouze pro lok&aacute;ln&iacute; experimenty. M&#367;&#382;e zhor&scaron;it spolehlivost JSON, tool-calling a zdr&zcaron;enlivost modelu.
+        </p>
+      </section>
+
+      <!-- Ollama server -->
+      <section class="card settings-section">
+        <h2 class="card-title">&#128279; Ollama Server</h2>
+        <div class="form-group">
+          <label class="label">URL</label>
+          <input class="input" type="text" id="llm-ollama-url" value="http://localhost:11434">
+        </div>
+        <div id="llm-server-status" style="color:var(--text-muted);font-size:13px;margin-bottom:12px">
+          Status: &#9898; Na&#269;&iacute;t&aacute;m...
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn--ghost" onclick="testOllamaConnection()">&#128202; Test spojen&iacute;</button>
+          <button class="btn btn--ghost" onclick="restartOllamaServer()" style="color:var(--warning)">&#128260; Restart Ollama</button>
+        </div>
+      </section>
+
+      <!-- Save -->
+      <div style="display:flex;align-items:center;gap:12px;margin-top:8px">
+        <button class="btn btn--primary" onclick="saveLLMSettings()">&#128190; Ulo&#382;it nastaven&iacute;</button>
+        <span style="color:var(--text-dim);font-size:12px">Nastaven&iacute; se aplikuj&iacute; okam&#382;it&#283; bez restartu</span>
+      </div>
+
+      <!-- Ollama Performance -->
+      <section class="card settings-section" style="margin-top:1.5rem">
+        <h2 class="card-title">&#9889; V&yacute;kon / Ollama Performance</h2>
+        <p style="color:var(--text-muted);font-size:13px;margin-bottom:12px">
+          Environment prom&#283;nn&eacute; pro Ollamu. Aplika&#269;n&iacute; restart nen&iacute; pot&#345;eba; Ollama restart ano.
+        </p>
+
+        <div class="form-group">
+          <label class="label">Context length <small style="color:var(--text-muted)">OLLAMA_CONTEXT_LENGTH</small></label>
+          <select class="select" id="perf-context-length">
+            <option value="2048">2 048</option>
+            <option value="4096" selected>4 096 (dooporu&#269;eno)</option>
+            <option value="8192">8 192</option>
+            <option value="16384">16 384</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="label">KV Cache type <small style="color:var(--text-muted)">OLLAMA_KV_CACHE_TYPE</small></label>
+          <select class="select" id="perf-kv-cache-type">
+            <option value="f16">f16 &ndash; pln&aacute; p&#345;esnost</option>
+            <option value="q8_0" selected>q8_0 &ndash; dooporu&#269;eno (men&scaron;&iacute; RAM)</option>
+            <option value="q4_0">q4_0 &ndash; nejmen&scaron;&iacute; RAM</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="label">Flash Attention <small style="color:var(--text-muted)">OLLAMA_FLASH_ATTENTION</small></label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="perf-flash-attention" checked style="width:16px;height:16px">
+            <span>Zapnuto (doporu&#269;eno pro Apple Silicon)</span>
+          </label>
+        </div>
+
+        <div class="form-group">
+          <label class="label">
+            Paraleln&iacute; requesty <span class="badge badge--info" id="perf-parallel-val">1</span>
+            <small style="color:var(--text-muted)">OLLAMA_NUM_PARALLEL</small>
+          </label>
+          <input type="range" class="slider" id="perf-num-parallel" min="1" max="4" step="1" value="1"
+            oninput="document.getElementById('perf-parallel-val').textContent = this.value">
+          <small style="color:var(--text-muted)">Vy&scaron;&scaron;&iacute; hodnota = v&iacute;ce RAM</small>
+        </div>
+
+        <div class="form-group">
+          <label class="label">Keep Alive <small style="color:var(--text-muted)">OLLAMA_KEEP_ALIVE</small></label>
+          <select class="select" id="perf-keep-alive">
+            <option value="0">0 &ndash; okam&#382;it&eacute; uvol&#328;en&iacute; RAM</option>
+            <option value="5m" selected>5m &ndash; dooporu&#269;eno</option>
+            <option value="30m">30m</option>
+            <option value="-1">always &ndash; nikdy neuvoln&#283;n&iacute;</option>
+          </select>
+        </div>
+
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px">
+          <button class="btn btn--primary btn--small" onclick="saveOllamaPerf(false)">&#128190; Ulo&#382;it</button>
+          <button class="btn btn--ghost btn--small" onclick="saveOllamaPerf(true)" style="color:var(--warning)">
+            &#128260; Ulo&#382;it + Restart Ollama
+          </button>
+          <span style="color:var(--text-dim);font-size:12px">Restart p&#345;epne Ollamu s nov&yacute;mi env vars</span>
+        </div>
+      </section>
+
+    </div><!-- /tab-llm-settings -->
+
+    <!-- ======================== SETTINGS TAB ======================== -->
+    <div class="tab-panel hidden" id="tab-settings" role="tabpanel">
+
+      <div class="panel-header">
+        <h1 class="panel-title">&#9881; Nastaven&iacute;</h1>
+        <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+          <button class="theme-toggle-btn" id="theme-toggle-btn" title="P&#345;epnout t&eacute;ma">
+            &#127769; Tmav&eacute;
+          </button>
+          <button class="btn btn--ghost btn--small" id="reload-settings-btn">Na&#269;&iacute;st</button>
+          <button class="btn btn--ghost btn--small" id="restart-onboarding-btn" title="Spustit pr&#367;vodce znovu">&#128260; Pr&#367;vodce</button>
+          <button class="btn btn--primary btn--small" id="save-settings-btn">
+            Ulo&#382;it
+            <span class="spinner spinner--small hidden" id="settings-spinner"></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Settings tabs (Sekce 4a) -->
+      <div class="settings-tabs" id="settings-tabs">
+        <button class="settings-tab-btn settings-tab-btn--active" data-settings-tab="llm">
+          <span class="settings-tab-btn__icon">&#129302;</span> LLM &amp; Modely
+        </button>
+        <button class="settings-tab-btn" data-settings-tab="integrations">
+          <span class="settings-tab-btn__icon">&#128268;</span> Integrace
+        </button>
+        <button class="settings-tab-btn" data-settings-tab="filesystem">
+          <span class="settings-tab-btn__icon">&#128193;</span> Filesystem
+        </button>
+        <button class="settings-tab-btn" data-settings-tab="kb-settings">
+          <span class="settings-tab-btn__icon">&#128218;</span> Knowledge Base
+        </button>
+        <button class="settings-tab-btn" data-settings-tab="prompts">
+          <span class="settings-tab-btn__icon">&#128172;</span> Prompty
+        </button>
+        <button class="settings-tab-btn" data-settings-tab="agents-settings">
+          <span class="settings-tab-btn__icon">&#129302;</span> Agenti
+        </button>
+        <button class="settings-tab-btn" data-settings-tab="memory-settings">
+          <span class="settings-tab-btn__icon">&#129504;</span> Paměť
+        </button>
+        <button class="settings-tab-btn" data-settings-tab="git-projects">
+          <span class="settings-tab-btn__icon">&#128450;</span> Git projekty
+        </button>
+        <button class="settings-tab-btn" data-settings-tab="notifications-settings">
+          <span class="settings-tab-btn__icon">&#128276;</span> Notifikace
+        </button>
+        <button class="settings-tab-btn" data-settings-tab="system-settings">
+          <span class="settings-tab-btn__icon">&#128736;</span> Systém
+        </button>
+      </div>
+
+      <!-- LLM section -->
+      <div class="settings-section-panel settings-section-panel--active" data-settings-panel="llm">
+      <section class="card settings-section">
+        <h2 class="card-title"><span class="section-icon">&#129504;</span> LLM Konfigurace</h2>
+        <div class="form-group">
+          <label class="form-label" for="s-llm-provider">Provider:</label>
+          <select class="select" id="s-llm-provider">
+            <option value="ollama">Ollama (lok&aacute;ln&iacute;)</option>
+            <option value="llamacpp">llama.cpp server</option>
+            <option value="groq">Groq (cloud)</option>
+            <option value="stub">Stub (testov&aacute;n&iacute;)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="s-llm-model">V&yacute;choz&iacute; model:</label>
+          <select class="select" id="s-llm-model">
+            <option value="">Na&#269;&iacute;t&aacute;m modely...</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="s-llm-url">Ollama URL:</label>
+          <input type="text" class="input" id="s-llm-url" placeholder="http://localhost:11434" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="s-llm-timeout">Request Timeout:</label>
+          <div style="display:flex;align-items:center;gap:0.75rem;flex:1">
+            <input type="range" class="slider" id="s-llm-timeout" min="60" max="600" step="30" value="180" style="flex:1" />
+            <span id="s-llm-timeout-value" style="min-width:3rem;text-align:right;font-family:monospace;color:#e2e8f0">180s</span>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="s-llm-num-ctx">Context window:</label>
+          <div style="display:flex;align-items:center;gap:0.75rem;flex:1">
+            <input type="range" class="slider" id="s-llm-num-ctx" min="512" max="8192" step="256" value="2048" style="flex:1" />
+            <span id="s-llm-num-ctx-value" style="min-width:3rem;text-align:right;font-family:monospace;color:#e2e8f0">2048</span>
+          </div>
+          <p class="hint-text" style="margin-top:0.25rem;font-size:0.78rem">Ni&zcaron;&scaron;&iacute; hodnota = rychlej&scaron;&iacute; odpov&#283;&#271;, krat&scaron;&iacute; pam&#283;&#357; konverzace</p>
+          <div style="display:flex;gap:0.5rem;margin-top:0.4rem">
+            <button class="btn btn--ghost btn--small" onclick="document.getElementById('s-llm-num-ctx').value=1024;document.getElementById('s-llm-num-ctx-value').textContent='1024'">Rychl&yacute; 1024</button>
+            <button class="btn btn--ghost btn--small" onclick="document.getElementById('s-llm-num-ctx').value=2048;document.getElementById('s-llm-num-ctx-value').textContent='2048'">Vyv&aacute;&zcaron;en&yacute; 2048</button>
+            <button class="btn btn--ghost btn--small" onclick="document.getElementById('s-llm-num-ctx').value=4096;document.getElementById('s-llm-num-ctx-value').textContent='4096'">Pln&yacute; 4096</button>
+          </div>
+        </div>
+
+        <div class="form-group form-group--right">
+          <button class="btn btn--ghost btn--small" id="check-ollama-btn">Zkontrolovat Ollama</button>
+        </div>
+        <div id="ollama-status" class="result-box hidden"></div>
+
+        <!-- Provider selection -->
+        <details style="margin-top:1.25rem">
+          <summary style="cursor:pointer;font-weight:600;color:#94a3b8;font-size:0.85rem;letter-spacing:.05em;text-transform:uppercase;padding:0.25rem 0">
+            &#9881; Provider (Ollama / llama.cpp)
+          </summary>
+          <div style="margin-top:1rem;padding:1rem;background:#1a1f2e;border-radius:0.5rem;border:1px solid #2d3348">
+            <div class="form-group">
+              <label class="form-label" for="s-llm-provider-select">Provider:</label>
+              <select class="select" id="s-llm-provider-select">
+                <option value="ollama">Ollama (lok&aacute;ln&iacute;)</option>
+                <option value="llamacpp">llama.cpp server</option>
+              </select>
+            </div>
+            <div class="form-group" id="llamacpp-url-group" style="display:none">
+              <label class="form-label" for="s-llamacpp-url">llama.cpp URL:</label>
+              <input type="text" class="input" id="s-llamacpp-url" placeholder="http://localhost:8080" />
+              <p class="hint-text" style="margin-top:0.25rem">Ujisti se &#382;e llama-cpp-python server b&#283;&#382;&iacute; na dan&eacute;m portu</p>
+            </div>
+            <div class="form-group form-group--right">
+              <button class="btn btn--ghost btn--small" onclick="saveProviderSettings()">Ulo&zcaron;it provider</button>
+            </div>
+          </div>
+        </details>
+
+        <!-- Groq Cloud Fallback -->
+        <details style="margin-top:1.25rem">
+          <summary style="cursor:pointer;font-weight:600;color:#94a3b8;font-size:0.85rem;letter-spacing:.05em;text-transform:uppercase;padding:0.25rem 0">
+            &#9729;&#65039; Cloud fallback (Groq)
+          </summary>
+          <div style="margin-top:1rem;padding:1rem;background:#1a1f2e;border-radius:0.5rem;border:1px solid #2d3348">
+            <p class="hint-text" style="margin-bottom:1rem">Groq je zdarma (rate-limited). Odpov&#283;di p&#345;ich&aacute;zej&iacute; za &lt;1s.</p>
+            <div class="form-group">
+              <label class="toggle-label">
+                <input type="checkbox" id="s-groq-enabled" />
+                <strong>Povolit Groq</strong>
+              </label>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="s-groq-api-key">API Key:</label>
+              <input type="password" class="input" id="s-groq-api-key" placeholder="gsk_..." autocomplete="off" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="s-groq-model">Model:</label>
+              <select class="select" id="s-groq-model">
+                <option value="llama-3.1-8b-instant">llama-3.1-8b-instant</option>
+                <option value="mixtral-8x7b-32768">mixtral-8x7b-32768</option>
+                <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="toggle-label">
+                <input type="checkbox" id="s-groq-auto-fallback" />
+                <strong>Automatick&yacute; fallback</strong> (p&#345;epnout na Groq p&#345;i timeoutu lok&aacute;ln&iacute;ho modelu)
+              </label>
+            </div>
+            <div class="form-group" style="display:flex;gap:0.5rem">
+              <button class="btn btn--ghost btn--small" onclick="saveGroqSettings()">Ulo&zcaron;it</button>
+              <button class="btn btn--ghost btn--small" onclick="testGroqConnection()">Test p&#345;ipojen&iacute;</button>
+            </div>
+            <div id="groq-test-status" class="result-box hidden" style="margin-top:0.5rem"></div>
+          </div>
+        </details>
+
+        <!-- Advanced: per-profile LLM settings -->
+        <details style="margin-top:1.25rem">
+          <summary style="cursor:pointer;font-weight:600;color:#94a3b8;font-size:0.85rem;letter-spacing:.05em;text-transform:uppercase;padding:0.25rem 0">
+            &#9881; Pokro&#269;il&eacute; nastaven&iacute; &ndash; profily
+          </summary>
+          <div style="margin-top:1rem;padding:1rem;background:#1a1f2e;border-radius:0.5rem;border:1px solid #2d3348">
+            <p class="hint-text" style="margin-bottom:1rem">Nastaven&iacute; modelu a sampling parametr&#367; pro ka&#382;d&yacute; profil. Parametry profilu p&#345;ep&iacute;&#353;ou v&yacute;choz&iacute; hodnoty.</p>
+            <div class="form-group">
+              <label class="form-label" for="s-llm-profile-select">Profil:</label>
+              <select class="select" id="s-llm-profile-select" style="max-width:200px">
+                <option value="chat">chat</option>
+                <option value="powerbi">powerbi</option>
+                <option value="lean">lean</option>
+                <option value="vision">vision</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="s-profile-model">Model:</label>
+              <select class="select" id="s-profile-model">
+                <option value="">Na&#269;&iacute;t&aacute;m modely...</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="s-profile-temp">Temperature:</label>
+              <div style="display:flex;align-items:center;gap:0.75rem;flex:1">
+                <input type="range" class="slider" id="s-profile-temp-slider" min="0" max="2" step="0.05" value="0.3" style="flex:1" />
+                <input type="number" class="input" id="s-profile-temp" min="0" max="2" step="0.05" value="0.3" style="max-width:80px" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="s-profile-top-p">Top P:</label>
+              <input type="number" class="input" id="s-profile-top-p" min="0" max="1" step="0.01" value="0.9" style="max-width:100px" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="s-profile-top-k">Top K:</label>
+              <input type="number" class="input" id="s-profile-top-k" min="1" max="200" step="1" value="40" style="max-width:100px" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="s-profile-max-tokens">Max tokens:</label>
+              <input type="number" class="input" id="s-profile-max-tokens" min="64" max="32768" step="64" value="2048" style="max-width:120px" />
+            </div>
+            <p class="hint-text" id="s-profile-save-hint" style="color:#4ade80;display:none">&#10003; Ulo&#382;eno spole&#269;n&#283; s ostatn&iacute;mi nastaven&iacute;mi.</p>
+          </div>
+        </details>
+      </section>
+      </div><!-- /settings-panel llm -->
+
+      <!-- Integrations section -->
+      <div class="settings-section-panel" data-settings-panel="integrations">
+      <section class="card settings-section">
+        <h2 class="card-title"><span class="section-icon">&#128268;</span> Integrace</h2>
+
+        <div class="integration-block">
+          <label class="toggle-label">
+            <input type="checkbox" id="s-vscode-enabled" />
+            <strong>VS Code</strong>
+          </label>
+          <div class="form-group" style="margin-top:0.5rem">
+            <label class="form-label" for="s-vscode-binary">Bin&aacute;rka:</label>
+            <input type="text" class="input" id="s-vscode-binary" placeholder="/usr/local/bin/code" />
+          </div>
+        </div>
+        <hr class="divider" />
+
+        <div class="integration-block">
+          <label class="toggle-label">
+            <input type="checkbox" id="s-macos-enabled" />
+            <strong>macOS AppleScript</strong>
+          </label>
+          <p class="hint-text">Ovl&aacute;d&aacute; Safari, Finder, volume, notifikace p&#345;es osascript.</p>
+        </div>
+        <hr class="divider" />
+
+        <div class="integration-block">
+          <label class="toggle-label">
+            <input type="checkbox" id="s-mcp-enabled" />
+            <strong>Claude MCP</strong>
+          </label>
+          <div class="form-group" style="margin-top:0.5rem">
+            <label class="form-label" for="s-mcp-type">P&#345;ipojen&iacute;:</label>
+            <select class="select" id="s-mcp-type">
+              <option value="stdio">stdio</option>
+              <option value="http">HTTP</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="s-mcp-path">Cesta:</label>
+            <input type="text" class="input" id="s-mcp-path" placeholder="/Applications/Claude.app/..." />
+          </div>
+        </div>
+        <hr class="divider" />
+
+        <div class="integration-block">
+          <label class="toggle-label">
+            <input type="checkbox" id="s-ag-enabled" />
+            <strong>Google Antigravity IDE</strong>
+          </label>
+          <div class="form-group" style="margin-top:0.5rem">
+            <label class="form-label" for="s-ag-endpoint">Endpoint:</label>
+            <input type="text" class="input" id="s-ag-endpoint" placeholder="http://localhost:8080" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="s-ag-key">API kl&iacute;&#269;:</label>
+            <input type="password" class="input" id="s-ag-key" placeholder="v&aacute;&#353;-api-kl&iacute;&#269;" />
+          </div>
+        </div>
+        <hr class="divider" />
+
+        <div class="integration-block">
+          <label class="toggle-label">
+            <input type="checkbox" id="s-ntfy-enabled" />
+            <strong>Push Notifikace (ntfy.sh)</strong>
+          </label>
+          <div class="form-group" style="margin-top:0.5rem">
+            <label class="form-label" for="s-ntfy-url">URL:</label>
+            <input type="text" class="input" id="s-ntfy-url" placeholder="https://ntfy.sh" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="s-ntfy-topic">Topic:</label>
+            <input type="text" class="input" id="s-ntfy-topic" placeholder="ai-home-hub" />
+          </div>
+        </div>
+      </section>
+      </div><!-- /settings-panel integrations -->
+
+      <!-- Filesystem section -->
+      <div class="settings-section-panel" data-settings-panel="filesystem">
+      <section class="card settings-section">
+        <h2 class="card-title"><span class="section-icon">&#128193;</span> Filesyst&eacute;m</h2>
+        <p class="hint-text">Pouze tyto adres&aacute;&#345;e jsou p&#345;&iacute;stupn&eacute; p&#345;es API.</p>
+        <div id="allowed-dirs-list" style="margin-top:0.5rem"></div>
+        <div style="display:flex;gap:0.5rem;margin-top:0.75rem">
+          <input type="text" class="input" id="new-allowed-dir" placeholder="/Users/you/projects" style="flex:1" />
+          <button class="btn btn--ghost btn--small browse-picker-btn" data-target="new-allowed-dir" data-type="directory" title="Vybrat slo&#382;ku">&#128193; Browse</button>
+          <button class="btn btn--secondary btn--small" id="add-dir-btn">+ P&#345;idat</button>
+        </div>
+      </section>
+      </div><!-- /settings-panel filesystem -->
+
+      <!-- Knowledge Base section -->
+      <div class="settings-section-panel" data-settings-panel="kb-settings">
+      <section class="card settings-section">
+        <h2 class="card-title"><span class="section-icon">&#128218;</span> Knowledge Base</h2>
+        <p class="hint-text">Extern&iacute; cesty k soubor&#367;m pro budouc&iacute; indexaci a sémantické vyhled&aacute;v&aacute;n&iacute;.</p>
+
+        <div class="form-group" style="margin-top:0.75rem">
+          <label class="form-label">Extern&iacute; cesty:</label>
+          <div id="external-paths-list" class="kb-path-list"></div>
+          <div style="display:flex;gap:0.5rem;margin-top:0.5rem">
+            <input type="text" class="input" id="new-external-path"
+                   placeholder="/Volumes/KnowledgeBase/Documents" style="flex:1" />
+            <button class="btn btn--ghost btn--small browse-picker-btn" data-target="new-external-path" data-type="directory" title="Vybrat slo&#382;ku">&#128193; Browse</button>
+            <button class="btn btn--secondary btn--small" id="add-external-path-btn">+ P&#345;idat</button>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top:1rem">
+          <button class="btn btn--primary btn--small" id="scan-storage-btn">
+            &#128269; Skenovat &uacute;lo&#382;i&#353;t&#283;
+          </button>
+          <div id="scan-results" class="scan-results hidden"></div>
+        </div>
+
+        <div class="form-group" style="margin-top:1rem;border-top:1px solid #2d3348;padding-top:1rem">
+          <label class="form-label">Indexace soubor&#367;:</label>
+          <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+            <button class="btn btn--primary btn--small" id="ingest-files-btn">
+              &#128260; Indexovat v&#353;echny soubory
+            </button>
+            <button class="btn btn--primary btn--small" id="incremental-ingest-btn">
+              &#128260; Sync soubory
+            </button>
+            <button class="btn btn--ghost btn--small" id="kb-stats-btn">
+              &#128202; Statistiky
+            </button>
+            <button class="btn btn--ghost btn--small" id="kb-export-btn">
+              &#128229; Export CSV
+            </button>
+          </div>
+          <div id="ingest-results" class="ingest-results hidden"></div>
+          <div id="kb-stats-display" class="kb-stats hidden"></div>
+          <div id="kb-files-display" class="hidden" style="margin-top:0.75rem"></div>
+        </div>
+      </section>
+      </div><!-- /settings-panel kb-settings -->
+
+      <!-- Prompts section -->
+      <div class="settings-section-panel" data-settings-panel="prompts">
+      <section class="card settings-section">
+        <h2 class="card-title"><span class="section-icon">&#128172;</span> Syst&eacute;mov&eacute; Prompty</h2>
+        <div class="form-group">
+          <label class="form-label" for="s-prompt-general">General:</label>
+          <textarea class="textarea" id="s-prompt-general" rows="3"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="s-prompt-powerbi">Power BI:</label>
+          <textarea class="textarea" id="s-prompt-powerbi" rows="3"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="s-prompt-lean">Lean:</label>
+          <textarea class="textarea" id="s-prompt-lean" rows="3"></textarea>
+        </div>
+      </section>
+      </div><!-- /settings-panel prompts -->
+
+      <!-- Agent limits section -->
+      <div class="settings-section-panel" data-settings-panel="agents-settings">
+      <section class="card settings-section">
+        <h2 class="card-title"><span class="section-icon">&#129302;</span> Agenti</h2>
+        <div class="form-group">
+          <label class="form-label" for="s-agents-max">Max soub&#283;&#382;n&#253;ch:</label>
+          <input type="number" class="input" id="s-agents-max" min="1" max="10" style="max-width:100px" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="s-agents-timeout">Timeout (min):</label>
+          <input type="number" class="input" id="s-agents-timeout" min="5" max="120" style="max-width:100px" />
+        </div>
+      </section>
+
+      <!-- Agent Skills section -->
+      <section class="card settings-section">
+        <h2 class="card-title"><span class="section-icon">&#127919;</span> Agent Skills (SKILL.md)</h2>
+        <p class="hint-text">Slo&#382;ky se SKILL.md soubory podle <a href="https://agentskills.io" target="_blank" style="color:#60a5fa">agentskills.io</a>. Defaultn&#283; se skenuje ~/.agents/skills a ~/.ai-home-hub/skills.</p>
+
+        <div class="form-group" style="margin-top:0.75rem">
+          <label class="toggle-label">
+            <input type="checkbox" id="s-agent-skills-defaults" checked />
+            <strong>Pou&#382;&iacute;t v&yacute;choz&iacute; cesty</strong>
+          </label>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Dodate&#269;n&eacute; adres&aacute;&#345;e:</label>
+          <div id="agent-skills-dirs-list" style="margin-top:0.5rem"></div>
+          <div style="display:flex;gap:0.5rem;margin-top:0.5rem">
+            <input type="text" class="input" id="new-agent-skills-dir"
+                   placeholder="~/.my-skills" style="flex:1" />
+            <button class="btn btn--secondary btn--small" id="add-agent-skills-dir-btn">+ P&#345;idat</button>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top:1rem;display:flex;gap:0.5rem;align-items:center">
+          <button class="btn btn--primary btn--small" id="rescan-agent-skills-btn">
+            &#128269; Rescan skills
+          </button>
+          <span id="agent-skills-count" class="hint-text"></span>
+        </div>
+        <div id="agent-skills-catalog" style="margin-top:0.75rem"></div>
+      </section>
+      </div><!-- /settings-panel agents-settings -->
+
+      <!-- Shared Memory section -->
+      <div class="settings-section-panel" data-settings-panel="memory-settings">
+      <section class="card settings-section">
+        <h2 class="card-title"><span class="section-icon">&#129504;</span> Sd&iacute;len&aacute; pam&#283;&#357; (Shared Memory)</h2>
+        <small class="form-hint" style="display:block;margin-bottom:1rem">
+          Centr&aacute;ln&iacute; long-term pam&#283;&#357; pro va&#353;e modely. Fakta, preference a pozn&aacute;mky,
+          kter&eacute; se automaticky pou&#382;&iacute;vaj&iacute; v&nbsp;chatu jako kontext.
+        </small>
+
+        <!-- Add memory form -->
+        <div class="form-group">
+          <label class="form-label" for="mem-text">Nov&aacute; pozn&aacute;mka:</label>
+          <textarea class="input" id="mem-text" rows="2" placeholder="Nap&#345;. &quot;Preferuji kr&aacute;tk&eacute; odpov&#283;di v &#269;e&#353;tin&#283;&quot;"></textarea>
+        </div>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:end">
+          <div class="form-group" style="flex:2;min-width:150px">
+            <label class="form-label" for="mem-tags">Tagy (&#269;&aacute;rkou):</label>
+            <input type="text" class="input" id="mem-tags" placeholder="preference, jazyk" />
+          </div>
+          <div class="form-group" style="flex:1;min-width:80px">
+            <label class="form-label" for="mem-importance">D&#367;le&#382;itost:</label>
+            <select class="input" id="mem-importance">
+              <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+              <option value="4">4</option><option value="5" selected>5</option><option value="6">6</option>
+              <option value="7">7</option><option value="8">8</option><option value="9">9</option>
+              <option value="10">10</option>
+            </select>
+          </div>
+          <button class="btn btn--primary btn--small" id="add-memory-btn" style="margin-bottom:0.5rem">Ulo&#382;it</button>
+        </div>
+
+        <!-- Memory list -->
+        <div class="form-group" style="margin-top:1rem;display:flex;gap:0.5rem;align-items:center">
+          <button class="btn btn--secondary btn--small" id="view-memories-btn">Zobrazit pam&#283;ti</button>
+          <span id="memory-count" class="hint-text"></span>
+        </div>
+        <div id="memory-list" class="hidden" style="margin-top:0.75rem"></div>
+      </section>
+      </div><!-- /settings-panel memory-settings -->
+
+      <!-- Git Projects section -->
+      <div class="settings-section-panel" data-settings-panel="git-projects">
+      <section class="card settings-section">
+        <h2 class="card-title"><span class="section-icon">&#128450;</span> Git projekty</h2>
+        <p class="hint-text">Cesty k Git repozit&aacute;&#345;&uring;m pro proaktivn&iacute; monitoring rezidentn&iacute;m agentem.</p>
+
+        <div class="form-row" style="gap:0.5rem;margin-bottom:1rem">
+          <input type="text" class="input" id="git-project-name" placeholder="N&aacute;zev" style="flex:1" />
+          <input type="text" class="input" id="git-project-path" placeholder="Cesta k repozit&aacute;&#345;i" style="flex:2" />
+          <button class="btn btn--primary btn--small" id="add-git-project-btn">+ P&#345;idat</button>
+        </div>
+
+        <div id="git-projects-list">
+          <p class="text-muted" id="git-projects-empty">&Zcaron;&aacute;dn&eacute; projekty. P&#345;idej cestu k Git repozit&aacute;&#345;i.</p>
+        </div>
+      </section>
+      </div><!-- /settings-panel git-projects -->
+
+      <!-- Notifications section -->
+      <div class="settings-section-panel" data-settings-panel="notifications-settings">
+      <section class="card settings-section">
+        <h2 class="card-title"><span class="section-icon">&#128276;</span> Push notifikace (ntfy.sh)</h2>
+        <p class="hint-text">Upozorn&#283;n&iacute; na kritick&eacute; ud&aacute;losti p&#345;es <a href="https://ntfy.sh" target="_blank" rel="noopener">ntfy.sh</a>.</p>
+
+        <div class="form-group">
+          <label class="form-label">
+            <input type="checkbox" id="ntfy-tab-enabled" /> Povolit push notifikace
+          </label>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="ntfy-tab-topic">Ntfy topic:</label>
+          <input type="text" class="input" id="ntfy-tab-topic" placeholder="ai-home-hub-moje-jmeno" />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="ntfy-tab-server">Ntfy server:</label>
+          <input type="text" class="input" id="ntfy-tab-server" placeholder="https://ntfy.sh" />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="ntfy-tab-token">Auth token (voliteln&#233;):</label>
+          <input type="password" class="input" id="ntfy-tab-token" placeholder="ntfy token" />
+        </div>
+
+        <!-- Granular notification categories -->
+        <div style="margin-top:1rem;border-top:1px solid var(--border);padding-top:0.75rem">
+          <h3 style="font-size:0.95rem;margin-bottom:0.5rem">Na co chci dost&aacute;vat notifikace:</h3>
+
+          <div class="form-group" style="margin-bottom:0.25rem">
+            <label class="form-label" style="display:flex;align-items:center;gap:0.5rem">
+              <input type="checkbox" id="ntfy-cat-system_errors" />
+              <span>Syst&eacute;mov&eacute; chyby a p&aacute;dy slu&#382;eb</span>
+              <select class="select" id="ntfy-pri-system_errors" style="width:auto;margin-left:auto;font-size:0.8rem;padding:2px 6px">
+                <option value="low">Low</option><option value="default">Default</option><option value="high" selected>High</option><option value="urgent">Urgent</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="form-group" style="margin-bottom:0.25rem">
+            <label class="form-label" style="display:flex;align-items:center;gap:0.5rem">
+              <input type="checkbox" id="ntfy-cat-resource_warnings" />
+              <span>RAM/CPU nad limitem, throttle</span>
+              <select class="select" id="ntfy-pri-resource_warnings" style="width:auto;margin-left:auto;font-size:0.8rem;padding:2px 6px">
+                <option value="low">Low</option><option value="default">Default</option><option value="high" selected>High</option><option value="urgent">Urgent</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="form-group" style="margin-bottom:0.25rem">
+            <label class="form-label" style="display:flex;align-items:center;gap:0.5rem">
+              <input type="checkbox" id="ntfy-cat-llm_errors" />
+              <span>LLM / Ollama timeouty a chyby</span>
+              <select class="select" id="ntfy-pri-llm_errors" style="width:auto;margin-left:auto;font-size:0.8rem;padding:2px 6px">
+                <option value="low">Low</option><option value="default" selected>Default</option><option value="high">High</option><option value="urgent">Urgent</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="form-group" style="margin-bottom:0.25rem">
+            <label class="form-label" style="display:flex;align-items:center;gap:0.5rem">
+              <input type="checkbox" id="ntfy-cat-job_failed" />
+              <span>Selh&aacute;n&iacute; background job&#367;</span>
+              <select class="select" id="ntfy-pri-job_failed" style="width:auto;margin-left:auto;font-size:0.8rem;padding:2px 6px">
+                <option value="low">Low</option><option value="default">Default</option><option value="high" selected>High</option><option value="urgent">Urgent</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="form-group" style="margin-bottom:0.25rem">
+            <label class="form-label" style="display:flex;align-items:center;gap:0.5rem">
+              <input type="checkbox" id="ntfy-cat-job_succeeded" />
+              <span>&#218;sp&#283;&#353;n&eacute; dokon&#269;en&iacute; job&#367;</span>
+              <select class="select" id="ntfy-pri-job_succeeded" style="width:auto;margin-left:auto;font-size:0.8rem;padding:2px 6px">
+                <option value="low">Low</option><option value="default" selected>Default</option><option value="high">High</option><option value="urgent">Urgent</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="form-group" style="margin-bottom:0.25rem">
+            <label class="form-label" style="display:flex;align-items:center;gap:0.5rem">
+              <input type="checkbox" id="ntfy-cat-resident_action" />
+              <span>Akce rezidentn&iacute;ho agenta</span>
+              <select class="select" id="ntfy-pri-resident_action" style="width:auto;margin-left:auto;font-size:0.8rem;padding:2px 6px">
+                <option value="low">Low</option><option value="default" selected>Default</option><option value="high">High</option><option value="urgent">Urgent</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="form-group" style="margin-bottom:0.25rem">
+            <label class="form-label" style="display:flex;align-items:center;gap:0.5rem">
+              <input type="checkbox" id="ntfy-cat-resident_blocked" />
+              <span>Agent blokov&aacute;n (zdroje, quiet hours)</span>
+              <select class="select" id="ntfy-pri-resident_blocked" style="width:auto;margin-left:auto;font-size:0.8rem;padding:2px 6px">
+                <option value="low">Low</option><option value="default" selected>Default</option><option value="high">High</option><option value="urgent">Urgent</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="form-group" style="margin-bottom:0.25rem">
+            <label class="form-label" style="display:flex;align-items:center;gap:0.5rem">
+              <input type="checkbox" id="ntfy-cat-agent_complete" />
+              <span>Dokon&#269;en&iacute; orchestrovan&eacute;ho agenta</span>
+              <select class="select" id="ntfy-pri-agent_complete" style="width:auto;margin-left:auto;font-size:0.8rem;padding:2px 6px">
+                <option value="low">Low</option><option value="default" selected>Default</option><option value="high">High</option><option value="urgent">Urgent</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="form-group" style="margin-bottom:0.25rem">
+            <label class="form-label" style="display:flex;align-items:center;gap:0.5rem">
+              <input type="checkbox" id="ntfy-cat-kb_changes" />
+              <span>Zm&#283;ny v Knowledge Base</span>
+              <select class="select" id="ntfy-pri-kb_changes" style="width:auto;margin-left:auto;font-size:0.8rem;padding:2px 6px">
+                <option value="low" selected>Low</option><option value="default">Default</option><option value="high">High</option><option value="urgent">Urgent</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="form-group" style="margin-bottom:0.25rem">
+            <label class="form-label" style="display:flex;align-items:center;gap:0.5rem">
+              <input type="checkbox" id="ntfy-cat-night_jobs" />
+              <span>No&#269;n&iacute; batch joby</span>
+              <select class="select" id="ntfy-pri-night_jobs" style="width:auto;margin-left:auto;font-size:0.8rem;padding:2px 6px">
+                <option value="low" selected>Low</option><option value="default">Default</option><option value="high">High</option><option value="urgent">Urgent</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <!-- Quiet hours -->
+        <div style="margin-top:0.75rem;border-top:1px solid var(--border);padding-top:0.75rem">
+          <div class="form-group" style="margin-bottom:0.25rem">
+            <label class="form-label">
+              <input type="checkbox" id="ntfy-tab-quiet-hours" /> Tich&eacute; hodiny (ne push)
+            </label>
+          </div>
+          <div style="display:flex;gap:0.5rem;align-items:center">
+            <label class="form-label" for="ntfy-tab-quiet-start" style="min-width:2rem">Od:</label>
+            <input type="time" class="input" id="ntfy-tab-quiet-start" value="22:00" style="width:auto" />
+            <label class="form-label" for="ntfy-tab-quiet-end" style="min-width:2rem">Do:</label>
+            <input type="time" class="input" id="ntfy-tab-quiet-end" value="07:00" style="width:auto" />
+          </div>
+        </div>
+
+        <div style="display:flex;gap:0.5rem;align-items:center;margin-top:0.75rem">
+          <button class="btn btn--primary btn--small" id="save-ntfy-btn">Ulo&#382;it</button>
+          <button class="btn btn--ghost btn--small" id="test-ntfy-btn">&#128241; Test notifikace</button>
+        </div>
+
+        <p class="hint-text" style="margin-top:0.75rem">
+          <a href="https://docs.ntfy.sh/subscribe/phone/" target="_blank" rel="noopener">Jak nastavit ntfy na mobilu &rarr;</a>
+        </p>
+      </section>
+      </div><!-- /settings-panel notifications-settings -->
+
+      <!-- Security section -->
+      <div class="settings-section-panel" data-settings-panel="system-settings">
+      <section class="card settings-section">
+        <h2 class="card-title"><span class="section-icon">&#128274;</span> Bezpe&#269;nost (API Key)</h2>
+        <div class="form-group">
+          <label class="form-label" for="s-api-key">API kl&iacute;&#269;:</label>
+          <input type="password" class="input" id="s-api-key"
+                 placeholder="Nechte pr&aacute;zdn&eacute; pro vypnut&iacute; ochrany (lok&aacute;ln&iacute; re&#382;im)" />
+          <small class="form-hint">
+            Pokud je nastaveno, mus&iacute; citliv&eacute; endpointy (screenshot, smazan&iacute; KB souboru,
+            reindex) obsahovat hlavinku <code>X-API-Key</code> se spr&aacute;vnou hodnotou.
+            Doporu&#269;uje se p&#345;i pou&#382;it&iacute; v s&iacute;ti LAN nebo VPN.
+          </small>
+        </div>
+      </section>
+
+      <!-- Custom System Prompt Append -->
+      <section class="card settings-section">
+        <h2 class="card-title"><span class="section-icon">&#128221;</span> Vlastn&iacute; instrukce pro AI</h2>
+        <p class="hint-text">Text se p&#345;ipoj&iacute; na konec ka&#382;d&eacute;ho syst&eacute;mov&eacute;ho promptu.</p>
+        <textarea class="input" id="s-custom-prompt-append" rows="4" placeholder="Nap&#345;.: V&#382;dy pou&#382;&iacute;vej form&aacute;ln&iacute; jazyk."></textarea>
+        <button class="btn btn--primary btn--small" id="save-custom-prompt-btn" style="margin-top:0.5rem">Ulo&#382;it</button>
+      </section>
+
+      <!-- AI Prompt Generator section -->
+      <section class="card settings-section" id="prompt-generator-section">
+        <h2 class="card-title"><span class="section-icon">&#129504;</span> AI Gener&aacute;tor prompt&#367;</h2>
+        <p class="section-subtitle">Nech&aacute;j AI vygenerovat efektivn&iacute; prompt pro tvůj &uacute;kol.</p>
+
+        <div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem">
+          <div class="form-group" style="flex:1;min-width:160px">
+            <label class="form-label" for="pg-task-type">Typ &uacute;kolu:</label>
+            <select class="select" id="pg-task-type">
+              <option value="chat">Chat s AI</option>
+              <option value="kb_search">Vyhled&aacute;v&aacute;n&iacute; v KB</option>
+              <option value="resident_mission">Resident mise</option>
+              <option value="file_analysis">Anal&yacute;za souboru</option>
+            </select>
+          </div>
+          <div class="form-group" style="flex:1;min-width:120px">
+            <label class="form-label" for="pg-tone">T&oacute;n:</label>
+            <select class="select" id="pg-tone">
+              <option value="professional">Profesion&aacute;ln&iacute;</option>
+              <option value="casual">Neform&aacute;ln&iacute;</option>
+              <option value="technical">Technick&yacute;</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="pg-context">Kontext:</label>
+          <textarea class="textarea" id="pg-context" rows="2"
+                    placeholder="Stru&#269;n&#283; popi&#353; co chce&#353; ud&#283;lat, nap&#345;. &quot;analyzuj v&yacute;konnost tabulky v Power BI&quot;"></textarea>
+        </div>
+
+        <!-- Example chips -->
+        <div style="margin-bottom:0.75rem">
+          <span class="hint-text" style="margin-right:0.5rem">P&#345;&iacute;klady:</span>
+          <div class="quick-prompts-bar" id="pg-examples-bar" style="display:inline-flex">
+            <button class="quick-prompt-btn" data-pg-ctx="shrň výsledky meetingu" data-pg-type="chat">Shrnutí meetingu</button>
+            <button class="quick-prompt-btn" data-pg-ctx="najdi všechny dokumenty o Lean CI" data-pg-type="kb_search">KB: Lean CI</button>
+            <button class="quick-prompt-btn" data-pg-ctx="sleduj výkon systému a upozorni na anomálie" data-pg-type="resident_mission">Monitoring</button>
+            <button class="quick-prompt-btn" data-pg-ctx="analyzuj tento PDF a vytvoř souhrn" data-pg-type="file_analysis">Analýza PDF</button>
+          </div>
+        </div>
+
+        <div class="form-group form-group--right">
+          <button class="btn btn--primary btn--small" id="pg-generate-btn">
+            &#128161; Generovat
+            <span class="spinner spinner--small hidden" id="pg-spinner"></span>
+          </button>
+        </div>
+
+        <div id="pg-result" class="hidden" style="margin-top:0.75rem">
+          <div class="section-title" style="margin-bottom:0.375rem">Vygenerovan&yacute; prompt:</div>
+          <textarea class="input" id="pg-result-text" rows="3" readonly
+                    style="font-size:0.9375rem;line-height:1.55;background:var(--bg-input)"></textarea>
+          <p class="hint-text" id="pg-example-usage" style="margin-top:0.25rem"></p>
+          <div style="display:flex;gap:0.5rem;margin-top:0.5rem">
+            <button class="btn btn--ghost btn--small" id="pg-copy-btn">&#128203; Kop&iacute;rovat</button>
+            <button class="btn btn--secondary btn--small" id="pg-insert-chat-btn">&#128172; Vlo&#382;it do chatu</button>
+          </div>
+        </div>
+        <div id="pg-error" class="result-box result-box--error hidden"></div>
+      </section>
+
+      <!-- Setup wizard launcher -->
+      <section class="card settings-section">
+        <h2 class="card-title"><span class="section-icon">&#127919;</span> Pr&#367;vodce nastaven&iacute;m</h2>
+        <p class="section-subtitle">Spust pr&#367;vodce prvn&iacute;m spuštěn&iacute;m znovu pro kontrolu prost&#345;ed&iacute; a z&aacute;kladn&iacute; konfiguraci.</p>
+        <button class="btn btn--secondary btn--small" id="relaunch-wizard-btn">
+          &#9889; Spustit pr&#367;vodce znovu
+        </button>
+      </section>
+
+      <!-- VS Code Projects section -->
+      <section class="card settings-section">
+        <h2 class="card-title"><span class="section-icon">&#128187;</span> VS Code Projekty</h2>
+        <div id="projects-list"></div>
+        <div style="display:flex;gap:0.5rem;margin-top:1rem;flex-wrap:wrap">
+          <input type="text" class="input" id="new-project-key" placeholder="kl&iacute;&#269; (nap&#345;. lean-rpg)" style="flex:1;min-width:120px" />
+          <input type="text" class="input" id="new-project-path" placeholder="/cesta/k/projektu" style="flex:2;min-width:180px" />
+          <button class="btn btn--ghost btn--small browse-picker-btn" data-target="new-project-path" data-type="directory" title="Vybrat slo&#382;ku">&#128193; Browse</button>
+          <button class="btn btn--secondary btn--small" id="add-project-btn">+ P&#345;idat</button>
+        </div>
+      </section>
+
+      <!-- Experimental Features section -->
+      <section class="card settings-section" id="experimental-features-section">
+        <h2 class="card-title"><span class="section-icon">&#9888;</span> Experiment&aacute;ln&iacute; funkce</h2>
+        <div class="experimental-warning-banner">
+          &#9888; Experiment&aacute;ln&iacute; funkce mohou b&yacute;t nestabiln&iacute; nebo se rozb&iacute;t p&#345;i aktualizaci syst&eacute;mu.
+        </div>
+        <div id="experimental-features-list">
+          <p class="empty-state">Na&#269;&iacute;t&aacute;m...</p>
+        </div>
+      </section>
+
+      <!-- Auto-Cleanup section -->
+      <section class="card settings-section" id="auto-cleanup-section">
+        <h2 class="card-title"><span class="section-icon">&#128465;</span> Auto-Cleanup</h2>
+        <p class="hint-text">Automatick&eacute; maz&aacute;n&iacute; star&yacute;ch sessions a archivace KB artefakt&#367;.</p>
+
+        <div class="form-group" style="align-items:center">
+          <label class="toggle-label">
+            <input type="checkbox" id="cleanup-enabled" />
+            <strong>Povolit automatick&yacute; cleanup</strong>
+          </label>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="cleanup-interval-hours">Interval &#269;i&#353;t&#283;n&iacute; (hodiny):</label>
+          <input type="number" class="input" id="cleanup-interval-hours" min="1" max="168" step="1" value="6" style="max-width:120px" />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="cleanup-session-days">Uchovávat chat sessions (dny):</label>
+          <input type="number" class="input" id="cleanup-session-days" min="1" max="365" step="1" value="7" style="max-width:120px" />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="cleanup-artifact-days">Uchovávat KB artefakty (dny):</label>
+          <input type="number" class="input" id="cleanup-artifact-days" min="1" max="365" step="1" value="30" style="max-width:120px" />
+        </div>
+
+        <div class="form-group" style="align-items:center">
+          <label class="toggle-label">
+            <input type="checkbox" id="cleanup-vacuum-enabled" checked />
+            <strong>VACUUM datab&aacute;z&iacute;</strong>
+          </label>
+        </div>
+
+        <div class="form-group form-group--right" style="gap:0.5rem;flex-wrap:wrap">
+          <button class="btn btn--primary btn--small" id="cleanup-save-btn" onclick="saveCleanupSettings()">
+            &#128190; Ulo&#382;it
+          </button>
+          <button class="btn btn--ghost btn--small" id="cleanup-run-now-btn" onclick="runCleanupNow()">
+            &#128640; Spustit nyn&iacute;
+          </button>
+        </div>
+
+        <div style="margin-top:0.75rem;font-size:0.8rem;color:var(--text-muted)">
+          <div>Posledn&iacute; cleanup: <span id="cleanup-last-run">&#8722; nena&#269;teno</span></div>
+          <div>P&#345;&iacute;&#353;t&iacute; cleanup za: <span id="cleanup-next-run">&#8722;</span></div>
+        </div>
+      </section>
+
+      <!-- CORS / Access Control section -->
+      <section class="card settings-section" id="cors-section">
+        <h2 class="card-title"><span class="section-icon">&#128274;</span> CORS / P&#345;&iacute;stup</h2>
+        <p class="hint-text">Povolen&eacute; origins pro API (CORS). Ka&#382;d&yacute; &#345;&aacute;dek = jedna URL (nap&#345;. <code>https://mojeapp.ts.net</code>). Pr&aacute;zdn&yacute; seznam = pouze localhost.</p>
+
+        <div class="form-group" style="flex-direction:column;align-items:flex-start;gap:0.5rem">
+          <label class="form-label" for="cors-origins-textarea">Povolen&eacute; origins:</label>
+          <textarea
+            id="cors-origins-textarea"
+            class="input"
+            rows="4"
+            style="width:100%;max-width:520px;font-family:monospace;font-size:0.85rem"
+            placeholder="http://localhost:8000&#10;https://mojeapp.ts.net"
+          ></textarea>
+        </div>
+
+        <div class="form-group form-group--right">
+          <button class="btn btn--primary btn--small" id="cors-save-btn" onclick="saveCorsSettings()">
+            &#128190; Ulo&#382;it origins
+          </button>
+        </div>
+        <div id="cors-status" style="font-size:0.8rem;margin-top:0.25rem;color:var(--text-muted)"></div>
+      </section>
+
+      <!-- Network: Tailscale Funnel section -->
+      <section class="card settings-section" id="tailscale-funnel-section">
+        <h2 class="card-title"><span class="section-icon">&#127760;</span> S&iacute;&#357; &ndash; Tailscale Funnel</h2>
+        <p class="hint-text">Vystavte aplikaci do internetu p&#345;es Tailscale Funnel. Vy&#382;aduje p&#345;ihl&aacute;&#353;en&yacute; Tailscale klient.</p>
+
+        <div class="form-group" style="align-items:center">
+          <label class="toggle-label">
+            <input type="checkbox" id="s-tailscale-enabled" />
+            <strong>Povolit Tailscale Funnel</strong>
+          </label>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="s-tailscale-port">Port:</label>
+          <input type="number" class="input" id="s-tailscale-port" min="1" max="65535" value="8000" style="max-width:120px" />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="s-tailscale-timeout">Idle timeout (s):</label>
+          <input type="number" class="input" id="s-tailscale-timeout" min="30" max="3600" value="300" style="max-width:120px" />
+        </div>
+
+        <div class="form-group" style="align-items:center;gap:0.75rem;flex-wrap:wrap">
+          <span class="form-label">Stav:</span>
+          <span id="tailscale-status-badge" class="badge badge--neutral">&#8722; nena&#269;teno</span>
+          <span id="tailscale-url-wrap" style="display:none;align-items:center;gap:0.5rem">
+            <code id="tailscale-url-text" style="font-size:0.85rem;color:#94a3b8"></code>
+            <button class="btn btn--ghost btn--small" id="tailscale-copy-url-btn" title="Kop&iacute;rovat URL" onclick="tailscaleCopyUrl()">
+              &#128203; Kop&iacute;rovat
+            </button>
+          </span>
+        </div>
+
+        <div class="form-group form-group--right">
+          <button class="btn btn--ghost btn--small" id="tailscale-refresh-btn" onclick="tailscaleRefreshStatus()">
+            &#8635; Obnovit stav
+          </button>
+        </div>
+      </section>
+
+      <!-- System Controls section -->
+      <section class="card settings-section" id="system-controls-section">
+        <h2 class="card-title"><span class="section-icon">&#9881;</span> Spr&aacute;va syst&eacute;mu</h2>
+        <p class="hint-text">Lok&aacute;ln&iacute; operace &ndash; ur&#269;eno pro localhost nebo Tailscale s&iacute;&#357;.</p>
+        <div class="system-controls-row">
+          <div class="system-control-item">
+            <button class="btn btn--danger" id="restart-app-btn" onclick="restartApp()">
+              &#128257; Restartovat AI Home Hub
+            </button>
+            <div id="restart-status" class="hint-text"></div>
+          </div>
+          <div class="system-control-item">
+            <button class="btn btn--primary" id="update-app-btn" onclick="updateApp()">
+              &#8595; Update z Gitu
+            </button>
+            <div id="update-status" class="hint-text"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Agent Runtime Skills section -->
+      <section class="card settings-section">
+        <h2 class="card-title"><span class="section-icon">&#9881;</span> Agent Skills <span class="badge badge--info" id="skills-count-badge">11</span></h2>
+        <p class="hint-text">Runtime skills pro Resident agenta. Zapni/vypni podle pot&#345;eby.</p>
+        <div id="runtime-skills-panel" class="runtime-skills-grid" style="margin-top:0.75rem"></div>
+      </section>
+      </div><!-- /settings-panel system-settings -->
+
+    </div><!-- /tab-settings -->
+
+    <!-- ======================== KNOWLEDGE TAB ======================== -->
+    <div class="tab-panel hidden" id="tab-knowledge" role="tabpanel">
+
+      <div class="panel-header">
+        <h1 class="panel-title">&#128218; Knowledge Base</h1>
+        <span class="badge" id="kb-doc-count-badge" title="Celkem dokumentů v KB">0 dok.</span>
+      </div>
+
+      <!-- KB Dashboard (Sekce 3a) -->
+      <div class="kb-dashboard" id="kb-dashboard">
+        <div class="kb-dashboard__stats">
+          <span class="kb-dashboard__title">Knowledge Base</span>
+          <span class="kb-dashboard__meta" id="kb-dashboard-meta">Na&#269;&iacute;t&aacute;m statistiky...</span>
+        </div>
+        <div class="kb-dashboard__actions">
+          <button class="btn btn--primary btn--small" onclick="document.getElementById('kb-dropzone').click()">+ P&#345;idat dokument</button>
+          <button class="btn btn--ghost btn--small" onclick="if(confirm('Rebuild sma&#382;e a p&#345;ebuduje celou KB. Pokra&#269;ovat?')){rebuildKB()}" id="kb-rebuild-btn">&#128260; Rebuild</button>
+          <button class="btn btn--ghost btn--small" id="kb-refresh-dashboard-btn" onclick="loadKBDashboard()">&#8635;</button>
+        </div>
+      </div>
+
+      <!-- KB Test Panel (Sekce 3d) -->
+      <section class="card">
+        <h2 class="card-title">&#128269; Test KB vyhledávání</h2>
+        <div class="kb-test-panel">
+          <div style="display:flex;gap:0.5rem">
+            <input class="input" type="text" id="kb-test-query" placeholder="Napi&#353; testovac&iacute; dotaz..." style="flex:1" />
+            <button class="btn btn--primary btn--small" id="kb-test-btn" onclick="testKBSearch()">Hledat</button>
+          </div>
+          <div id="kb-test-results" style="margin-top:0.75rem"></div>
+        </div>
+      </section>
+
+      <!-- KB Manager: Collections + Search -->
+      <section class="card kb-manager">
+        <div class="kb-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
+          <h2 class="card-title" style="margin:0">&#128218; KB Manager – Kolekce</h2>
+          <button class="btn btn--primary btn--small" onclick="showCreateKBModal()">&#10133; Nov&aacute; KB</button>
+        </div>
+
+        <!-- Collections list -->
+        <div class="kb-collections" id="kb-manager-collections">
+          <p class="hint-text empty-state">Na&#269;&iacute;t&aacute;m kolekce...</p>
+        </div>
+
+        <!-- Search panel -->
+        <div class="kb-search" style="margin-top:1rem;display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center">
+          <input type="text" class="input" id="kb-manager-query" placeholder="&#128269; Hledat ve znalostní b&aacute;zi..." style="flex:2;min-width:180px" />
+          <select class="input" id="kb-manager-collection-filter" style="flex:1;min-width:130px">
+            <option value="">V&#353;echny kolekce</option>
+          </select>
+          <select class="input" id="kb-manager-tag-filter" style="flex:1;min-width:120px">
+            <option value="">V&#353;echny tagy</option>
+            <option value="lean">#lean</option>
+            <option value="dax">#dax</option>
+            <option value="ci">#ci</option>
+            <option value="workflow">#workflow</option>
+          </select>
+          <button class="btn btn--secondary btn--small" onclick="searchKBManager()">Hledat</button>
+        </div>
+
+        <!-- Search results -->
+        <div id="kb-manager-results" class="hidden" style="margin-top:0.75rem"></div>
+      </section>
+
+      <!-- Create KB Modal -->
+      <div class="modal-overlay hidden" id="create-kb-modal-overlay" role="dialog" aria-modal="true">
+        <div class="modal" style="max-width:420px">
+          <div class="modal-header">
+            <h3 class="modal-title">&#128218; Nov&aacute; KB kolekce</h3>
+            <button class="modal-close" onclick="closeCreateKBModal()">&#10005;</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-group">
+              <label class="form-label" for="new-kb-name">N&aacute;zev kolekce:</label>
+              <input type="text" class="input" id="new-kb-name" placeholder="nap&#345;. powerbi" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="new-kb-desc">Popis (voliteln&yacute;):</label>
+              <input type="text" class="input" id="new-kb-desc" placeholder="DAX &amp; reporting dokumenty" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="new-kb-tags">Tagy (&#269;&aacute;rkou, nap&#345;. #dax,#lean):</label>
+              <input type="text" class="input" id="new-kb-tags" placeholder="#dax, #lean" />
+            </div>
+          </div>
+          <div class="modal-footer" style="display:flex;gap:0.5rem;justify-content:flex-end;padding:1rem">
+            <button class="btn btn--ghost" onclick="closeCreateKBModal()">Zru&#353;it</button>
+            <button class="btn btn--primary" onclick="createKBCollection()">Vytvo&#345;it</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Upload section -->
+      <section class="card">
+        <h2 class="card-title">Nahr&aacute;t soubory</h2>
+
+        <!-- Mode toggle -->
+        <div class="kb-mode-toggle" style="margin-bottom:1rem">
+          <span class="form-label" style="margin-right:0.5rem">Re&#382;im:</span>
+          <div class="btn-group" id="kb-mode-group">
+            <button class="btn btn--secondary btn--small kb-mode-btn kb-mode-btn--active"
+                    data-mode="index">&#128260; Indexovat</button>
+            <button class="btn btn--ghost btn--small kb-mode-btn"
+                    data-mode="analyze">&#128270; Anal&yacute;za</button>
+          </div>
+          <span id="kb-mode-hint" class="hint-text" style="margin-left:0.75rem">
+            Soubory se ulo&#382;&iacute; do KB pro sémantické vyhledáv&aacute;n&iacute;.
+          </span>
+        </div>
+
+        <!-- Collection input (index mode only) -->
+        <div id="kb-collection-row" class="form-group" style="margin-bottom:0.75rem">
+          <label class="form-label" for="kb-collection-input">Kolekce:</label>
+          <input type="text" class="input" id="kb-collection-input"
+                 value="default" placeholder="default" style="max-width:200px" />
+        </div>
+
+        <!-- Drop zone -->
+        <div id="kb-dropzone" class="kb-dropzone" tabindex="0"
+             aria-label="Přetáhni soubory nebo klikni pro výběr">
+          <div class="kb-dropzone__icon">&#128229;</div>
+          <div class="kb-dropzone__text">P&#345;et&aacute;hni soubory nebo <u>klikni pro v&yacute;b&#283;r</u></div>
+          <div class="kb-dropzone__hint">
+            Podporované: PDF, DOCX, XLSX, PPTX, TXT, MD, PNG, JPG, MP3, WAV, MP4, ePub, HTML, ZIP · a kódové soubory
+          </div>
+          <input type="file" id="kb-file-input" multiple style="display:none"
+                 accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.jpg,.jpeg,.png,.gif,.bmp,.mp3,.wav,.m4a,.ogg,.mp4,.webm,.mov,.epub,.html,.htm,.zip,.py,.js,.ts,.jsx,.tsx,.json,.yaml,.yml,.toml,.sh,.bash,.zsh,.css,.sql,.rs,.go,.java,.c,.cpp,.h,.rb,.php" />
+        </div>
+
+        <!-- Selected files list -->
+        <div id="kb-selected-files" class="kb-selected-files hidden"></div>
+
+        <!-- Upload progress -->
+        <div id="kb-upload-progress" class="hidden" style="margin-top:0.75rem">
+          <div class="ingest-progress-bar">
+            <div class="ingest-progress-fill" id="kb-progress-fill" style="width:0%"></div>
+          </div>
+          <div id="kb-progress-label" class="hint-text" style="margin-top:0.25rem"></div>
+        </div>
+
+        <!-- Upload result / analyze output -->
+        <div id="kb-upload-result" class="hidden" style="margin-top:0.75rem"></div>
+
+        <!-- Upload button -->
+        <div style="margin-top:1rem;display:flex;gap:0.5rem;align-items:center">
+          <button class="btn btn--primary" id="kb-upload-btn" disabled>
+            &#128229; Nahr&aacute;t soubory
+          </button>
+          <button class="btn btn--ghost btn--small" id="kb-clear-btn">Vymazat v&yacute;b&#283;r</button>
+        </div>
+      </section>
+
+      <!-- Indexed files list -->
+      <section class="card" id="kb-files-section">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem">
+          <h2 class="card-title">Soubory v KB <span id="kb-files-count" class="badge">0</span></h2>
+          <button class="btn btn--ghost btn--small" id="kb-files-refresh-btn" onclick="loadKBFiles()">&#8635; Obnovit</button>
+        </div>
+        <div id="kb-files-list">
+          <p class="empty-state hint-text">Na&#269;&iacute;t&aacute;m...</p>
+        </div>
+        <div id="kb-files-pagination" class="kb-files-pagination hidden" style="margin-top:0.75rem;display:flex;gap:0.5rem;align-items:center">
+          <button class="btn btn--ghost btn--small" id="kb-files-prev" onclick="loadKBFiles(kbFilesOffset - 50)">&#8592; P&#345;edchozí</button>
+          <span class="hint-text" id="kb-files-page-info"></span>
+          <button class="btn btn--ghost btn--small" id="kb-files-next" onclick="loadKBFiles(kbFilesOffset + 50)">Dal&#353;&iacute; &#8594;</button>
+        </div>
+      </section>
+
+      <!-- Overview / Collections -->
+      <section class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;flex-wrap:wrap;gap:0.5rem">
+          <h2 class="card-title">P&#345;ehled kolekcí</h2>
+          <div style="display:flex;align-items:center;gap:0.5rem">
+            <div class="kb-filter-bar">
+              <label class="hint-text" for="kb-type-filter">Filtr:</label>
+              <select class="kb-filter-select" id="kb-type-filter">
+                <option value="">V&#353;e</option>
+                <option value="text">Jen text</option>
+                <option value="pdf">PDF</option>
+                <option value="image">Obr&aacute;zky</option>
+                <option value="audio">Audio</option>
+              </select>
+            </div>
+            <button class="btn btn--ghost btn--small" id="kb-refresh-overview-btn">&#8635; Obnovit</button>
+          </div>
+        </div>
+        <div id="kb-overview-content">
+          <p class="empty-state hint-text">Na&#269;&iacute;t&aacute;m...</p>
+        </div>
+      </section>
+
+      <!-- Retention policy -->
+      <section class="card" id="kb-retention-section">
+        <h2 class="card-title">&#129529; Retention politika</h2>
+        <div class="retention-info" id="kb-retention-info">
+          <span class="hint-text">Na&#269;&iacute;t&aacute;m konfiguraci...</span>
+        </div>
+        <div style="margin-top:0.75rem;display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap">
+          <button class="btn btn--ghost btn--small" onclick="loadRetentionConfig()">&#8635; Obnovit konfiguraci</button>
+          <button class="btn btn--secondary btn--small" id="retention-run-btn" onclick="runRetention()">&#129529; Spustit &uacute;klid nyn&iacute;</button>
+        </div>
+        <div id="kb-retention-result" class="hidden" style="margin-top:0.75rem"></div>
+      </section>
+
+    </div><!-- /tab-knowledge -->
+
+    <!-- ======================== CONTROL ROOM TAB ======================== -->
+    <div class="tab-panel hidden" id="tab-control-room" role="tabpanel">
+
+      <div class="panel-header">
+        <h1 class="panel-title">&#127918; Control Room</h1>
+        <span class="badge badge--accent" title="Jednotný přehled + rychlé mise">Daily Cockpit</span>
+      </div>
+
+      <!-- Quick Actions Toolbar -->
+      <div class="cr-toolbar">
+        <div class="cr-toolbar__missions">
+          <button class="btn btn--primary btn--small" id="cr-tmpl-daily-recap"
+                  onclick="crRunTemplate('daily_recap')" title="Denní rekapitulace KB/git/jobs">
+            &#128203; Daily Recap
+          </button>
+          <button class="btn btn--secondary btn--small" id="cr-tmpl-stack"
+                  onclick="crRunTemplate('stack_health')" title="Stack Health monitor">
+            &#128187; Stack
+          </button>
+          <button class="btn btn--ghost btn--small" id="cr-tmpl-lean"
+                  onclick="crRunTemplate('lean_assist')" title="Lean experiment assistant">
+            &#9881; Lean
+          </button>
+        </div>
+        <div class="cr-toolbar__actions">
+          <button class="btn btn--ghost btn--small" id="cr-export-debug-btn"
+                  onclick="crExportDebug()" title="Export debug snapshot JSON">
+            &#128228; Debug
+          </button>
+          <button class="btn btn--ghost btn--small"
+                  onclick="switchTab('settings')" title="Přejít do nastavení">
+            &#9881; Settings
+          </button>
+        </div>
+      </div>
+
+      <!-- Toast for template feedback -->
+      <div id="cr-toast" class="cr-toast hidden"></div>
+
+      <!-- 3-column dashboard grid -->
+      <div class="cr-grid">
+
+        <!-- LEFT: Resident Status -->
+        <section class="card cr-card" id="cr-resident-card">
+          <h2 class="card-title">&#129302; Resident Agent</h2>
+          <div class="cr-resident-status">
+            <span class="cr-status-dot" id="cr-status-dot"></span>
+            <span id="cr-resident-status-text">Načítám…</span>
+          </div>
+          <div class="cr-resident-uptime" id="cr-resident-uptime"></div>
+          <div class="cr-resident-last" id="cr-resident-last"></div>
+          <div class="cr-resident-actions" style="margin-top:0.75rem;display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn--primary btn--small" onclick="crResidentStart()">&#9654; Start</button>
+            <button class="btn btn--ghost btn--small" onclick="crResidentStop()">&#9632; Stop</button>
+            <button class="btn btn--secondary btn--small" onclick="switchTab('resident')" title="Podrobná správa agenta">&#9881; Správa</button>
+          </div>
+        </section>
+
+        <!-- MIDDLE: Active + Recent Jobs -->
+        <section class="card cr-card" id="cr-jobs-card">
+          <h2 class="card-title">&#128188; Jobs &amp; Fronta</h2>
+          <div id="cr-jobs-list">
+            <p class="empty-state">Načítám…</p>
+          </div>
+          <div style="margin-top:0.75rem">
+            <button class="btn btn--ghost btn--small" onclick="switchTab('jobs')" title="Přejít na Jobs">
+              &#10132; Všechny joby
+            </button>
+          </div>
+        </section>
+
+        <!-- RIGHT: Quick Stats -->
+        <section class="card cr-card" id="cr-stats-card">
+          <h2 class="card-title">&#128200; Quick Stats</h2>
+          <div class="cr-stats-list">
+            <div class="cr-stat-row">
+              <span class="cr-stat-label">&#128257; Cyklů dnes</span>
+              <span class="cr-stat-value" id="cr-cycles-today">-</span>
+            </div>
+            <div class="cr-stat-row">
+              <span class="cr-stat-label">&#129504; Ollama</span>
+              <span class="cr-stat-value" id="cr-ollama-status">-</span>
+            </div>
+            <div class="cr-stat-row">
+              <span class="cr-stat-label">&#128190; KB (MB)</span>
+              <span class="cr-stat-value" id="cr-disk-kb">-</span>
+            </div>
+            <div class="cr-stat-row">
+              <span class="cr-stat-label">&#128190; Jobs dir (MB)</span>
+              <span class="cr-stat-value" id="cr-disk-jobs">-</span>
+            </div>
+            <div class="cr-stat-row">
+              <span class="cr-stat-label">&#9989; Jobs úspěšnost</span>
+              <span class="cr-stat-value" id="cr-success-rate">-</span>
+            </div>
+          </div>
+        </section>
+
+      </div><!-- /cr-grid -->
+
+      <!-- Mission Templates -->
+      <section class="card" style="margin-top:1rem">
+        <h2 class="card-title">&#127919; Mission Templates</h2>
+        <div class="cr-templates-grid" id="cr-templates-grid">
+          <p class="empty-state">Načítám šablony…</p>
+        </div>
+      </section>
+
+      <!-- BOTTOM: Live Logs Feed -->
+      <section class="card" style="margin-top:1rem">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
+          <h2 class="card-title" style="margin:0">&#128221; Live Logs</h2>
+          <div style="display:flex;gap:6px;align-items:center">
+            <span class="cr-ws-dot" id="cr-ws-dot" title="WebSocket"></span>
+            <button class="btn btn--ghost btn--small" onclick="crClearLogs()">&#128465; Clear</button>
+          </div>
+        </div>
+        <div class="cr-logs-feed" id="cr-logs-feed">
+          <p class="empty-state">Čekám na WebSocket…</p>
+        </div>
+      </section>
+
+    </div><!-- /tab-control-room -->
+
+    <!-- ===== CREATIVE STUDIO ===== -->
+    <div class="tab-panel hidden" id="tab-creative" role="tabpanel">
+
+      <div class="panel-header">
+        <h1 class="panel-title">&#10024; Creative Studio</h1>
+        <span class="badge badge--accent">MVP</span>
+      </div>
+
+      <!-- Sub-tabs -->
+      <div class="creative-tabs">
+        <button class="btn btn--ghost creative-tab creative-tab--active" data-ctab="game" onclick="switchCreativeTab('game')">&#127918; Hry</button>
+        <button class="btn btn--ghost creative-tab" data-ctab="scad" onclick="switchCreativeTab('scad')">&#129482; 3D Objekty</button>
+        <button class="btn btn--ghost creative-tab" data-ctab="ascii" onclick="switchCreativeTab('ascii')">&#128221; ASCII</button>
+      </div>
+
+      <!-- GAME tab -->
+      <div class="creative-panel" id="creative-panel-game">
+        <div class="creative-layout">
+          <div class="creative-form">
+            <section class="card">
+              <h2 class="card-title">&#127918; Generovat hru</h2>
+              <textarea id="creative-game-prompt" class="input creative-textarea" rows="3" placeholder="Popiš hru, kterou chceš vytvořit..."></textarea>
+              <div class="creative-examples">
+                <button class="chip" onclick="setCreativePrompt('game','simple snake game')">snake</button>
+                <button class="chip" onclick="setCreativePrompt('game','breakout / brick breaker game')">breakout</button>
+                <button class="chip" onclick="setCreativePrompt('game','dodge falling asteroids game')">dodge asteroids</button>
+              </div>
+              <div class="creative-model-row">
+                <select id="creative-game-model" class="input creative-model-select"><option value="">V&yacute;choz&iacute; model</option></select>
+              </div>
+              <div class="creative-btn-row">
+                <button class="btn btn--primary" id="creative-game-gen-btn" onclick="creativeGenerate('game')">&#9889; Generovat</button>
+                <button class="btn btn--ghost" onclick="creativeClear('game')">Vymazat</button>
+              </div>
+              <div class="creative-warnings hidden" id="creative-game-warnings"></div>
+            </section>
+          </div>
+          <div class="creative-preview" id="creative-game-preview">
+            <section class="card creative-preview-card">
+              <div class="creative-preview-empty" id="creative-game-empty">
+                <span style="font-size:2.5rem">&#127918;</span>
+                <p>Zde se zobraz&iacute; preview hry</p>
+              </div>
+              <div class="creative-preview-loading hidden" id="creative-game-loading">
+                <div class="creative-spinner"></div>
+                <p>Generuji hru&hellip;</p>
+              </div>
+              <div class="creative-preview-result hidden" id="creative-game-result">
+                <div class="creative-preview-header">
+                  <h3 id="creative-game-title"></h3>
+                  <div class="creative-preview-actions">
+                    <button class="btn btn--ghost btn--small" onclick="creativeGenerate('game')" title="Regenerovat">&#128260;</button>
+                    <button class="btn btn--ghost btn--small" onclick="creativeDownloadGame()" title="St&aacute;hnout HTML">&#128190;</button>
+                    <button class="btn btn--ghost btn--small" onclick="creativeFullscreen('game')" title="Fullscreen">&#9974;</button>
+                  </div>
+                </div>
+                <div class="creative-iframe-wrap">
+                  <iframe id="creative-game-iframe" sandbox="allow-scripts" class="creative-iframe"></iframe>
+                </div>
+              </div>
+              <div class="creative-preview-error hidden" id="creative-game-error">
+                <span style="font-size:1.5rem">&#9888;</span>
+                <p id="creative-game-error-msg"></p>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+
+      <!-- SCAD tab -->
+      <div class="creative-panel hidden" id="creative-panel-scad">
+        <div class="creative-layout">
+          <div class="creative-form">
+            <section class="card">
+              <h2 class="card-title">&#129482; Generovat 3D objekt</h2>
+              <textarea id="creative-scad-prompt" class="input creative-textarea" rows="3" placeholder="Popiš 3D objekt, kter&yacute; chceš vytvo&#345;it..."></textarea>
+              <div class="creative-examples">
+                <button class="chip" onclick="setCreativePrompt('scad','small desk cable clip')">cable clip</button>
+                <button class="chip" onclick="setCreativePrompt('scad','phone stand / holder')">phone stand</button>
+                <button class="chip" onclick="setCreativePrompt('scad','six-sided dice with dots')">dice</button>
+              </div>
+              <div class="creative-model-row">
+                <select id="creative-scad-model" class="input creative-model-select"><option value="">V&yacute;choz&iacute; model</option></select>
+              </div>
+              <div class="creative-btn-row">
+                <button class="btn btn--primary" id="creative-scad-gen-btn" onclick="creativeGenerate('scad')">&#9889; Generovat</button>
+                <button class="btn btn--ghost" onclick="creativeClear('scad')">Vymazat</button>
+              </div>
+              <div class="creative-warnings hidden" id="creative-scad-warnings"></div>
+            </section>
+          </div>
+          <div class="creative-preview" id="creative-scad-preview">
+            <section class="card creative-preview-card">
+              <div class="creative-preview-empty" id="creative-scad-empty">
+                <span style="font-size:2.5rem">&#129482;</span>
+                <p>Zde se zobraz&iacute; 3D preview</p>
+              </div>
+              <div class="creative-preview-loading hidden" id="creative-scad-loading">
+                <div class="creative-spinner"></div>
+                <p>Generuji 3D objekt&hellip;</p>
+              </div>
+              <div class="creative-preview-result hidden" id="creative-scad-result">
+                <div class="creative-preview-header">
+                  <h3 id="creative-scad-title"></h3>
+                  <div class="creative-preview-actions">
+                    <button class="btn btn--ghost btn--small" onclick="creativeGenerate('scad')" title="Regenerovat">&#128260;</button>
+                    <button class="btn btn--ghost btn--small" onclick="creativeDownloadScad()" title="St&aacute;hnout .scad">&#128190;</button>
+                    <button class="btn btn--ghost btn--small" onclick="creativeCopyScad()" title="Kop&iacute;rovat k&oacute;d">&#128203;</button>
+                  </div>
+                </div>
+                <div class="creative-3d-canvas-wrap">
+                  <canvas id="creative-scad-canvas" class="creative-3d-canvas"></canvas>
+                  <div class="creative-3d-fallback hidden" id="creative-scad-fallback">
+                    <p>Preview nen&iacute; dostupn&yacute; pro tuto SCAD strukturu &ndash; k&oacute;d je st&aacute;le platn&yacute;.</p>
+                  </div>
+                </div>
+                <details class="creative-code-details">
+                  <summary>OpenSCAD k&oacute;d</summary>
+                  <pre class="creative-code-block" id="creative-scad-code"></pre>
+                </details>
+              </div>
+              <div class="creative-preview-error hidden" id="creative-scad-error">
+                <span style="font-size:1.5rem">&#9888;</span>
+                <p id="creative-scad-error-msg"></p>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+
+      <!-- ASCII tab -->
+      <div class="creative-panel hidden" id="creative-panel-ascii">
+        <div class="creative-layout">
+          <div class="creative-form">
+            <section class="card">
+              <h2 class="card-title">&#128221; Generovat ASCII art</h2>
+              <textarea id="creative-ascii-prompt" class="input creative-textarea" rows="3" placeholder="Popiš, co chceš nakreslit v ASCII..."></textarea>
+              <div class="creative-examples">
+                <button class="chip" onclick="setCreativePrompt('ascii','skull')">skull</button>
+                <button class="chip" onclick="setCreativePrompt('ascii','robot face')">robot face</button>
+                <button class="chip" onclick="setCreativePrompt('ascii','spaceship')">spaceship</button>
+              </div>
+              <div class="creative-model-row">
+                <select id="creative-ascii-model" class="input creative-model-select"><option value="">V&yacute;choz&iacute; model</option></select>
+                <label class="creative-width-label">&#352;&iacute;&#345;ka:
+                  <input type="range" id="creative-ascii-width" min="30" max="120" value="60" class="creative-width-slider">
+                  <span id="creative-ascii-width-val">60</span>
+                </label>
+              </div>
+              <div class="creative-btn-row">
+                <button class="btn btn--primary" id="creative-ascii-gen-btn" onclick="creativeGenerate('ascii')">&#9889; Generovat</button>
+                <button class="btn btn--ghost" onclick="creativeClear('ascii')">Vymazat</button>
+              </div>
+              <div class="creative-warnings hidden" id="creative-ascii-warnings"></div>
+            </section>
+          </div>
+          <div class="creative-preview" id="creative-ascii-preview">
+            <section class="card creative-preview-card">
+              <div class="creative-preview-empty" id="creative-ascii-empty">
+                <span style="font-size:2.5rem">&#128221;</span>
+                <p>Zde se zobraz&iacute; ASCII art</p>
+              </div>
+              <div class="creative-preview-loading hidden" id="creative-ascii-loading">
+                <div class="creative-spinner"></div>
+                <p>Generuji ASCII art&hellip;</p>
+              </div>
+              <div class="creative-preview-result hidden" id="creative-ascii-result">
+                <div class="creative-preview-header">
+                  <h3 id="creative-ascii-title"></h3>
+                  <div class="creative-preview-actions">
+                    <button class="btn btn--ghost btn--small" onclick="creativeGenerate('ascii')" title="Regenerovat">&#128260;</button>
+                    <button class="btn btn--ghost btn--small" onclick="creativeDownloadAscii()" title="St&aacute;hnout .txt">&#128190;</button>
+                    <button class="btn btn--ghost btn--small" onclick="creativeCopyAscii()" title="Kop&iacute;rovat">&#128203;</button>
+                  </div>
+                </div>
+                <div class="creative-ascii-display-wrap">
+                  <div class="creative-font-size-row">
+                    <button class="btn btn--ghost btn--small" onclick="creativeAsciiSize('s')">S</button>
+                    <button class="btn btn--ghost btn--small creative-size-active" onclick="creativeAsciiSize('m')">M</button>
+                    <button class="btn btn--ghost btn--small" onclick="creativeAsciiSize('l')">L</button>
+                  </div>
+                  <pre class="creative-ascii-art" id="creative-ascii-art"></pre>
+                </div>
+              </div>
+              <div class="creative-preview-error hidden" id="creative-ascii-error">
+                <span style="font-size:1.5rem">&#9888;</span>
+                <p id="creative-ascii-error-msg"></p>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+
+      <!-- History -->
+      <section class="card" id="creative-history-section">
+        <h2 class="card-title">&#128337; Ned&aacute;vn&eacute; v&yacute;tvory</h2>
+        <div id="creative-history-list" class="creative-history-list">
+          <p class="text-muted">Zat&iacute;m nic nevygenerov&aacute;no.</p>
+        </div>
+      </section>
+
+    </div><!-- /tab-creative -->
+
+  </main>
+
+  <!-- ===== FIRST-RUN WIZARD ===== -->
+  <div class="modal-overlay hidden" id="setup-wizard-overlay" role="dialog" aria-modal="true" aria-labelledby="wizard-title">
+    <div class="modal wizard-modal">
+
+      <!-- Step indicators -->
+      <div class="wizard-steps" aria-label="Průběh nastavení">
+        <div class="wizard-step wizard-step--active" data-step="1">1</div>
+        <div class="wizard-step-line"></div>
+        <div class="wizard-step" data-step="2">2</div>
+        <div class="wizard-step-line"></div>
+        <div class="wizard-step" data-step="3">3</div>
+        <div class="wizard-step-line"></div>
+        <div class="wizard-step" data-step="4">4</div>
+      </div>
+
+      <!-- Step 1: Welcome -->
+      <div class="wizard-pane" id="wizard-step-1">
+        <div class="modal-body" style="text-align:center;padding:2.5rem 2rem">
+          <div style="font-size:3.5rem;margin-bottom:1rem">&#129302;</div>
+          <h2 class="modal-title" id="wizard-title" style="font-size:1.5rem;margin-bottom:0.75rem">
+            V&iacute;tej v AI Home Hub
+          </h2>
+          <p style="color:var(--text-muted);margin-bottom:0.5rem;max-width:380px;margin-left:auto;margin-right:auto">
+            Tv&#367;j lok&aacute;ln&iacute; AI orchestr&aacute;tor. Tento pr&#367;vodce ti pomůže nastavit z&aacute;klady za 2 minuty.
+          </p>
+          <p style="color:var(--text-dim);font-size:0.8125rem;margin-bottom:2rem">
+            M&#367;&#382;e&#353; ho kdykoli spustit znovu ze Nastaven&iacute;.
+          </p>
+          <button class="btn btn--primary" id="wizard-step1-next" style="min-width:180px">
+            Za&#269;&iacute;t nastaven&iacute;
+          </button>
+        </div>
+      </div>
+
+      <!-- Step 2: Environment check -->
+      <div class="wizard-pane hidden" id="wizard-step-2">
+        <div class="modal-header">
+          <h2 class="modal-title">&#128269; Kontrola prost&#345;ed&iacute;</h2>
+          <button class="btn-icon" id="wizard-esc-btn" title="Zav&#345;&iacute;t">&#10005;</button>
+        </div>
+        <div class="modal-body">
+          <div id="wizard-checks-list" class="wizard-checks">
+            <div class="wizard-check-item">
+              <span class="dot-pulse" style="color:var(--text-muted)">&#9679;</span>
+              <span>Kontroluji prost&#345;ed&iacute;&#8230;</span>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer" style="justify-content:space-between">
+          <button class="btn btn--ghost btn--small" id="wizard-step2-retry">&#8635; Zkusit znovu</button>
+          <button class="btn btn--primary btn--small" id="wizard-step2-next">Pokra&#269;ovat</button>
+        </div>
+      </div>
+
+      <!-- Step 3: Basic settings -->
+      <div class="wizard-pane hidden" id="wizard-step-3">
+        <div class="modal-header">
+          <h2 class="modal-title">&#9881;&#65039; Z&aacute;kladn&iacute; nastaven&iacute;</h2>
+          <button class="btn-icon" id="wizard-esc-btn-3" title="Zav&#345;&iacute;t">&#10005;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">Povolen&eacute; adres&aacute;&#345;e:</label>
+            <div id="wizard-dirs-list" style="display:flex;flex-wrap:wrap;gap:0.375rem;margin-bottom:0.5rem"></div>
+            <div style="display:flex;gap:0.5rem">
+              <input type="text" class="input" id="wizard-new-dir" placeholder="~/Documents/AI-Hub" style="flex:1" />
+              <button class="btn btn--secondary btn--small" id="wizard-add-dir-btn">+ P&#345;idat</button>
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-top:1rem">
+            <label class="form-label">Re&#382;im Residenta:</label>
+            <div class="pill-group" id="wizard-mode-pills" style="margin-bottom:0">
+              <button class="pill" data-mode="observer">Observer</button>
+              <button class="pill pill--active" data-mode="advisor">Advisor</button>
+              <button class="pill" data-mode="autonomous">Autonomous</button>
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-top:1.25rem;padding-top:1rem;border-top:1px solid var(--border)">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
+              <span class="section-title" style="margin:0">&#129504; Vygenerovat prompt pro Residenta</span>
+            </div>
+            <p class="section-subtitle">Nech&aacute;j AI vygenerovat c&iacute;l mise podle tv&eacute;ho popisu.</p>
+            <div style="display:flex;gap:0.5rem">
+              <input type="text" class="input" id="wizard-resident-context"
+                     placeholder="nap&#345;. spravuj KB, sleduj syst&eacute;m" style="flex:1" />
+              <button class="btn btn--secondary btn--small" id="wizard-gen-prompt-btn">
+                Generovat
+                <span class="spinner spinner--small hidden" id="wizard-gen-spinner"></span>
+              </button>
+            </div>
+            <div id="wizard-generated-prompt" class="hidden" style="margin-top:0.5rem">
+              <textarea class="input" id="wizard-prompt-result" rows="2" readonly style="font-size:0.875rem"></textarea>
+              <div style="display:flex;gap:0.375rem;margin-top:0.375rem">
+                <button class="btn btn--ghost btn--small" id="wizard-copy-prompt-btn">&#128203; Kop&iacute;rovat</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer" style="justify-content:space-between">
+          <button class="btn btn--ghost btn--small" id="wizard-step3-back">&#8592; Zp&#283;t</button>
+          <button class="btn btn--primary btn--small" id="wizard-step3-save">Ulo&#382;it &amp; pokra&#269;ovat</button>
+        </div>
+      </div>
+
+      <!-- Step 4: Done -->
+      <div class="wizard-pane hidden" id="wizard-step-4">
+        <div class="modal-body" style="text-align:center;padding:2.5rem 2rem">
+          <div style="font-size:3rem;margin-bottom:1rem">&#127881;</div>
+          <h2 class="modal-title" style="font-size:1.5rem;margin-bottom:0.75rem">AI Home Hub je p&#345;ipraven!</h2>
+          <div id="wizard-final-checks" class="wizard-checks" style="text-align:left;max-width:360px;margin:0 auto 1.5rem"></div>
+          <p class="hint-text" style="margin-bottom:2rem">
+            Tip: Zkus <strong>Gener&aacute;tor prompt&#367;</strong> v Nastaven&iacute; pro l&eacute;pe strukturovan&eacute; dotazy.
+          </p>
+          <button class="btn btn--primary" id="wizard-finish-btn" style="min-width:180px">
+            P&#345;ej&iacute;t do aplikace
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ===== QUICK ACTION EDITOR MODAL ===== -->
+  <div class="modal-overlay hidden" id="action-editor-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-title" id="action-modal-title">Nov&aacute; rychl&aacute; akce</h2>
+        <button class="btn-icon modal-close" id="action-modal-close">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="action-edit-id" value="" />
+        <div class="form-group">
+          <label class="form-label" for="action-name-input">N&aacute;zev:</label>
+          <input type="text" class="input" id="action-name-input" placeholder="N&aacute;zev akce" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="action-icon-input">Ikona (emoji):</label>
+          <input type="text" class="input" id="action-icon-input" placeholder="&#9889;" style="max-width:80px" />
+        </div>
+
+        <h3 style="margin-top:1rem;margin-bottom:0.5rem;color:#e2e8f0">Kroky</h3>
+        <div id="action-steps-list"></div>
+        <button class="btn btn--ghost btn--small" id="add-step-btn" style="margin-top:0.5rem">+ P&#345;idat krok</button>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn--ghost" id="action-modal-cancel">Zru&#353;it</button>
+        <button class="btn btn--primary" id="action-modal-save">Ulo&#382;it</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== DIRECTORY BROWSER MODAL ===== -->
+  <div class="overlay hidden" id="dir-browser-overlay">
+    <div class="modal" style="max-width:560px">
+      <h3 id="dir-browser-title">Vybrat složku</h3>
+      <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem">
+        <button class="btn btn--ghost btn--small" id="dir-browser-up" title="Nadřazená složka">⬆ ..</button>
+        <code id="dir-browser-path" style="flex:1;font-size:0.85rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></code>
+      </div>
+      <div id="dir-browser-entries" class="dir-browser-list" style="max-height:320px;overflow-y:auto"></div>
+      <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:0.75rem">
+        <button class="btn btn--ghost" id="dir-browser-cancel">Zrušit</button>
+        <button class="btn btn--primary" id="dir-browser-select">Vybrat tuto složku</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== ONBOARDING WIZARD MODAL ===== -->
+  <div class="onboarding-overlay hidden" id="onboarding-overlay" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+    <div class="onboarding-modal">
+      <div class="onboarding-progress-bar-wrap">
+        <div class="onboarding-progress-bar" id="onboarding-progress-bar"></div>
+      </div>
+      <div class="onboarding-step-label" id="onboarding-step-label">Krok 1 / 5</div>
+      <h2 class="onboarding-title" id="onboarding-title"></h2>
+      <div class="onboarding-content" id="onboarding-content"></div>
+      <div class="onboarding-action-result" id="onboarding-action-result"></div>
+      <div class="onboarding-choices hidden" id="onboarding-choices"></div>
+      <div class="onboarding-footer">
+        <button class="btn btn--ghost" id="onboarding-back-btn">&larr; Zp&#283;t</button>
+        <button class="btn btn--primary" id="onboarding-next-btn">Dal&scaron;&iacute; &rarr;</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== COMMAND PALETTE (Ctrl+K) ===== -->
+  <div class="cmd-palette-overlay hidden" id="cmd-palette-overlay" role="dialog" aria-modal="true" aria-label="Command Palette">
+    <div class="cmd-palette">
+      <div class="cmd-palette-search">
+        <span class="cmd-palette-icon">&#128269;</span>
+        <input class="cmd-palette-input" id="cmd-palette-input" type="text" placeholder="Hledat nebo p&#345;&iacute;kaz..." autocomplete="off" />
+      </div>
+      <div class="cmd-palette-results" id="cmd-palette-results"></div>
+      <div class="cmd-palette-hint">Esc pro zav&#345;en&iacute; &middot; Enter pro v&yacute;b&#283;r &middot; &uarr;&darr; navigace</div>
+    </div>
+  </div>
+
+  <!-- ===== TOAST CONTAINER (multi-toast) ===== -->
+  <div class="toast-container" id="toast-container" aria-live="assertive" aria-atomic="false"></div>
+  <!-- Legacy single toast (kept for compat) -->
+  <div class="toast hidden" id="toast" role="alert" aria-live="assertive"></div>
+
+  <!-- ===== RESIDENT LOG MODAL ===== -->
+  <div class="modal-overlay hidden" id="resident-log-modal">
+    <div class="modal" style="max-width:700px;max-height:80vh;display:flex;flex-direction:column">
+      <div class="modal-header" style="display:flex;align-items:center;justify-content:space-between">
+        <h2 class="modal-title">Resident Agent Log</h2>
+        <button class="btn btn--ghost btn--small" onclick="closeResidentLogModal()">&times;</button>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+        <select class="input input--small" id="rl-modal-level-filter" onchange="loadResidentLogModal()">
+          <option value="">ALL</option>
+          <option value="INFO">INFO</option>
+          <option value="WARN">WARN</option>
+          <option value="ERROR">ERROR</option>
+        </select>
+        <button class="btn btn--ghost btn--small btn--danger" onclick="clearResidentLogModal()">Vy&#269;istit log</button>
+      </div>
+      <div id="rl-modal-list" class="resident-log-list" style="flex:1;overflow-y:auto;max-height:55vh">
+        <p class="empty-state">Na&#269;&#237;t&#225;m...</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== RESIDENT SETTINGS MODAL ===== -->
+  <div class="modal-overlay hidden" id="resident-settings-modal">
+    <div class="modal" style="max-width:500px">
+      <div class="modal-header" style="display:flex;align-items:center;justify-content:space-between">
+        <h2 class="modal-title">Nastaven&#237; Resident Agenta</h2>
+        <button class="btn btn--ghost btn--small" onclick="closeResidentSettingsModal()">&times;</button>
+      </div>
+      <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div>
+          <label class="form-label">Interval (s):</label>
+          <input type="range" id="rsm-interval" min="5" max="300" value="30" oninput="document.getElementById('rsm-interval-val').textContent=this.value+'s'" />
+          <span id="rsm-interval-val" class="text-muted" style="font-size:0.85em">30s</span>
+        </div>
+        <div>
+          <label class="form-label">Max cykl&#367;/den:</label>
+          <input type="number" class="input" id="rsm-max-cycles" min="1" max="10000" value="100" />
+        </div>
+      </div>
+      <div class="form-group" style="margin-top:8px">
+        <label style="display:flex;align-items:center;gap:6px">
+          <input type="checkbox" id="rsm-quiet-enabled" />
+          Tich&#253; re&#382;im
+        </label>
+      </div>
+      <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px">
+        <div>
+          <label class="form-label">Od:</label>
+          <input type="time" class="input" id="rsm-quiet-start" value="22:00" />
+        </div>
+        <div>
+          <label class="form-label">Do:</label>
+          <input type="time" class="input" id="rsm-quiet-end" value="07:00" />
+        </div>
+      </div>
+      <div class="form-group" style="margin-top:8px">
+        <label class="form-label">Model:</label>
+        <select class="input" id="rsm-model" style="width:100%">
+          <option value="">-- v&#253;choz&#237; model z LLM konfigurace --</option>
+        </select>
+      </div>
+      <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;border-top:1px solid var(--border);padding-top:12px">
+        <div>
+          <label class="form-label">Interval navrhov&#225;n&#237; (min):</label>
+          <input type="number" class="input" id="rsm-proposal-interval" min="15" max="1440" value="60" />
+        </div>
+        <div>
+          <label class="form-label">Max n&#225;vrh&#367;:</label>
+          <input type="number" class="input" id="rsm-max-proposals" min="1" max="5" value="3" />
+        </div>
+      </div>
+      <div class="form-group" style="margin-top:8px">
+        <label class="form-label">T&#233;mata z&#225;jmu:</label>
+        <input type="text" class="input" id="rsm-interest-topics" placeholder="Power BI, Python, novinky v AI" />
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:12px">
+        <button class="btn btn--primary btn--small" onclick="saveResidentSettingsModal()">&#10004; Ulo&#382;it</button>
+        <button class="btn btn--ghost btn--small" onclick="restartResidentAgent()">&#128260; Restart agenta</button>
+        <div style="flex:1"></div>
+        <button class="btn btn--ghost btn--small btn--danger" onclick="shutdownApp()">&#128308; Vypnout Hub</button>
+      </div>
+      <div id="rsm-status" class="hint-text" style="margin-top:6px"></div>
+    </div>
+  </div>
+
+  <!-- ===== MOBILE SIDEBAR TOGGLE ===== -->
+  <button class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Menu">&#9776;</button>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"
+          integrity="sha512-BNaRQnYJYiPx9ybCxHi2DqFKOCLAVncewFvTQtU5MHd/1KTHM4QaUwFxOEEBuXraGTF5GFEX3S2QR9aLNGqw=="
+          crossorigin="anonymous"></script>
+  <script src="/app.js" defer></script>
+  <script>
+  /* ── Service Worker registration ─── */
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').then(reg => {
+      console.log('[PWA] SW registered:', reg.scope);
+    }).catch(err => console.warn('[PWA] SW failed:', err));
+  }
+
+  /* ── Mobile Jobs WebSocket + UI ─── */
+  (function() {
+    let jobsWs = null;
+    const STATUS_ICONS = {
+      queued: '&#9203;', running: '&#9654;&#65039;', succeeded: '&#9989;',
+      failed: '&#10060;', cancelled: '&#9940;', paused: '&#9208;&#65039;'
+    };
+
+    function connectJobsWs() {
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      jobsWs = new WebSocket(`${proto}//${location.host}/ws/jobs`);
+      jobsWs.onmessage = function(e) {
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.type === 'job_update' || msg.type === 'job_completed' || msg.type === 'job_failed') {
+            refreshMobileJobs();
+          }
+        } catch(err) {}
+      };
+      jobsWs.onclose = function() { setTimeout(connectJobsWs, 5000); };
+      jobsWs.onerror = function() {};
+      // Keep alive
+      setInterval(function() {
+        if (jobsWs && jobsWs.readyState === 1) jobsWs.send(JSON.stringify({type:'ping'}));
+      }, 25000);
+    }
+
+    function refreshMobileJobs() {
+      fetch('/api/jobs/mobile-summary?limit=30').then(r => r.json()).then(data => {
+        const statsEl = document.getElementById('mobile-jobs-stats');
+        const listEl = document.getElementById('mobile-jobs-list');
+        if (!statsEl || !listEl) return;
+        statsEl.innerHTML = `&#128260; ${data.total || 0} jobs | ${data.failed || 0} failed`;
+        listEl.innerHTML = data.jobs.map(j => {
+          const icon = STATUS_ICONS[j.status] || '&#10067;';
+          const dur = j.duration_ms > 0 ? `${(j.duration_ms/1000).toFixed(0)}s` : '';
+          return `<div class="job-item" id="job-${j.full_id}">
+            <div class="job-item-top">
+              <span class="job-id">#${j.id}</span>
+              <span class="job-time">${j.time}</span>
+              <span class="job-status status">${icon}</span>
+              <span class="job-dur">${dur}</span>
+            </div>
+            <div class="job-summary">${j.title}${j.summary ? ' — ' + j.summary : ''}</div>
+          </div>`;
+        }).join('');
+      }).catch(() => {});
+    }
+
+    // Mode toggle
+    function initModeSelect() {
+      const sel = document.getElementById('mobile-jobs-mode-select');
+      if (!sel) return;
+      fetch('/api/resident/mode').then(r => r.json()).then(d => {
+        sel.value = d.mode || 'advisor';
+      }).catch(() => {});
+      sel.addEventListener('change', function() {
+        fetch('/api/resident/mode', {
+          method: 'PATCH', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({mode: sel.value})
+        }).catch(() => {});
+      });
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+      connectJobsWs();
+      refreshMobileJobs();
+      initModeSelect();
+      const btn = document.getElementById('mobile-jobs-refresh');
+      if (btn) btn.addEventListener('click', refreshMobileJobs);
+      // Auto-refresh every 10s
+      setInterval(refreshMobileJobs, 10000);
+    });
+  })();
+  </script>
+  <!-- README Preview Modal -->
+  <div id="readmeModal" class="modal-overlay" style="display:none"
+       onclick="if(event.target===this)closeReadmeModal()">
+    <div class="modal-box modal-box--wide">
+      <div class="modal-header">
+        <span id="readmeModalTitle">README</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <a id="readmeModalLink" href="#" target="_blank" class="btn-sm">
+            ↗ Otevřít na GitHubu
+          </a>
+          <button onclick="closeReadmeModal()" class="modal-close">✕</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div id="readmeContent" class="readme-content">Načítám...</div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>
