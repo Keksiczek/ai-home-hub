@@ -228,5 +228,12 @@ async def custom_swagger_ui():
 
 # ── SPA Static Files ────────────────────────────────────────
 # Mounted last so every /api/* route above has priority.
-_static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
-app.mount("/", StaticFiles(directory=_static_dir, html=True), name="static")
+
+# Legacy JS (původní app.js + index.html) dostupný na /legacy/
+_legacy_dir = os.path.join(os.path.dirname(__file__), "..", "static")
+app.mount("/legacy", StaticFiles(directory=_legacy_dir), name="legacy")
+
+# React SPA build – musí být POSLEDNÍ mount
+_dist_dir = os.path.join(os.path.dirname(__file__), "..", "static", "dist")
+os.makedirs(_dist_dir, exist_ok=True)
+app.mount("/", StaticFiles(directory=_dist_dir, html=True), name="static")
