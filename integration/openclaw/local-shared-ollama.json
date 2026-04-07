@@ -1,0 +1,34 @@
+{
+  "_comment": [
+    "Shared Ollama config for OpenClaw.",
+    "Replace {{LOCAL_LLM_MODEL}} with the same model as in .env LOCAL_LLM_MODEL.",
+    "apiKey 'ollama-local' is a dummy – local Ollama does not require authentication."
+  ],
+  "models": {
+    "providers": {
+      "ollama": {
+        "baseUrl": "http://127.0.0.1:11434",
+        "apiKey": "ollama-local",
+        "api": "ollama",
+        "models": [
+          {
+            "id": "ollama/qwen2.5:1.5b",
+            "name": "Shared Ollama model (AI Home Hub + OpenClaw + OpenWebUI)",
+            "reasoning": false,
+            "input": ["text"],
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+            "contextWindow": 8192,
+            "maxTokens": 2048
+          }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "ollama/qwen2.5:1.5b"
+      }
+    }
+  }
+}

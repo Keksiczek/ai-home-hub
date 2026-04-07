@@ -116,6 +116,14 @@ else
 fi
 ok "Dependencies installed"
 
+# ── Shared local LLM config ───────────────────────────────────────────────────
+# LOCAL_LLM_* vars are the canonical source; legacy OLLAMA_* are fallbacks.
+export LOCAL_LLM_PROVIDER="${LOCAL_LLM_PROVIDER:-ollama}"
+export LOCAL_LLM_BASE_URL="${LOCAL_LLM_BASE_URL:-${OLLAMA_BASE_URL:-http://127.0.0.1:11434}}"
+export LOCAL_LLM_MODEL="${LOCAL_LLM_MODEL:-qwen2.5:1.5b}"
+# Ensure OLLAMA_BASE_URL stays in sync (used by OpenWebUI)
+export OLLAMA_BASE_URL="${LOCAL_LLM_BASE_URL}"
+
 # ── Ollama performance tuning ─────────────────────────────────────────────────
 # These can be overridden in .env; here we set safe defaults for an 8 GB Mac.
 export OLLAMA_FLASH_ATTENTION="${OLLAMA_FLASH_ATTENTION:-1}"
@@ -226,14 +234,19 @@ fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
-echo -e "${GREEN}┌─────────────────────────────────────────┐${NC}"
-echo -e "${GREEN}│  AI Home Hub is running!                │${NC}"
-echo -e "${GREEN}│  Dashboard : http://localhost:${APP_PORT}/   │${NC}"
-echo -e "${GREEN}│  OpenWebUI : http://localhost:${OPENWEBUI_PORT}/   │${NC}"
-echo -e "${GREEN}│  API       : http://localhost:${APP_PORT}/api│${NC}"
-echo -e "${GREEN}│  Logs      : $(basename "$LOG_FILE")  │${NC}"
-echo -e "${GREEN}│  Press Ctrl+C to stop                   │${NC}"
-echo -e "${GREEN}└─────────────────────────────────────────┘${NC}"
+echo -e "${GREEN}┌──────────────────────────────────────────────────────┐${NC}"
+echo -e "${GREEN}│  AI Home Hub is running!                             │${NC}"
+echo -e "${GREEN}│  Dashboard : http://localhost:${APP_PORT}/                │${NC}"
+echo -e "${GREEN}│  OpenWebUI : http://localhost:${OPENWEBUI_PORT}/                │${NC}"
+echo -e "${GREEN}│  API       : http://localhost:${APP_PORT}/api             │${NC}"
+echo -e "${GREEN}│  Logs      : $(basename "$LOG_FILE")               │${NC}"
+echo -e "${GREEN}│  Press Ctrl+C to stop                                │${NC}"
+echo -e "${GREEN}│──────────────────────────────────────────────────────│${NC}"
+echo -e "${GREEN}│  Shared LLM: ${LOCAL_LLM_PROVIDER} @ ${LOCAL_LLM_BASE_URL}${NC}"
+echo -e "${GREEN}│  Model     : ${LOCAL_LLM_MODEL}${NC}"
+echo -e "${GREEN}│  OpenWebUI : http://localhost:${OPENWEBUI_PORT}/ → shares Ollama${NC}"
+echo -e "${GREEN}│  OpenClaw  : see integration/openclaw/              │${NC}"
+echo -e "${GREEN}└──────────────────────────────────────────────────────┘${NC}"
 echo ""
 
 # Keep script alive (wait for background processes)

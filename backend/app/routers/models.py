@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 
 from app.models.schemas import LLMSettingsUpdate, ModelPullRequest
 from app.services.model_manager_service import get_model_manager_service
-from app.services.settings_service import get_settings_service
+from app.services.settings_service import LOCAL_LLM_BASE_URL, get_settings_service
 
 logger = logging.getLogger(__name__)
 
@@ -151,7 +151,7 @@ async def get_llm_settings() -> Dict[str, Any]:
             "context_length": params.get("context_length", 4096),
             "top_p": params.get("top_p", 0.9),
         },
-        "ollama_url": llm_cfg.get("ollama_url", "http://localhost:11434"),
+        "ollama_url": llm_cfg.get("ollama_url", LOCAL_LLM_BASE_URL),
     }
 
 
@@ -204,7 +204,7 @@ async def test_llm_connection() -> Dict[str, Any]:
     settings_svc = get_settings_service()
     settings = settings_svc.load()
     ollama_url = (
-        settings.get("llm", {}).get("ollama_url", "http://localhost:11434").rstrip("/")
+        settings.get("llm", {}).get("ollama_url", LOCAL_LLM_BASE_URL).rstrip("/")
     )
 
     try:

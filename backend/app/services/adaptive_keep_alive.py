@@ -229,12 +229,13 @@ class AdaptiveKeepAliveManager:
         The prompt is deliberately minimal – we don't actually want output.
         """
         try:
-            from app.services.settings_service import get_settings_service
+            from app.services.settings_service import LOCAL_LLM_BASE_URL, get_settings_service
 
             cfg = get_settings_service().get_llm_config()
-            ollama_url = cfg.get("ollama_url", "http://localhost:11434").rstrip("/")
+            ollama_url = cfg.get("ollama_url", LOCAL_LLM_BASE_URL).rstrip("/")
         except Exception:
-            ollama_url = "http://localhost:11434"
+            from app.services.settings_service import LOCAL_LLM_BASE_URL as _url
+            ollama_url = _url
 
         payload = {
             "model": model,

@@ -75,8 +75,10 @@ async def lifespan(app: FastAPI):
         settings["llm"] = llm_cfg
         get_settings_service().save(settings)
 
+    from app.services.settings_service import LOCAL_LLM_BASE_URL
+
     ollama_url = (
-        llm_cfg.get("ollama_url", "http://localhost:11434").rstrip("/")
+        llm_cfg.get("ollama_url", LOCAL_LLM_BASE_URL).rstrip("/")
     )
 
     health = await run_startup_checks(ollama_url)

@@ -13,7 +13,7 @@ from typing import Any, Dict
 import httpx
 from fastapi import APIRouter
 
-from app.services.settings_service import get_settings_service
+from app.services.settings_service import LOCAL_LLM_BASE_URL, get_settings_service
 from app.services.vector_store_service import get_vector_store_service, CHROMA_DIR
 from app.services.ws_manager import get_ws_manager
 from app.services.agent_orchestrator import (
@@ -33,7 +33,7 @@ HEALTH_CHECK_TIMEOUT = 2.0  # seconds per component check
 async def _check_ollama(settings: Dict[str, Any]) -> Dict[str, Any]:
     """Check Ollama LLM connectivity and response time."""
     llm_cfg = settings.get("llm", {})
-    ollama_url = llm_cfg.get("ollama_url", "http://localhost:11434")
+    ollama_url = llm_cfg.get("ollama_url", LOCAL_LLM_BASE_URL)
     model = llm_cfg.get("model", "llama3.2")
 
     try:
@@ -397,7 +397,7 @@ async def purge_models(keep_model: str = "") -> Dict[str, Any]:
 
     settings = get_settings_service().load()
     ollama_url = (
-        settings.get("llm", {}).get("ollama_url", "http://localhost:11434").rstrip("/")
+        settings.get("llm", {}).get("ollama_url", LOCAL_LLM_BASE_URL).rstrip("/")
     )
 
     unloaded = []

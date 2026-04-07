@@ -16,7 +16,10 @@ logger = logging.getLogger(__name__)
 class OllamaProvider(LLMProvider):
     """Ollama backend via its REST API (``/api/chat``, ``/api/embed``)."""
 
-    def __init__(self, base_url: str = "http://localhost:11434") -> None:
+    def __init__(self, base_url: str | None = None) -> None:
+        if base_url is None:
+            from app.services.settings_service import LOCAL_LLM_BASE_URL
+            base_url = LOCAL_LLM_BASE_URL
         self.base_url = base_url.rstrip("/")
 
     # ── generate (non-streaming) ───────────────────────────────

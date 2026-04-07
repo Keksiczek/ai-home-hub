@@ -19,7 +19,7 @@ from tenacity import (
 
 from app.services.llm_profiles import get_llm_profile_registry
 from app.services.metrics_service import ollama_latency_seconds, ollama_requests_total
-from app.services.settings_service import get_settings_service
+from app.services.settings_service import LOCAL_LLM_BASE_URL, get_settings_service
 from app.utils.circuit_breaker import (
     CircuitBreakerOpen,
     get_model_circuit_breaker_registry,
@@ -398,7 +398,7 @@ def get_provider_for_settings(settings_svc=None):
     llm_cfg = settings.get("llm", {})
     provider_name = llm_cfg.get("provider", "ollama")
     ollama_url = llm_cfg.get("ollama_url") or llm_cfg.get(
-        "base_url", "http://localhost:11434"
+        "base_url", LOCAL_LLM_BASE_URL
     )
 
     if provider_name == "llamacpp":
@@ -583,7 +583,7 @@ class LLMService:
         request_type: str = "agent_step",
         allow_uncensored: bool = False,
     ) -> Tuple[str, Dict[str, Any]]:
-        ollama_url = cfg.get("ollama_url", "http://localhost:11434").rstrip("/")
+        ollama_url = cfg.get("ollama_url", LOCAL_LLM_BASE_URL).rstrip("/")
         model = cfg.get("model", "llama3.2")
         cb = get_ollama_circuit_breaker()
         model_cb = get_model_circuit_breaker_registry()
@@ -965,7 +965,7 @@ class LLMService:
         *for_overnight* triggers keep_alive=0 so the model is unloaded after the call.
         """
         cfg = self._settings.get_llm_config(profile=profile)
-        ollama_url = cfg.get("ollama_url", "http://localhost:11434").rstrip("/")
+        ollama_url = cfg.get("ollama_url", LOCAL_LLM_BASE_URL).rstrip("/")
         model = resolve_model(profile or "general", model_override or cfg.get("model"))
         prompt_key = profile or mode or "general"
         system_prompt = (
@@ -1197,7 +1197,7 @@ class LLMService:
     async def check_ollama_health(self) -> Dict[str, Any]:
         """Check if Ollama is running and return available models."""
         cfg = self._settings.get_llm_config()
-        ollama_url = cfg.get("ollama_url", "http://localhost:11434").rstrip("/")
+        ollama_url = cfg.get("ollama_url", LOCAL_LLM_BASE_URL).rstrip("/")
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 resp = await client.get(f"{ollama_url}/api/tags")
@@ -1213,7 +1213,7 @@ async def unload_model(model_name: str) -> None:
     """Explicitně uvolní model z Ollama RAM (keep_alive=0)."""
     try:
         cfg = get_settings_service().get_llm_config()
-        ollama_url = cfg.get("ollama_url", "http://localhost:11434").rstrip("/")
+        ollama_url = cfg.get("ollama_url", LOCAL_LLM_BASE_URL).rstrip("/")
         async with httpx.AsyncClient(timeout=10) as client:
             await client.post(
                 f"{ollama_url}/api/generate",

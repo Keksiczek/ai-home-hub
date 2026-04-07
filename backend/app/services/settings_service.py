@@ -11,15 +11,24 @@ logger = logging.getLogger(__name__)
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
 SETTINGS_FILE = DATA_DIR / "settings.json"
 
+# ── Shared local LLM URL resolution ──────────────────────────────────────
+# Priority: LOCAL_LLM_BASE_URL → OLLAMA_BASE_URL → hardcoded default.
+LOCAL_LLM_BASE_URL = os.environ.get(
+    "LOCAL_LLM_BASE_URL",
+    os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
+)
+LOCAL_LLM_PROVIDER = os.environ.get("LOCAL_LLM_PROVIDER", "ollama")
+LOCAL_LLM_MODEL = os.environ.get("LOCAL_LLM_MODEL", "")
+
 DEFAULT_SETTINGS: Dict[str, Any] = {
     "llm": {
-        "provider": "ollama",
-        "model": "llama3.2:latest",
-        "default_model": "llama3.2:latest",
+        "provider": LOCAL_LLM_PROVIDER,
+        "model": LOCAL_LLM_MODEL or "llama3.2:latest",
+        "default_model": LOCAL_LLM_MODEL or "llama3.2:latest",
         "temperature": 0.3,
         "timeout_seconds": 180,
-        "ollama_url": os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"),
-        "base_url": os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"),
+        "ollama_url": LOCAL_LLM_BASE_URL,
+        "base_url": LOCAL_LLM_BASE_URL,
         "allow_uncensored_models": False,
         "llamacpp_url": "http://localhost:8080",
         "embeddings_model": "nomic-embed-text",
@@ -669,7 +678,7 @@ class SettingsService:
 
         # Resolve ollama URL (support both field names)
         ollama_url = llm_cfg.get("ollama_url") or llm_cfg.get(
-            "base_url", "http://localhost:11434"
+            "base_url", LOCAL_LLM_BASE_URL
         )
 
         # Build base sampling params – prefer explicit default_params block, else
@@ -811,15 +820,19 @@ class SettingsService:
 
         llm_s = s.get("llm", {})
         ollama_url = llm_s.get("ollama_url") or llm_s.get(
-            "base_url", "http://localhost:11434"
+            "base_url", LOCAL_LLM_BASE_URL
         )
-        provider = llm_s.get("provider", "ollama")
+        provider = llm_s.get("provider", LOCAL_LLM_PROVIDER)
         if provider == "ollama":
             model = llm_s.get("default_model") or llm_s.get("model", "llama3.2")
             logger.info(
-                "ℹ️  LLM: using Ollama at %s (model: %s). Run 'ollama serve' if not started.",
+                "[LLM] Using shared local provider=%s base_url=%s model=%s",
+                provider,
                 ollama_url,
                 model,
+            )
+            logger.info(
+                "[LLM] Available for: AI Home Hub + OpenClaw + OpenWebUI (:8080)"
             )
 
 

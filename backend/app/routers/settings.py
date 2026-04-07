@@ -13,7 +13,7 @@ from app.models.schemas import (
     SettingsResponse,
     UpdateSettingsRequest,
 )
-from app.services.settings_service import get_settings_service
+from app.services.settings_service import LOCAL_LLM_BASE_URL, get_settings_service
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +98,7 @@ async def get_settings_schema() -> Dict[str, Any]:
                     },
                     "ollama_url": {
                         "type": "string",
-                        "default": "http://localhost:11434",
+                        "default": LOCAL_LLM_BASE_URL,
                     },
                 },
             },
@@ -274,7 +274,7 @@ async def list_ollama_models() -> Dict[str, Any]:
 
     settings_svc = get_settings_service()
     ollama_url = settings_svc.get_llm_config().get(
-        "ollama_url", "http://localhost:11434"
+        "ollama_url", LOCAL_LLM_BASE_URL
     )
 
     try:
@@ -646,7 +646,7 @@ async def get_llm_provider() -> Dict[str, Any]:
     llm = settings.get("llm", {})
     return {
         "provider": llm.get("provider", "ollama"),
-        "ollama_url": llm.get("ollama_url", "http://localhost:11434"),
+        "ollama_url": llm.get("ollama_url", LOCAL_LLM_BASE_URL),
         "llamacpp_url": llm.get("llamacpp_url", "http://localhost:8080"),
         "available_providers": ["ollama", "llamacpp", "groq"],
     }
