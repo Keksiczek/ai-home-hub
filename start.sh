@@ -47,6 +47,15 @@ echo "[INFO] Instaluji dependencies..."
 pip install -q -r "$BACKEND_DIR/requirements.txt"
 echo "[OK]   Dependencies nainstalovány"
 
+# Build React frontendu
+if [ -d "$SCRIPT_DIR/frontend" ]; then
+    echo "[INFO] Building React frontend..."
+    cd "$SCRIPT_DIR/frontend"
+    npm install --silent
+    npm run build
+    cd "$SCRIPT_DIR"
+fi
+
 # Spustit
 cd "$BACKEND_DIR"
 echo "[INFO] Startuji na portu $PORT..."
