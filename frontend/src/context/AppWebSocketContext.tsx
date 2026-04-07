@@ -45,8 +45,12 @@ export function AppWebSocketProvider({ children }: { children: ReactNode }) {
         setLastMessage(msg);
         
         // Globally track certain easy states
-        if (msg.type === 'resident_tick' || msg.type === 'resident_action') {
-             setResidentState(msg);
+        if (
+          msg.type === 'resident_tick' ||
+          msg.type === 'resident_action' ||
+          msg.type === 'agent_status'
+        ) {
+          setResidentState((prev: any) => prev ? { ...prev, ...msg } : msg);
         } else if (msg.type === 'activity_update') {
              setActivityState(msg);
         }

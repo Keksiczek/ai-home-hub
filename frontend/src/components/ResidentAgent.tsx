@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import {
-  Zap, Play, Square, Pause, RotateCw, Activity, Brain,
+  Zap, Play, Square, RotateCw, Activity, Brain,
   Eye, Shield, Rocket, AlertCircle, Clock, ChevronRight,
-  Loader2, RefreshCw, CheckCircle2, XCircle
+  Loader2, RefreshCw, CheckCircle2, XCircle, Hourglass, List
 } from 'lucide-react';
 import { residentApi } from '../api';
 import { useToast } from '../context/ToastContext';
@@ -16,15 +16,45 @@ const modeConfig: Record<ResidentMode, { icon: typeof Eye; label: string; desc: 
   autonomous: { icon: Rocket, label: 'Autonomous', desc: 'Bezpečné akce provádí automaticky', color: '#10b981' },
 };
 
+/** Human-readable label + colour for each lifecycle phase */
+const PHASE_META: Record<string, { label: string; color: string; icon: typeof Activity }> = {
+  idle:          { label: 'Idle',                   color: '#6b7280', icon: Activity },
+  thinking:      { label: 'Přemýšlí',               color: '#60a5fa', icon: Brain },
+  waiting_llm:   { label: 'Čeká na LLM',            color: '#a78bfa', icon: Hourglass },
+  retrying_llm:  { label: 'Opakuje LLM požadavek',  color: '#f59e0b', icon: RotateCw },
+  executing:     { label: 'Provádí akci',            color: '#10b981', icon: Zap },
+  cooldown:      { label: 'Cooldown (po chybě)',     color: '#f97316', icon: Clock },
+  error:         { label: 'Chyba',                  color: '#ef4444', icon: AlertCircle },
+  paused:        { label: 'Pozastaveno',             color: '#6b7280', icon: Square },
+};
+
+interface TimelineEvent {
+  time: string;
+  cycle_id: string;
+  event: string;
+  detail: string;
+}
+
+function formatTs(ts: string | null | undefined): string {
+  if (!ts) return '—';
+  try {
+    return new Date(ts).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  } catch {
+    return ts;
+  }
+}
+
 export function ResidentAgent() {
   const { success, error: showError } = useToast();
-  const { residentState } = useAppWebSocket();
+  const { residentState, lastMessage } = useAppWebSocket();
   const [dashboard, setDashboard] = useState<Record<string, unknown> | null>(null);
   const [mode, setMode] = useState<ResidentMode>('advisor');
   const [feed, setFeed] = useState<Array<Record<string, unknown>>>([]);
   const [pendingActions, setPendingActions] = useState<Array<Record<string, unknown>>>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
+  const timelineRef = useRef<TimelineEvent[]>([]);
 
   const refresh = useCallback(async () => {
     try {
@@ -51,19 +81,64 @@ export function ResidentAgent() {
     return () => clearInterval(interval);
   }, [refresh]);
 
-  // Update from websocket
+  // Merge WebSocket updates into dashboard state
   useEffect(() => {
-    if (residentState?.type === 'resident_tick') {
+    if (residentState) {
       setDashboard(prev => prev ? { ...prev, ...residentState } : residentState);
     }
   }, [residentState]);
 
-  const isRunning = !!(dashboard as Record<string, unknown>)?.is_running;
-  const status = (dashboard as Record<string, unknown>)?.status as string || 'idle';
-  const tickCount = (dashboard as Record<string, unknown>)?.tick_count as number || 0;
-  const errors = (dashboard as Record<string, unknown>)?.consecutive_errors as number || 0;
-  const healthScore = (dashboard as Record<string, unknown>)?.health_score as number || 0;
-  const lastThought = (dashboard as Record<string, unknown>)?.last_thought as string || '';
+  // Build mini-timeline from WS events
+  useEffect(() => {
+    if (!lastMessage) return;
+    const msg = lastMessage as Record<string, unknown>;
+    const type = msg.type as string;
+
+    // Only track lifecycle events
+    const interesting = new Set([
+      'resident_tick', 'resident_action', 'agent_status',
+    ]);
+    if (!interesting.has(type)) return;
+
+    const phase = (msg.phase as string) || (msg.status as string) || '';
+    const cycle_id = (msg.active_cycle_id as string) || (msg.cycle_id as string) || '';
+    const event = type === 'resident_action'
+      ? `action: ${msg.action as string || '?'}`
+      : `phase: ${phase || type}`;
+    const detail = type === 'resident_action'
+      ? (msg.result_preview as string || '').slice(0, 60)
+      : (msg.last_error as string || (msg.in_progress ? 'in progress' : ''));
+
+    const entry: TimelineEvent = {
+      time: new Date().toISOString(),
+      cycle_id,
+      event,
+      detail,
+    };
+
+    timelineRef.current = [entry, ...timelineRef.current].slice(0, 10);
+    setTimeline([...timelineRef.current]);
+  }, [lastMessage]);
+
+  const dash = dashboard as Record<string, unknown> | null;
+  const isRunning = !!(dash?.is_running);
+  const phase = (dash?.phase as string) || 'idle';
+  const status = (dash?.status as string) || 'idle';
+  const tickCount = (dash?.tick_count as number) || 0;
+  const errors = (dash?.consecutive_errors as number) || 0;
+  const healthScore = (dash?.health_score as number) || 0;
+  const lastThought = (dash?.current_thought as string) || (dash?.last_thought as string) || '';
+  const activeCycleId = dash?.active_cycle_id as string | null;
+  const cycleStartedAt = dash?.cycle_started_at as string | null;
+  const lastSuccessAt = dash?.last_success_at as string | null;
+  const lastError = dash?.last_error as string | null;
+  const retryCount = (dash?.retry_count as number) || 0;
+  const nextRunAt = dash?.next_run_at as string | null;
+  const inProgress = !!(dash?.in_progress);
+  const cycleLockActive = !!(dash?.cycle_lock_active);
+
+  const phaseMeta = PHASE_META[phase] || PHASE_META['idle'];
+  const PhaseIcon = phaseMeta.icon;
 
   const handleStart = async () => {
     setActionLoading('start');
@@ -81,7 +156,7 @@ export function ResidentAgent() {
 
   const handleRunNow = async () => {
     setActionLoading('run');
-    try { await residentApi.runNow(); success('Cyklus spuštěn');  }
+    try { await residentApi.runNow(); success('Cyklus spuštěn'); }
     catch { showError('Run-now selhal'); }
     finally { setActionLoading(null); }
   };
@@ -121,13 +196,28 @@ export function ResidentAgent() {
           <Activity size={20} className={`status-dot ${isRunning ? 'active' : 'stopped'}`} />
           <div>
             <strong>{isRunning ? 'Aktivní' : 'Zastavený'}</strong>
-            <span className="text-muted"> • {status} • {tickCount} cyklů</span>
+            <span className="text-muted"> • </span>
+            {/* Phase badge — always truthful */}
+            <span
+              className="phase-badge"
+              style={{ color: phaseMeta.color, fontWeight: 600 }}
+              title={`status: ${status}`}
+            >
+              <PhaseIcon size={13} style={{ display: 'inline', marginRight: 3 }} />
+              {phaseMeta.label}
+            </span>
+            <span className="text-muted"> • {tickCount} cyklů</span>
+            {cycleLockActive && (
+              <span className="text-muted" style={{ marginLeft: 6, fontSize: '0.78em' }}>
+                🔒 lock
+              </span>
+            )}
           </div>
         </div>
         <div className="status-actions">
           {isRunning ? (
             <>
-              <button className="action-btn" onClick={handleRunNow} disabled={!!actionLoading}>
+              <button className="action-btn" onClick={handleRunNow} disabled={!!actionLoading || inProgress}>
                 {actionLoading === 'run' ? <Loader2 size={16} className="spinner" /> : <RotateCw size={16} />}
                 Run Now
               </button>
@@ -161,6 +251,54 @@ export function ResidentAgent() {
               <AlertCircle size={14} /> {errors} konsekutivní chyba{errors > 1 ? 'y' : ''}
             </div>
           )}
+        </motion.div>
+
+        {/* Runtime State – diagnostic card */}
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }} className="resident-card glass-panel">
+          <h3><Activity size={18} /> Stav cyklu</h3>
+          <div className="cycle-state-rows">
+            <div className="cycle-state-row">
+              <span className="cycle-state-label">Fáze</span>
+              <span className="cycle-state-value" style={{ color: phaseMeta.color }}>
+                <PhaseIcon size={13} style={{ display: 'inline', marginRight: 4 }} />
+                {phaseMeta.label}
+              </span>
+            </div>
+            {activeCycleId && (
+              <div className="cycle-state-row">
+                <span className="cycle-state-label">Aktivní cyklus</span>
+                <span className="cycle-state-value mono">{activeCycleId}</span>
+              </div>
+            )}
+            {cycleStartedAt && inProgress && (
+              <div className="cycle-state-row">
+                <span className="cycle-state-label">Spuštěn</span>
+                <span className="cycle-state-value">{formatTs(cycleStartedAt)}</span>
+              </div>
+            )}
+            {retryCount > 0 && (
+              <div className="cycle-state-row">
+                <span className="cycle-state-label">Pokusy LLM</span>
+                <span className="cycle-state-value" style={{ color: '#f59e0b' }}>{retryCount + 1}</span>
+              </div>
+            )}
+            <div className="cycle-state-row">
+              <span className="cycle-state-label">Poslední úspěch</span>
+              <span className="cycle-state-value">{formatTs(lastSuccessAt)}</span>
+            </div>
+            <div className="cycle-state-row">
+              <span className="cycle-state-label">Příští běh</span>
+              <span className="cycle-state-value">{formatTs(nextRunAt)}</span>
+            </div>
+            {lastError && (
+              <div className="cycle-state-row error-row">
+                <span className="cycle-state-label"><AlertCircle size={12} /> Chyba</span>
+                <span className="cycle-state-value error-text" title={lastError}>
+                  {lastError.length > 50 ? lastError.slice(0, 50) + '…' : lastError}
+                </span>
+              </div>
+            )}
+          </div>
         </motion.div>
 
         {/* Mode Selector */}
@@ -219,6 +357,25 @@ export function ResidentAgent() {
           </motion.div>
         )}
 
+        {/* Mini Timeline – recent lifecycle events */}
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.22 }} className="resident-card glass-panel">
+          <h3><List size={18} /> Poslední události</h3>
+          <div className="timeline-list">
+            {timeline.length === 0 ? (
+              <p className="text-muted" style={{ textAlign: 'center', padding: '12px' }}>Čeká na události…</p>
+            ) : (
+              timeline.map((ev, i) => (
+                <div key={i} className="timeline-item">
+                  <span className="timeline-time text-muted">{formatTs(ev.time)}</span>
+                  <span className="timeline-cycle text-muted mono">{ev.cycle_id || '—'}</span>
+                  <span className="timeline-event">{ev.event}</span>
+                  {ev.detail && <span className="timeline-detail text-muted">{ev.detail}</span>}
+                </div>
+              ))
+            )}
+          </div>
+        </motion.div>
+
         {/* Activity Feed */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }} className="resident-card glass-panel feed-card">
           <div className="card-header-row">
@@ -238,6 +395,9 @@ export function ResidentAgent() {
                       {item.timestamp ? new Date(item.timestamp as string).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' }) : ''}
                     </span>
                   </div>
+                  {item.cycle_id && (
+                    <span className="feed-cycle text-muted mono">{item.cycle_id as string}</span>
+                  )}
                 </div>
               ))
             )}

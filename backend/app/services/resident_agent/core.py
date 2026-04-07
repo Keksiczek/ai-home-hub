@@ -164,6 +164,17 @@ class ResidentAgentState:
     current_thought: str = ""
     next_run_in: int = 0  # seconds until next tick
     cycle_count: int = 0  # alias for tick_count for UI
+    # ── Explicit lifecycle phase (hardening) ─────────────────────────────
+    # idle | thinking | waiting_llm | retrying_llm | executing |
+    # cooldown | error | paused
+    phase: str = "idle"
+    active_cycle_id: Optional[str] = None
+    cycle_started_at: Optional[str] = None
+    last_success_at: Optional[str] = None
+    last_error: Optional[str] = None
+    retry_count: int = 0
+    next_run_at: Optional[str] = None
+    in_progress: bool = False
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -216,6 +227,23 @@ RESIDENT_MAX_ANALYSIS_JOBS_PER_HOUR = int(
 )
 RESIDENT_LLM_COOLDOWN_AFTER_FAIL_S = int(
     _os.environ.get("RESIDENT_LLM_COOLDOWN_AFTER_FAIL_S", "120")
+)
+
+# ── Cycle lifecycle / timeout policy ────────────────────────────────────────
+# Configurable via env – defaults are conservative but not excessively tight.
+RESIDENT_LLM_TIMEOUT_SECONDS = int(
+    _os.environ.get("RESIDENT_LLM_TIMEOUT_SECONDS", "90")
+)
+RESIDENT_LLM_MAX_RETRIES = int(
+    _os.environ.get("RESIDENT_LLM_MAX_RETRIES", "2")
+)
+# When True (default), a second cycle cannot start while the first is active.
+RESIDENT_CYCLE_LOCK_ENABLED = (
+    _os.environ.get("RESIDENT_CYCLE_LOCK_ENABLED", "true").lower() == "true"
+)
+# How long to wait in cooldown after a timeout-final before allowing a new cycle.
+RESIDENT_TIMEOUT_COOLDOWN_SECONDS = int(
+    _os.environ.get("RESIDENT_TIMEOUT_COOLDOWN_SECONDS", "120")
 )
 
 WS_EVENT_RESIDENT_SUGGESTION = "resident_suggestion"
@@ -336,6 +364,38 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         self._analysis_jobs_this_hour: int = 0
         self._analysis_jobs_reset_at: float = time.monotonic() + 3600
         self._llm_last_fail_at: float = 0.0
+        # ── Cycle lifecycle lock (hardening) ─────────────────────────────
+        # Ensures at most one cycle is active at any moment.
+        self._cycle_in_progress: bool = False
+        # monotonic timestamp: block new cycles until this time after timeout
+        self._cycle_cooldown_until: float = 0.0
+
+    def _set_phase(self, phase: str, cycle_id: str = "") -> None:
+        """Update the explicit lifecycle phase and sync dependent state fields."""
+        self._state.phase = phase
+        # Keep legacy `status` in sync so old consumers still work
+        _phase_to_status = {
+            "idle": "idle",
+            "thinking": "thinking",
+            "waiting_llm": "thinking",
+            "retrying_llm": "thinking",
+            "executing": "executing",
+            "cooldown": "idle",
+            "error": "error",
+            "paused": "idle",
+        }
+        self._state.status = _phase_to_status.get(phase, phase)
+        self._state.in_progress = phase not in ("idle", "cooldown", "error", "paused")
+        if phase == "idle":
+            self._state.active_cycle_id = None
+            self._state.cycle_started_at = None
+        if cycle_id:
+            self._add_log(
+                "INFO",
+                "cycle_phase_change",
+                cycle_id=cycle_id,
+                phase=phase,
+            )
 
     def set_broadcast(self, fn: Callable) -> None:
         """Register a coroutine for broadcasting WebSocket messages."""
@@ -919,6 +979,37 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         policy = get_resource_policy()
         base_interval = self._agent_settings.interval_seconds
 
+        # ── Cycle lock guard ────────────────────────────────────────────
+        # Only one cycle may be active at a time (RESIDENT_CYCLE_LOCK_ENABLED).
+        if RESIDENT_CYCLE_LOCK_ENABLED and self._cycle_in_progress:
+            skip_phase = self._state.phase
+            self._add_log(
+                "WARN",
+                "cycle_skip_active_in_progress",
+                cycle_id=cycle_id,
+                active_cycle_id=self._state.active_cycle_id or "",
+                phase=skip_phase,
+            )
+            await self._heartbeat_broadcast()
+            await asyncio.sleep(base_interval)
+            return
+
+        # ── Timeout cooldown guard ───────────────────────────────────────
+        # After a final LLM timeout the agent enters a cooldown period before
+        # new cycles are permitted.
+        if RESIDENT_CYCLE_LOCK_ENABLED and time.monotonic() < self._cycle_cooldown_until:
+            remaining = round(self._cycle_cooldown_until - time.monotonic(), 1)
+            self._add_log(
+                "INFO",
+                "cycle_skip_cooldown",
+                cycle_id=cycle_id,
+                cooldown_remaining_s=remaining,
+            )
+            self._set_phase("cooldown")
+            await self._heartbeat_broadcast()
+            await asyncio.sleep(min(remaining, base_interval))
+            return
+
         # Skip tick if paused
         if self._paused:
             await self._heartbeat_broadcast()
@@ -992,11 +1083,18 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         self._state.last_heartbeat = _now()
         self._update_heartbeat_status()
 
+        # ── Acquire cycle lock ───────────────────────────────────────────
+        self._cycle_in_progress = True
+        self._state.active_cycle_id = cycle_id
+        self._state.cycle_started_at = _now()
+        self._state.retry_count = 0
+        self._set_phase("thinking", cycle_id)
+
         self._add_log(
             "INFO",
             "cycle_start",
             cycle_id=cycle_id,
-            status="thinking",
+            phase="thinking",
             last_action=self._state.last_action or "",
             memory_items=len(self._state.recent_steps),
             resource_tier=tier.value,
@@ -1025,6 +1123,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                     resource_tier=tier.value,
                     decision=decision,
                 )
+            self._set_phase("executing", cycle_id)
             await self._periodic_check()
             await self._proactive_alerts()
             # Digest and memory summarize only when resources allow
@@ -1033,6 +1132,8 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                 await self._summarize_old_memories()
             # Successful tick resets consecutive error counter
             self._state.consecutive_errors = 0
+            self._state.last_success_at = _now()
+            self._state.last_error = None
 
             duration_ms = (time.monotonic() - tick_start) * 1000
             cycle_record.duration_ms = round(duration_ms, 1)
@@ -1041,6 +1142,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                 "INFO",
                 "cycle_end",
                 cycle_id=cycle_id,
+                phase="done",
                 duration_ms=cycle_record.duration_ms,
                 next_run_in=self._agent_settings.interval_seconds,
                 resource_tier=tier.value,
@@ -1048,7 +1150,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         except Exception as exc:
             self._state.errors_since_start += 1
             self._state.consecutive_errors += 1
-            self._state.status = "error"
+            self._state.last_error = str(exc)
             duration_ms = (time.monotonic() - tick_start) * 1000
             cycle_record.status = "error"
             cycle_record.error = str(exc)
@@ -1056,15 +1158,23 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
 
             self._add_log(
                 "ERROR",
-                "cycle_failed",
+                "cycle_abort",
                 cycle_id=cycle_id,
+                phase=self._state.phase,
                 error=str(exc),
+                duration_ms=round(duration_ms, 1),
                 traceback=traceback.format_exc(),
             )
+            self._set_phase("error", cycle_id)
 
             # Self-healing: too many consecutive errors → request restart
             if self._state.consecutive_errors >= CONSECUTIVE_ERROR_THRESHOLD:
                 await self._request_self_healing_restart()
+        finally:
+            # ── Release cycle lock ───────────────────────────────────────
+            self._cycle_in_progress = False
+            if self._state.phase not in ("error", "cooldown"):
+                self._set_phase("idle")
 
         self._add_cycle_record(cycle_record)
         agent_cycles_total.labels(status=cycle_record.status).inc()
@@ -1080,6 +1190,10 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         interval_multiplier = policy.get_resident_interval_multiplier()
         effective_interval = base_interval * interval_multiplier
         self._state.next_run_in = int(effective_interval)
+        from datetime import timedelta
+        self._state.next_run_at = (
+            datetime.now(timezone.utc) + timedelta(seconds=effective_interval)
+        ).isoformat()
         await asyncio.sleep(effective_interval)
 
     async def _heartbeat_broadcast(self) -> None:
@@ -1093,6 +1207,14 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                 "type": WS_EVENT_RESIDENT_TICK,
                 "tick": self._state.tick_count,
                 "status": self._state.status,
+                "phase": self._state.phase,
+                "active_cycle_id": self._state.active_cycle_id,
+                "cycle_started_at": self._state.cycle_started_at,
+                "last_success_at": self._state.last_success_at,
+                "last_error": self._state.last_error,
+                "retry_count": self._state.retry_count,
+                "in_progress": self._state.in_progress,
+                "cycle_lock_active": self._cycle_in_progress,
                 "last_tick": self._state.last_tick,
                 "heartbeat_status": self._state.heartbeat_status,
                 "mode_restricted_actions_count": self._blocked_actions_since_start,
@@ -1104,6 +1226,15 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             {
                 "type": "agent_status",
                 "status": self._state.status,
+                "phase": self._state.phase,
+                "active_cycle_id": self._state.active_cycle_id,
+                "cycle_started_at": self._state.cycle_started_at,
+                "last_success_at": self._state.last_success_at,
+                "last_error": self._state.last_error,
+                "retry_count": self._state.retry_count,
+                "in_progress": self._state.in_progress,
+                "cycle_lock_active": self._cycle_in_progress,
+                "next_run_at": self._state.next_run_at,
                 "current_thought": self._state.current_thought,
                 "last_action": self._state.last_action,
                 "cycle_count": self._state.tick_count,
@@ -1113,6 +1244,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                 "paused": self._paused,
                 "quiet_hours_active": self._is_quiet_hours(),
                 "error_count": self._state.errors_since_start,
+                "consecutive_errors": self._state.consecutive_errors,
                 "uptime_seconds": round(self.get_uptime_seconds(), 1),
                 "memory_items": len(self._state.recent_steps),
                 "enabled_skills": list(ALLOWED_ACTIONS),
@@ -3031,13 +3163,14 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             f"Popis: {task.get('description', 'žádný')}"
         )
 
-        # Use longer timeout for LLM calls (90s) – small local models need time
+        # Use longer timeout for LLM calls – configurable, min 90s for local models
         step_timeout = max(
             get_settings_service()
             .get_agent_config("general")
             .get("step_timeout_s", 30),
-            90,
+            RESIDENT_LLM_TIMEOUT_SECONDS,
         )
+        max_attempts = RESIDENT_LLM_MAX_RETRIES + 1  # retries + initial attempt
 
         # Resolve model: agent_settings.model → default from LLM config
         model_override = self._agent_settings.model or None
@@ -3046,9 +3179,22 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             llm_cfg = get_settings_service().get_llm_config(profile="general")
             model_override = llm_cfg.get("model") or None
 
-        # Retry logic: up to 2 retries on timeout before giving up
+        self._add_log(
+            "INFO",
+            "llm_request_start",
+            cycle_id=cycle_id,
+            model=model_override or "default",
+            timeout_s=step_timeout,
+            max_attempts=max_attempts,
+        )
+        self._set_phase("waiting_llm", cycle_id)
+
+        # Retry loop: up to RESIDENT_LLM_MAX_RETRIES retries on timeout
         last_error = None
-        for attempt in range(3):
+        for attempt in range(max_attempts):
+            if attempt > 0:
+                self._state.retry_count = attempt
+                self._set_phase("retrying_llm", cycle_id)
             try:
                 async with asyncio.timeout(step_timeout):
                     reply, meta = await llm_svc.generate(
@@ -3078,17 +3224,24 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                         "action": "no_op",
                         "message": error_msg,
                     }
+                self._add_log(
+                    "INFO",
+                    "llm_request_success",
+                    cycle_id=cycle_id,
+                    attempt=attempt + 1,
+                )
                 last_error = None
                 break  # success
             except asyncio.TimeoutError:
                 last_error = "timeout"
                 logger.warning(
-                    "Resident agent LLM call timed out (tick=%d, timeout=%ds, attempt=%d/3)",
+                    "Resident agent LLM call timed out (tick=%d, timeout=%ds, attempt=%d/%d)",
                     self._state.tick_count,
                     step_timeout,
                     attempt + 1,
+                    max_attempts,
                 )
-                if attempt < 2:
+                if attempt < max_attempts - 1:
                     self._add_log(
                         "WARN",
                         "llm_timeout_retry",
@@ -3103,9 +3256,14 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                 "ERROR",
                 "llm_timeout_final",
                 cycle_id=cycle_id,
+                attempt=max_attempts,
                 timeout_s=step_timeout,
                 model=model_override or "default",
             )
+            # Enter cooldown: block new cycles for RESIDENT_TIMEOUT_COOLDOWN_SECONDS
+            self._cycle_cooldown_until = time.monotonic() + RESIDENT_TIMEOUT_COOLDOWN_SECONDS
+            self._set_phase("cooldown", cycle_id)
+            self._state.last_error = f"LLM timeout after {max_attempts} attempt(s)"
             return {"error": "llm_timeout", "action": "no_op"}
 
         # 4. Parsuj JSON response
