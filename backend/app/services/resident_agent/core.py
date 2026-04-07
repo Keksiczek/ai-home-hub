@@ -2938,10 +2938,10 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             # 1b) Ollama offline detection
             try:
                 import httpx
-                from app.services.settings_service import get_settings_service
+                from app.services.settings_service import LOCAL_LLM_BASE_URL, get_settings_service
 
                 ollama_url = get_settings_service().get_llm_config().get(
-                    "ollama_url", "http://localhost:11434"
+                    "ollama_url", LOCAL_LLM_BASE_URL
                 )
                 async with httpx.AsyncClient(timeout=5.0) as client:
                     resp = await client.get(f"{ollama_url}/api/tags")

@@ -69,12 +69,14 @@ Rules:
 
 
 def _get_ollama_url() -> str:
+    from app.services.settings_service import LOCAL_LLM_BASE_URL
+
     try:
         svc = get_settings_service()
         cfg = svc.load()
-        return cfg.get("ollama", {}).get("url", "http://localhost:11434")
+        return cfg.get("ollama", {}).get("url", LOCAL_LLM_BASE_URL)
     except Exception:
-        return "http://localhost:11434"
+        return LOCAL_LLM_BASE_URL
 
 
 def _resolve_model(model: Optional[str]) -> str:

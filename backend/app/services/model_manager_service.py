@@ -47,7 +47,9 @@ class ModelManagerService:
 
     def _ollama_url(self) -> str:
         cfg = self._settings.get_llm_config()
-        return cfg.get("ollama_url", "http://localhost:11434").rstrip("/")
+        from app.services.settings_service import LOCAL_LLM_BASE_URL
+
+        return cfg.get("ollama_url", LOCAL_LLM_BASE_URL).rstrip("/")
 
     # ── Installed models ────────────────────────────────────────
 

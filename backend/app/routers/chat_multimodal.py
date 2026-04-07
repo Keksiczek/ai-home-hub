@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException
 from app.models.schemas import ChatResponse, MultimodalChatRequest, MultimodalImageData
 from app.services.llm_service import get_llm_service, unload_model
 from app.services.session_service import get_session_service
-from app.services.settings_service import get_settings_service
+from app.services.settings_service import LOCAL_LLM_BASE_URL, get_settings_service
 from app.utils.constants import (
     ALLOWED_IMAGE_TYPES,
     MAX_IMAGE_SIZE_BYTES,
@@ -74,7 +74,7 @@ async def _call_ollama_generate(
     cfg: Dict[str, Any],
 ) -> tuple:
     """Call Ollama /api/generate with base64 image data for vision models."""
-    ollama_url = cfg.get("ollama_url", "http://localhost:11434").rstrip("/")
+    ollama_url = cfg.get("ollama_url", LOCAL_LLM_BASE_URL).rstrip("/")
     model = cfg.get("model", "llava")
     timeout = float(cfg.get("timeout_seconds", 180))
 

@@ -117,8 +117,10 @@ class ResourceMonitor:
 
                 # Enrich with async Ollama model RAM data
                 try:
+                    from app.services.settings_service import LOCAL_LLM_BASE_URL
+
                     cfg = get_settings_service().get_llm_config()
-                    ollama_url = cfg.get("ollama_url", "http://localhost:11434").rstrip(
+                    ollama_url = cfg.get("ollama_url", LOCAL_LLM_BASE_URL).rstrip(
                         "/"
                     )
                     snap.ollama_model_ram_mb = await self._fetch_ollama_model_ram(

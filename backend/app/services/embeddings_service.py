@@ -84,9 +84,11 @@ class EmbeddingsService:
         HTTP errors.
         """
         settings = get_settings_service().load()
+        from app.services.settings_service import LOCAL_LLM_BASE_URL
+
         ollama_url = (
             settings.get("llm", {})
-            .get("ollama_url", "http://localhost:11434")
+            .get("ollama_url", LOCAL_LLM_BASE_URL)
             .rstrip("/")
         )
         primary_model = settings.get("llm", {}).get(
