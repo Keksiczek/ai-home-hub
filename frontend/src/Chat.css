@@ -948,6 +948,20 @@
   font-size: 0.85rem;
 }
 
+.degraded-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #fff;
+  background: #dc2626;
+  border-radius: 4px;
+  padding: 1px 6px;
+  margin-left: 6px;
+  cursor: default;
+}
+
 /* ── Resident: mini timeline ────────────────────────────────────────── */
 
 .timeline-list {

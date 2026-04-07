@@ -166,15 +166,23 @@ class ResidentAgentState:
     cycle_count: int = 0  # alias for tick_count for UI
     # ── Explicit lifecycle phase (hardening) ─────────────────────────────
     # idle | thinking | waiting_llm | retrying_llm | executing |
-    # cooldown | error | paused
+    # cooldown | error | degraded | paused
     phase: str = "idle"
     active_cycle_id: Optional[str] = None
     cycle_started_at: Optional[str] = None
     last_success_at: Optional[str] = None
     last_error: Optional[str] = None
+    last_error_at: Optional[str] = None
     retry_count: int = 0
     next_run_at: Optional[str] = None
     in_progress: bool = False
+    # ── Degraded mode ────────────────────────────────────────────────────
+    degraded_mode: bool = False
+    degraded_reason: Optional[str] = None
+    consecutive_failures: int = 0  # alias for consecutive_errors for UI
+    # ── LLM observability ───────────────────────────────────────────────
+    current_model: Optional[str] = None
+    last_llm_duration_ms: Optional[float] = None
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -244,6 +252,25 @@ RESIDENT_CYCLE_LOCK_ENABLED = (
 # How long to wait in cooldown after a timeout-final before allowing a new cycle.
 RESIDENT_TIMEOUT_COOLDOWN_SECONDS = int(
     _os.environ.get("RESIDENT_TIMEOUT_COOLDOWN_SECONDS", "120")
+)
+# How many consecutive failures before entering degraded mode.
+# In degraded mode only safe deterministic actions are permitted.
+RESIDENT_MAX_CONSECUTIVE_FAILURES_BEFORE_DEGRADED = int(
+    _os.environ.get("RESIDENT_MAX_CONSECUTIVE_FAILURES_BEFORE_DEGRADED", "3")
+)
+
+# ── Degraded mode: safe-only action allowlist ────────────────────────────────
+# When the agent is in degraded mode it may only run these deterministic,
+# low-risk actions that do not require an LLM call.
+DEGRADED_SAFE_ACTIONS: frozenset[str] = frozenset(
+    {
+        "system_health",
+        "github_ci_status",
+        "lean_metrics",
+        "git_status",
+        "system_status",
+        "no_op",
+    }
 )
 
 WS_EVENT_RESIDENT_SUGGESTION = "resident_suggestion"
@@ -369,6 +396,8 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         self._cycle_in_progress: bool = False
         # monotonic timestamp: block new cycles until this time after timeout
         self._cycle_cooldown_until: float = 0.0
+        # monotonic timestamp when degraded mode was entered (0 = not degraded)
+        self._degraded_since_at: float = 0.0
 
     def _set_phase(self, phase: str, cycle_id: str = "") -> None:
         """Update the explicit lifecycle phase and sync dependent state fields."""
@@ -382,10 +411,13 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             "executing": "executing",
             "cooldown": "idle",
             "error": "error",
+            "degraded": "degraded",
             "paused": "idle",
         }
         self._state.status = _phase_to_status.get(phase, phase)
-        self._state.in_progress = phase not in ("idle", "cooldown", "error", "paused")
+        self._state.in_progress = phase not in (
+            "idle", "cooldown", "error", "degraded", "paused"
+        )
         if phase == "idle":
             self._state.active_cycle_id = None
             self._state.cycle_started_at = None
@@ -396,6 +428,36 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                 cycle_id=cycle_id,
                 phase=phase,
             )
+
+    def _enter_degraded_mode(self, reason: str, cycle_id: str = "") -> None:
+        """Switch resident to degraded mode (LLM ticks disabled, safe actions only)."""
+        if self._state.degraded_mode:
+            return  # already degraded, no duplicate entry
+        self._state.degraded_mode = True
+        self._state.degraded_reason = reason
+        self._degraded_since_at = time.monotonic()
+        self._add_log(
+            "WARN",
+            "degraded_mode_entered",
+            cycle_id=cycle_id,
+            reason=reason,
+            consecutive_failures=self._state.consecutive_failures,
+        )
+
+    def _exit_degraded_mode(self, cycle_id: str = "") -> None:
+        """Clear degraded mode after a successful cycle."""
+        if not self._state.degraded_mode:
+            return
+        duration_s = round(time.monotonic() - self._degraded_since_at, 1)
+        self._state.degraded_mode = False
+        self._state.degraded_reason = None
+        self._degraded_since_at = 0.0
+        self._add_log(
+            "INFO",
+            "degraded_mode_exited",
+            cycle_id=cycle_id,
+            degraded_for_s=duration_s,
+        )
 
     def set_broadcast(self, fn: Callable) -> None:
         """Register a coroutine for broadcasting WebSocket messages."""
@@ -1110,8 +1172,21 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         try:
             await self._process_task_queue()
             await self._process_missions()
-            # Only run LLM-heavy ticks when not throttled
-            if decision == "allow":
+
+            if self._state.degraded_mode:
+                # ── Degraded mode: LLM ticks are skipped, safe deterministic
+                # work only.  proactive_action_tick honours the allow-list
+                # internally via check_action_allowed; here we just skip the
+                # LLM-heavy thought / curiosity loops entirely.
+                self._add_log(
+                    "INFO",
+                    "degraded_mode_tick",
+                    cycle_id=cycle_id,
+                    reason=self._state.degraded_reason or "",
+                    consecutive_failures=self._state.consecutive_failures,
+                )
+            elif decision == "allow":
+                # Normal mode – full LLM workflow
                 await self._thought_tick()
                 await self._proactive_action_tick()
                 await self._curiosity_tick()
@@ -1126,14 +1201,18 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             self._set_phase("executing", cycle_id)
             await self._periodic_check()
             await self._proactive_alerts()
-            # Digest and memory summarize only when resources allow
-            if decision == "allow":
+            # Digest and memory summarize only when resources allow and not degraded
+            if decision == "allow" and not self._state.degraded_mode:
                 await self._digest_tick()
                 await self._summarize_old_memories()
-            # Successful tick resets consecutive error counter
+
+            # Successful tick resets counters
             self._state.consecutive_errors = 0
+            self._state.consecutive_failures = 0
             self._state.last_success_at = _now()
             self._state.last_error = None
+            # Exit degraded mode after a clean cycle
+            self._exit_degraded_mode(cycle_id=cycle_id)
 
             duration_ms = (time.monotonic() - tick_start) * 1000
             cycle_record.duration_ms = round(duration_ms, 1)
@@ -1146,11 +1225,14 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                 duration_ms=cycle_record.duration_ms,
                 next_run_in=self._agent_settings.interval_seconds,
                 resource_tier=tier.value,
+                degraded_mode=self._state.degraded_mode,
             )
         except Exception as exc:
             self._state.errors_since_start += 1
             self._state.consecutive_errors += 1
+            self._state.consecutive_failures += 1
             self._state.last_error = str(exc)
+            self._state.last_error_at = _now()
             duration_ms = (time.monotonic() - tick_start) * 1000
             cycle_record.status = "error"
             cycle_record.error = str(exc)
@@ -1163,9 +1245,21 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                 phase=self._state.phase,
                 error=str(exc),
                 duration_ms=round(duration_ms, 1),
+                consecutive_failures=self._state.consecutive_failures,
                 traceback=traceback.format_exc(),
             )
             self._set_phase("error", cycle_id)
+
+            # ── Enter degraded mode if failure budget exceeded ───────────
+            if (
+                not self._state.degraded_mode
+                and self._state.consecutive_failures
+                >= RESIDENT_MAX_CONSECUTIVE_FAILURES_BEFORE_DEGRADED
+            ):
+                self._enter_degraded_mode(
+                    reason=f"{self._state.consecutive_failures} consecutive failures",
+                    cycle_id=cycle_id,
+                )
 
             # Self-healing: too many consecutive errors → request restart
             if self._state.consecutive_errors >= CONSECUTIVE_ERROR_THRESHOLD:
@@ -1174,7 +1268,10 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             # ── Release cycle lock ───────────────────────────────────────
             self._cycle_in_progress = False
             if self._state.phase not in ("error", "cooldown"):
-                self._set_phase("idle")
+                if self._state.degraded_mode:
+                    self._set_phase("degraded")
+                else:
+                    self._set_phase("idle")
 
         self._add_cycle_record(cycle_record)
         agent_cycles_total.labels(status=cycle_record.status).inc()
@@ -1202,38 +1299,40 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         resource_tier = policy.tier.value
         resident_decision = policy.can_proceed(TaskPriority.RESIDENT)
 
+        _shared_state = {
+            "status": self._state.status,
+            "phase": self._state.phase,
+            "active_cycle_id": self._state.active_cycle_id,
+            "cycle_started_at": self._state.cycle_started_at,
+            "last_success_at": self._state.last_success_at,
+            "last_error": self._state.last_error,
+            "last_error_at": self._state.last_error_at,
+            "retry_count": self._state.retry_count,
+            "in_progress": self._state.in_progress,
+            "cycle_lock_active": self._cycle_in_progress,
+            # Degraded mode
+            "degraded_mode": self._state.degraded_mode,
+            "degraded_reason": self._state.degraded_reason,
+            "consecutive_failures": self._state.consecutive_failures,
+            # LLM observability
+            "current_model": self._state.current_model,
+            "last_llm_duration_ms": self._state.last_llm_duration_ms,
+        }
         await self._broadcast(
             {
                 "type": WS_EVENT_RESIDENT_TICK,
                 "tick": self._state.tick_count,
-                "status": self._state.status,
-                "phase": self._state.phase,
-                "active_cycle_id": self._state.active_cycle_id,
-                "cycle_started_at": self._state.cycle_started_at,
-                "last_success_at": self._state.last_success_at,
-                "last_error": self._state.last_error,
-                "retry_count": self._state.retry_count,
-                "in_progress": self._state.in_progress,
-                "cycle_lock_active": self._cycle_in_progress,
                 "last_tick": self._state.last_tick,
                 "heartbeat_status": self._state.heartbeat_status,
                 "mode_restricted_actions_count": self._blocked_actions_since_start,
                 "resource_tier": resource_tier,
                 "resource_decision": resident_decision,
+                **_shared_state,
             }
         )
         await self._broadcast(
             {
                 "type": "agent_status",
-                "status": self._state.status,
-                "phase": self._state.phase,
-                "active_cycle_id": self._state.active_cycle_id,
-                "cycle_started_at": self._state.cycle_started_at,
-                "last_success_at": self._state.last_success_at,
-                "last_error": self._state.last_error,
-                "retry_count": self._state.retry_count,
-                "in_progress": self._state.in_progress,
-                "cycle_lock_active": self._cycle_in_progress,
                 "next_run_at": self._state.next_run_at,
                 "current_thought": self._state.current_thought,
                 "last_action": self._state.last_action,
@@ -1252,6 +1351,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                 "mode_restricted_actions_count": self._blocked_actions_since_start,
                 "resource_tier": resource_tier,
                 "resource_decision": resident_decision,
+                **_shared_state,
             }
         )
 
@@ -3179,11 +3279,14 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             llm_cfg = get_settings_service().get_llm_config(profile="general")
             model_override = llm_cfg.get("model") or None
 
+        # Record current model so UI can show which model is being used
+        self._state.current_model = model_override or "default"
+
         self._add_log(
             "INFO",
             "llm_request_start",
             cycle_id=cycle_id,
-            model=model_override or "default",
+            model=self._state.current_model,
             timeout_s=step_timeout,
             max_attempts=max_attempts,
         )
@@ -3191,6 +3294,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
 
         # Retry loop: up to RESIDENT_LLM_MAX_RETRIES retries on timeout
         last_error = None
+        llm_call_start = time.monotonic()
         for attempt in range(max_attempts):
             if attempt > 0:
                 self._state.retry_count = attempt
@@ -3224,11 +3328,16 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                         "action": "no_op",
                         "message": error_msg,
                     }
+                # Record how long the successful LLM call took
+                self._state.last_llm_duration_ms = round(
+                    (time.monotonic() - llm_call_start) * 1000, 1
+                )
                 self._add_log(
                     "INFO",
                     "llm_request_success",
                     cycle_id=cycle_id,
                     attempt=attempt + 1,
+                    duration_ms=self._state.last_llm_duration_ms,
                 )
                 last_error = None
                 break  # success
@@ -3259,11 +3368,24 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                 attempt=max_attempts,
                 timeout_s=step_timeout,
                 model=model_override or "default",
+                consecutive_failures=self._state.consecutive_failures,
             )
             # Enter cooldown: block new cycles for RESIDENT_TIMEOUT_COOLDOWN_SECONDS
             self._cycle_cooldown_until = time.monotonic() + RESIDENT_TIMEOUT_COOLDOWN_SECONDS
             self._set_phase("cooldown", cycle_id)
             self._state.last_error = f"LLM timeout after {max_attempts} attempt(s)"
+            self._state.last_error_at = _now()
+            # Increment failure counter; degraded mode entry is handled by _tick()
+            self._state.consecutive_failures += 1
+            if (
+                not self._state.degraded_mode
+                and self._state.consecutive_failures
+                >= RESIDENT_MAX_CONSECUTIVE_FAILURES_BEFORE_DEGRADED
+            ):
+                self._enter_degraded_mode(
+                    reason=f"LLM timeout – {self._state.consecutive_failures} consecutive failures",
+                    cycle_id=cycle_id,
+                )
             return {"error": "llm_timeout", "action": "no_op"}
 
         # 4. Parsuj JSON response

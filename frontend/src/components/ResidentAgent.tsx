@@ -18,15 +18,19 @@ const modeConfig: Record<ResidentMode, { icon: typeof Eye; label: string; desc: 
 
 /** Human-readable label + colour for each lifecycle phase */
 const PHASE_META: Record<string, { label: string; color: string; icon: typeof Activity }> = {
-  idle:          { label: 'Idle',                   color: '#6b7280', icon: Activity },
-  thinking:      { label: 'Přemýšlí',               color: '#60a5fa', icon: Brain },
-  waiting_llm:   { label: 'Čeká na LLM',            color: '#a78bfa', icon: Hourglass },
-  retrying_llm:  { label: 'Opakuje LLM požadavek',  color: '#f59e0b', icon: RotateCw },
-  executing:     { label: 'Provádí akci',            color: '#10b981', icon: Zap },
-  cooldown:      { label: 'Cooldown (po chybě)',     color: '#f97316', icon: Clock },
-  error:         { label: 'Chyba',                  color: '#ef4444', icon: AlertCircle },
-  paused:        { label: 'Pozastaveno',             color: '#6b7280', icon: Square },
+  idle:          { label: 'Idle',                        color: '#6b7280', icon: Activity },
+  thinking:      { label: 'Přemýšlí',                    color: '#60a5fa', icon: Brain },
+  waiting_llm:   { label: 'Čeká na LLM',                 color: '#a78bfa', icon: Hourglass },
+  retrying_llm:  { label: 'Opakuje LLM požadavek',       color: '#f59e0b', icon: RotateCw },
+  executing:     { label: 'Provádí akci',                 color: '#10b981', icon: Zap },
+  cooldown:      { label: 'Cooldown (po chybě)',          color: '#f97316', icon: Clock },
+  error:         { label: 'Chyba',                       color: '#ef4444', icon: AlertCircle },
+  degraded:      { label: 'Degraded režim',              color: '#dc2626', icon: AlertCircle },
+  paused:        { label: 'Pozastaveno',                  color: '#6b7280', icon: Square },
 };
+
+/** Export for tests */
+export { PHASE_META };
 
 interface TimelineEvent {
   time: string;
@@ -132,10 +136,16 @@ export function ResidentAgent() {
   const cycleStartedAt = dash?.cycle_started_at as string | null;
   const lastSuccessAt = dash?.last_success_at as string | null;
   const lastError = dash?.last_error as string | null;
+  const lastErrorAt = dash?.last_error_at as string | null;
   const retryCount = (dash?.retry_count as number) || 0;
   const nextRunAt = dash?.next_run_at as string | null;
   const inProgress = !!(dash?.in_progress);
   const cycleLockActive = !!(dash?.cycle_lock_active);
+  const degradedMode = !!(dash?.degraded_mode);
+  const degradedReason = dash?.degraded_reason as string | null;
+  const consecutiveFailures = (dash?.consecutive_failures as number) || 0;
+  const currentModel = dash?.current_model as string | null;
+  const lastLlmDurationMs = dash?.last_llm_duration_ms as number | null;
 
   const phaseMeta = PHASE_META[phase] || PHASE_META['idle'];
   const PhaseIcon = phaseMeta.icon;
@@ -206,6 +216,14 @@ export function ResidentAgent() {
               <PhaseIcon size={13} style={{ display: 'inline', marginRight: 3 }} />
               {phaseMeta.label}
             </span>
+            {degradedMode && (
+              <span
+                className="degraded-badge"
+                title={degradedReason || 'Degraded mode active'}
+              >
+                ⚠ Degraded
+              </span>
+            )}
             <span className="text-muted"> • {tickCount} cyklů</span>
             {cycleLockActive && (
               <span className="text-muted" style={{ marginLeft: 6, fontSize: '0.78em' }}>
@@ -290,11 +308,47 @@ export function ResidentAgent() {
               <span className="cycle-state-label">Příští běh</span>
               <span className="cycle-state-value">{formatTs(nextRunAt)}</span>
             </div>
+            {consecutiveFailures > 0 && (
+              <div className="cycle-state-row">
+                <span className="cycle-state-label">Selhání za sebou</span>
+                <span className="cycle-state-value" style={{ color: consecutiveFailures >= 3 ? '#ef4444' : '#f59e0b' }}>
+                  {consecutiveFailures}
+                </span>
+              </div>
+            )}
+            {currentModel && (
+              <div className="cycle-state-row">
+                <span className="cycle-state-label">Model</span>
+                <span className="cycle-state-value mono" style={{ fontSize: '0.78rem' }}>{currentModel}</span>
+              </div>
+            )}
+            {lastLlmDurationMs != null && (
+              <div className="cycle-state-row">
+                <span className="cycle-state-label">Poslední LLM</span>
+                <span className="cycle-state-value">{lastLlmDurationMs.toFixed(0)} ms</span>
+              </div>
+            )}
             {lastError && (
               <div className="cycle-state-row error-row">
                 <span className="cycle-state-label"><AlertCircle size={12} /> Chyba</span>
                 <span className="cycle-state-value error-text" title={lastError}>
                   {lastError.length > 50 ? lastError.slice(0, 50) + '…' : lastError}
+                </span>
+              </div>
+            )}
+            {lastErrorAt && lastError && (
+              <div className="cycle-state-row">
+                <span className="cycle-state-label">Čas chyby</span>
+                <span className="cycle-state-value">{formatTs(lastErrorAt)}</span>
+              </div>
+            )}
+            {degradedMode && (
+              <div className="cycle-state-row error-row">
+                <span className="cycle-state-label"><AlertCircle size={12} /> Degraded</span>
+                <span className="cycle-state-value error-text" title={degradedReason || ''}>
+                  {(degradedReason || 'active').length > 50
+                    ? (degradedReason || 'active').slice(0, 50) + '…'
+                    : (degradedReason || 'active')}
                 </span>
               </div>
             )}

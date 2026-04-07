@@ -20,9 +20,11 @@ for _mod_name in ("chromadb", "chromadb.config"):
     sys.modules.setdefault(_mod_name, _chroma_mock)
 
 from app.services.resident_agent.core import (  # noqa: E402
+    DEGRADED_SAFE_ACTIONS,
     RESIDENT_CYCLE_LOCK_ENABLED,
     RESIDENT_LLM_MAX_RETRIES,
     RESIDENT_LLM_TIMEOUT_SECONDS,
+    RESIDENT_MAX_CONSECUTIVE_FAILURES_BEFORE_DEGRADED,
     RESIDENT_TIMEOUT_COOLDOWN_SECONDS,
     ResidentAgent,
     ResidentAgentState,
@@ -347,3 +349,213 @@ class TestResidentAgentStateDefaults:
         assert "last_error" in d
         assert "retry_count" in d
         assert "next_run_at" in d
+
+    def test_to_dict_includes_degraded_fields(self):
+        state = ResidentAgentState()
+        d = state.to_dict()
+        assert "degraded_mode" in d
+        assert "degraded_reason" in d
+        assert "consecutive_failures" in d
+        assert "current_model" in d
+        assert "last_llm_duration_ms" in d
+        assert "last_error_at" in d
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Degraded mode
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestDegradedMode:
+    """Degraded mode logic."""
+
+    def test_enter_degraded_mode_sets_flag(self):
+        agent = _make_agent()
+        agent._enter_degraded_mode(reason="too many failures", cycle_id="cycle-0001")
+        assert agent._state.degraded_mode is True
+        assert agent._state.degraded_reason == "too many failures"
+        assert agent._degraded_since_at > 0
+
+    def test_enter_degraded_mode_is_idempotent(self):
+        """Calling _enter_degraded_mode twice should not add duplicate log entries."""
+        agent = _make_agent()
+        agent._enter_degraded_mode(reason="first", cycle_id="cycle-0001")
+        before_logs = len([e for e in agent._log_entries if e.event == "degraded_mode_entered"])
+        agent._enter_degraded_mode(reason="second", cycle_id="cycle-0001")
+        after_logs = len([e for e in agent._log_entries if e.event == "degraded_mode_entered"])
+        assert after_logs == before_logs  # second call is a no-op
+
+    def test_exit_degraded_mode_clears_flag(self):
+        agent = _make_agent()
+        agent._enter_degraded_mode(reason="failures", cycle_id="cycle-0001")
+        agent._exit_degraded_mode(cycle_id="cycle-0002")
+        assert agent._state.degraded_mode is False
+        assert agent._state.degraded_reason is None
+        assert agent._degraded_since_at == 0.0
+
+    def test_exit_degraded_mode_logs_duration(self):
+        agent = _make_agent()
+        agent._enter_degraded_mode(reason="failures", cycle_id="cycle-0001")
+        agent._exit_degraded_mode(cycle_id="cycle-0002")
+        exit_logs = [e for e in agent._log_entries if e.event == "degraded_mode_exited"]
+        assert len(exit_logs) == 1
+        assert exit_logs[0].data.get("degraded_for_s", -1) >= 0
+
+    def test_exit_degraded_mode_is_idempotent(self):
+        """Exiting when not degraded should not raise or log."""
+        agent = _make_agent()
+        before = len(agent._log_entries)
+        agent._exit_degraded_mode(cycle_id="cycle-0001")
+        assert len(agent._log_entries) == before
+
+    def test_degraded_mode_entered_after_threshold_failures(self):
+        """After RESIDENT_MAX_CONSECUTIVE_FAILURES_BEFORE_DEGRADED failures, enter degraded."""
+        agent = _make_agent()
+        agent._state.is_running = True
+        agent._state.consecutive_failures = RESIDENT_MAX_CONSECUTIVE_FAILURES_BEFORE_DEGRADED - 1
+
+        # Simulate a cycle that raises an exception
+        async def run():
+            noop = AsyncMock()
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                with patch.object(agent, "_process_task_queue",
+                                  side_effect=RuntimeError("boom")), \
+                     patch.object(agent, "_process_missions", noop), \
+                     patch.object(agent, "_periodic_check", noop), \
+                     patch.object(agent, "_proactive_alerts", noop):
+                    await agent._tick()
+
+        asyncio.get_event_loop().run_until_complete(run())
+
+        assert agent._state.degraded_mode is True
+        assert agent._state.consecutive_failures >= RESIDENT_MAX_CONSECUTIVE_FAILURES_BEFORE_DEGRADED
+
+    @pytest.mark.asyncio
+    async def test_llm_ticks_skipped_in_degraded_mode(self):
+        """In degraded mode, _thought_tick and _curiosity_tick must not be called."""
+        agent = _make_agent()
+        agent._state.is_running = True
+        agent._state.degraded_mode = True
+        agent._state.degraded_reason = "test degraded"
+
+        noop = AsyncMock()
+        thought_tick = AsyncMock()
+        curiosity_tick = AsyncMock()
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            with patch.object(agent, "_process_task_queue", noop), \
+                 patch.object(agent, "_process_missions", noop), \
+                 patch.object(agent, "_thought_tick", thought_tick), \
+                 patch.object(agent, "_proactive_action_tick", noop), \
+                 patch.object(agent, "_curiosity_tick", curiosity_tick), \
+                 patch.object(agent, "_periodic_check", noop), \
+                 patch.object(agent, "_proactive_alerts", noop), \
+                 patch.object(agent, "_digest_tick", noop), \
+                 patch.object(agent, "_summarize_old_memories", noop):
+                await agent._tick()
+
+        thought_tick.assert_not_called()
+        curiosity_tick.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_degraded_mode_exits_after_successful_cycle(self):
+        """A successful cycle should exit degraded mode."""
+        agent = _make_agent()
+        agent._state.is_running = True
+        agent._state.degraded_mode = True
+        agent._state.degraded_reason = "prior failures"
+
+        noop = AsyncMock()
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            with patch.object(agent, "_process_task_queue", noop), \
+                 patch.object(agent, "_process_missions", noop), \
+                 patch.object(agent, "_thought_tick", noop), \
+                 patch.object(agent, "_proactive_action_tick", noop), \
+                 patch.object(agent, "_curiosity_tick", noop), \
+                 patch.object(agent, "_periodic_check", noop), \
+                 patch.object(agent, "_proactive_alerts", noop), \
+                 patch.object(agent, "_digest_tick", noop), \
+                 patch.object(agent, "_summarize_old_memories", noop):
+                await agent._tick()
+
+        assert agent._state.degraded_mode is False
+        assert agent._state.consecutive_failures == 0
+
+    @pytest.mark.asyncio
+    async def test_degraded_phase_set_after_successful_cycle_in_degraded(self):
+        """After a successful cycle that started in degraded mode, phase should be idle (not degraded)."""
+        agent = _make_agent()
+        agent._state.is_running = True
+        agent._state.degraded_mode = True
+
+        noop = AsyncMock()
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            with patch.object(agent, "_process_task_queue", noop), \
+                 patch.object(agent, "_process_missions", noop), \
+                 patch.object(agent, "_thought_tick", noop), \
+                 patch.object(agent, "_proactive_action_tick", noop), \
+                 patch.object(agent, "_curiosity_tick", noop), \
+                 patch.object(agent, "_periodic_check", noop), \
+                 patch.object(agent, "_proactive_alerts", noop), \
+                 patch.object(agent, "_digest_tick", noop), \
+                 patch.object(agent, "_summarize_old_memories", noop):
+                await agent._tick()
+
+        # Degraded mode cleared → phase should be idle
+        assert agent._state.phase == "idle"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Degraded safe-actions allowlist
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestDegradedSafeActions:
+    """DEGRADED_SAFE_ACTIONS constant sanity checks."""
+
+    def test_safe_actions_non_empty(self):
+        assert len(DEGRADED_SAFE_ACTIONS) > 0
+
+    def test_no_op_in_safe_actions(self):
+        assert "no_op" in DEGRADED_SAFE_ACTIONS
+
+    def test_system_health_in_safe_actions(self):
+        assert "system_health" in DEGRADED_SAFE_ACTIONS
+
+    def test_safe_actions_subset_of_allowed_actions(self):
+        from app.services.resident_agent.core import ALLOWED_ACTIONS
+        # All degraded safe actions must be in the main ALLOWED_ACTIONS list
+        assert DEGRADED_SAFE_ACTIONS.issubset(set(ALLOWED_ACTIONS))
+
+    def test_max_failures_threshold_positive(self):
+        assert RESIDENT_MAX_CONSECUTIVE_FAILURES_BEFORE_DEGRADED >= 2
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Additional state defaults (degraded fields)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestDegradedStateDefaults:
+    """ResidentAgentState degraded fields have correct defaults."""
+
+    def test_degraded_mode_defaults_false(self):
+        state = ResidentAgentState()
+        assert state.degraded_mode is False
+
+    def test_degraded_reason_defaults_none(self):
+        state = ResidentAgentState()
+        assert state.degraded_reason is None
+
+    def test_consecutive_failures_defaults_zero(self):
+        state = ResidentAgentState()
+        assert state.consecutive_failures == 0
+
+    def test_current_model_defaults_none(self):
+        state = ResidentAgentState()
+        assert state.current_model is None
+
+    def test_last_llm_duration_defaults_none(self):
+        state = ResidentAgentState()
+        assert state.last_llm_duration_ms is None
+
+    def test_last_error_at_defaults_none(self):
+        state = ResidentAgentState()
+        assert state.last_error_at is None
