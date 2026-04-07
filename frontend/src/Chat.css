@@ -904,6 +904,93 @@
   transition: width 0.3s ease;
 }
 
+/* ── Resident: cycle state diagnostic card ─────────────────────────── */
+
+.cycle-state-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.cycle-state-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  gap: 8px;
+}
+
+.cycle-state-label {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cycle-state-value {
+  text-align: right;
+  font-size: 0.85rem;
+  word-break: break-all;
+}
+
+.cycle-state-value.mono { font-family: monospace; font-size: 0.8rem; }
+
+.error-row .cycle-state-label,
+.error-row .cycle-state-value,
+.error-text { color: #ef4444; }
+
+.phase-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.85rem;
+}
+
+.degraded-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #fff;
+  background: #dc2626;
+  border-radius: 4px;
+  padding: 1px 6px;
+  margin-left: 6px;
+  cursor: default;
+}
+
+/* ── Resident: mini timeline ────────────────────────────────────────── */
+
+.timeline-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.timeline-item {
+  display: grid;
+  grid-template-columns: 60px 80px 1fr;
+  gap: 6px;
+  font-size: 0.78rem;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  align-items: baseline;
+}
+
+.timeline-time { flex-shrink: 0; }
+.timeline-cycle { font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.timeline-event { font-weight: 500; }
+.timeline-detail { grid-column: 3; color: var(--text-muted); font-size: 0.75rem; }
+
+/* ── Resident: feed cycle label ─────────────────────────────────────── */
+
+.feed-cycle { font-family: monospace; font-size: 0.72rem; margin-left: auto; flex-shrink: 0; }
+
 /* ── Mobile ─────────────────────────────────────────── */
 
 @media (max-width: 768px) {
