@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import {
   Zap, Play, Square, RotateCw, Activity, Brain,
-  Eye, Shield, Rocket, AlertCircle, Clock, ChevronRight,
+  Eye, Shield, Rocket, AlertCircle, Clock,
   Loader2, RefreshCw, CheckCircle2, XCircle, Hourglass, List
 } from 'lucide-react';
 import { residentApi } from '../api';
@@ -449,9 +449,9 @@ export function ResidentAgent() {
                       {item.timestamp ? new Date(item.timestamp as string).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' }) : ''}
                     </span>
                   </div>
-                  {item.cycle_id && (
-                    <span className="feed-cycle text-muted mono">{item.cycle_id as string}</span>
-                  )}
+                  {item.cycle_id ? (
+                    <span className="feed-cycle text-muted mono">{String(item.cycle_id)}</span>
+                  ) : null}
                 </div>
               ))
             )}

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Box, Download, Trash2, Search, HardDrive, Cpu,
-  Loader2, CheckCircle2, AlertTriangle, RefreshCw,
+  Loader2, AlertTriangle, RefreshCw,
   Star, Shield, X
 } from 'lucide-react';
 import { modelsApi } from '../api';
@@ -230,7 +230,7 @@ export function Models() {
                     <div key={i} className="search-result-item">
                       <div>
                         <strong>{r.name as string}</strong>
-                        {r.description && <span className="text-muted"> – {(r.description as string).slice(0, 80)}</span>}
+                        {r.description ? <span className="text-muted"> – {String(r.description).slice(0, 80)}</span> : null}
                       </div>
                       <button
                         className="action-btn small primary"

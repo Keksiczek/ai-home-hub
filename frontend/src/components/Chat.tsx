@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Send, User, Bot, Loader2, Plus, MessageSquare, Trash2, 
-  ChevronLeft, Copy, Check, Image as ImageIcon, X
+  Send, User, Bot, Loader2, Plus, MessageSquare, Trash2,
+  ChevronLeft, Copy, Check, X
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -172,7 +172,7 @@ export function Chat() {
                   if (last.role === 'assistant') {
                     last.content = chunk.delta?.plain_text || accumulated;
                     last.isStreaming = false;
-                    last.meta = chunk.meta as Record<string, unknown>;
+                    last.meta = chunk.meta as unknown as Record<string, unknown>;
                   }
                   return next;
                 });
