@@ -202,12 +202,15 @@ fi
 cd "$BACKEND_DIR"
 
 log_info "--- startup summary ---"
-log_info "  url:      http://localhost:${PORT}/"
+log_info "  local:    http://localhost:${PORT}/"
 log_info "  api docs: http://localhost:${PORT}/docs"
 log_info "  port:     $PORT"
 log_info "  reload:   $([ -n "$RELOAD" ] && echo 'yes' || echo 'no')"
 log_info "  frontend: $([ "$MODE" == "backend-only" ] && echo 'skipped' || echo 'included')"
 log_info "  pid:      $$"
+log_info ""
+log_info "  Remote access: configure Tailscale Funnel in Settings,"
+log_info "  or access via https://<hostname>.ts.net:${PORT}/"
 log_info "-----------------------"
 
 exec uvicorn app.main:app $RELOAD --host 0.0.0.0 --port "$PORT"
