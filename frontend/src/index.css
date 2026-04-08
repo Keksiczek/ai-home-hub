@@ -1,36 +1,35 @@
 :root {
-  /* Premium Dark Mode Palette - Deep Obsidian / Space Noir */
-  --bg-deep: #09090b; /* Zinc 950 */
-  --bg-surface: #18181b; /* Zinc 900 */
-  --bg-surface-elevated: #27272a; /* Zinc 800 */
-  --bg-surface-glass: rgba(24, 24, 27, 0.4);
-  
-  --primary-accent: #6366f1; /* Indigo 500 */
-  --primary-accent-glow: rgba(99, 102, 241, 0.2);
-  --secondary-accent: #a855f7; /* Purple 500 */
-  --secondary-accent-glow: rgba(168, 85, 247, 0.2);
+  /* Clean Dark Palette */
+  --bg-deep: #0a0a0c;
+  --bg-surface: #141417;
+  --bg-surface-elevated: #1c1c21;
+  --bg-surface-glass: rgba(20, 20, 23, 0.85);
 
-  --text-main: #f4f4f5; /* Zinc 50 */
-  --text-muted: #a1a1aa; /* Zinc 400 */
-  
-  --border-subtle: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.15);
+  --primary-accent: #6366f1;
+  --primary-accent-glow: rgba(99, 102, 241, 0.15);
+  --secondary-accent: #818cf8;
+
+  --text-main: #e4e4e7;
+  --text-muted: #71717a;
+
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.12);
 
   /* Spacing & Radii */
   --radius-sm: 8px;
-  --radius-md: 16px;
-  --radius-lg: 24px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
   --radius-full: 9999px;
-  
+
   --spacing-xs: 0.25rem;
   --spacing-sm: 0.5rem;
   --spacing-md: 1rem;
   --spacing-lg: 1.5rem;
-  --spacing-xl: 3rem;
+  --spacing-xl: 2rem;
 
   /* Typography */
-  --font-sans: 'Inter', system-ui, sans-serif;
-  --font-display: 'Outfit', system-ui, sans-serif;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-display: 'Inter', system-ui, -apple-system, sans-serif;
 }
 
 *, *::before, *::after {
@@ -43,10 +42,6 @@ body, html {
   height: 100%;
   width: 100%;
   background-color: var(--bg-deep);
-  background-image: 
-    radial-gradient(ellipse at top right, rgba(99, 102, 241, 0.15), transparent 40%),
-    radial-gradient(ellipse at bottom left, rgba(168, 85, 247, 0.1), transparent 40%);
-  background-attachment: fixed;
   color: var(--text-main);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
@@ -59,7 +54,7 @@ h1, h2, h3, h4, h5, h6 {
   margin-top: 0;
   color: var(--text-main);
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
 }
 
 p {
@@ -72,7 +67,7 @@ p {
   flex-direction: column;
 }
 
-/* Performance optimizations for weak hardware / mobile */
+/* Reduce motion */
 @media (prefers-reduced-motion: reduce) {
   * {
     animation-duration: 0.01ms !important;
@@ -82,35 +77,11 @@ p {
   }
 }
 
-/* Base Glassmorphism utility */
+/* Base card/panel */
 .glass-panel {
-  background: var(--bg-surface-glass);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  box-shadow: 
-    0 4px 24px -1px rgba(0, 0, 0, 0.3),
-    0 0 1px 1px rgba(255,255,255, 0.05) inset;
-}
-
-/* Fallback for devices that don't perform well with heavy blur */
-@media (max-width: 768px) {
-  .glass-panel {
-    background: var(--bg-surface-elevated);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-  }
-}
-
-.hover-lift {
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
-}
-
-.hover-lift:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-  border-color: var(--border-strong);
 }
 
 /* Interactive elements */
@@ -120,7 +91,7 @@ button {
   border: none;
   background: transparent;
   color: inherit;
-  transition: all 0.2s ease;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 button:focus-visible {
@@ -128,7 +99,7 @@ button:focus-visible {
   outline-offset: 2px;
 }
 
-/* Custom Scrollbar */
+/* Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -137,9 +108,18 @@ button:focus-visible {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.08);
   border-radius: var(--radius-full);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.15);
+}
+
+/* Spinner utility */
+.spinner {
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
