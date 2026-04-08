@@ -5,7 +5,6 @@ import { ToastProvider } from './context/ToastContext'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import App from './App'
 import './index.css'
-import './Chat.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

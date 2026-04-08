@@ -60,17 +60,25 @@ export function Dashboard() {
         </p>
       </motion.div>
 
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.4 }}
         className="card glass-panel main-panel"
       >
         <h3>Resident Status</h3>
-        <p className="text-muted">Agent state: {residentStatus.toUpperCase()}</p>
-        {/* Placeholder for expanded agent graph/history */}
-        <div style={{ marginTop: '2rem', padding: '1rem', background: 'var(--bg-deep)', borderRadius: 'var(--radius-md)' }}>
-            Activity graph will be rendered here.
+        <p style={{ color: 'var(--text-muted)', margin: '0 0 1.5rem' }}>
+          Aktuální stav agenta: <strong style={{ color: 'var(--text-main)' }}>{residentStatus.toUpperCase()}</strong>
+        </p>
+        <div style={{
+          padding: '1rem',
+          background: 'var(--bg-deep)',
+          borderRadius: 'var(--radius-md)',
+          fontSize: '0.8rem',
+          color: 'var(--text-muted)',
+          textAlign: 'center',
+        }}>
+          Historie aktivity není k dispozici — přejděte do sekce <em>Resident AI</em> pro detailní přehled.
         </div>
       </motion.div>
     </div>

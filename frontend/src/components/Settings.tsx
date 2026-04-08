@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Save, RefreshCw, Loader2, Shield, Globe, Trash2, Server } from 'lucide-react';
+import { Save, RefreshCw, Loader2, Shield, Globe, Server } from 'lucide-react';
 
 interface SettingsData {
   cors?: { allowed_origins?: string[] };
@@ -9,7 +9,6 @@ interface SettingsData {
 }
 
 export function Settings() {
-  const [settings, setSettings] = useState<SettingsData>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [corsOrigins, setCorsOrigins] = useState('');
@@ -23,8 +22,7 @@ export function Settings() {
       const res = await fetch('/api/settings');
       if (res.ok) {
         const data = await res.json();
-        const s = data.settings || {};
-        setSettings(s);
+        const s: SettingsData = data.settings || {};
         setCorsOrigins((s.cors?.allowed_origins || []).join('\n'));
         setFunnelUrl(s.tailscale?.funnel_url || '');
         setFunnelEnabled(s.tailscale?.enable_funnel || false);

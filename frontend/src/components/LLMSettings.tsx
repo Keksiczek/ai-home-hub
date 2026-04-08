@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { Cpu, Save, Loader2, RefreshCw, Wifi, WifiOff } from 'lucide-react';
-import { modelsApi } from '../api';
 
 interface LLMSettingsData {
   models?: Record<string, string>;
