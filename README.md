@@ -50,14 +50,18 @@ The React frontend builds into `backend/static/dist/` and is served directly by 
 
 ## How to start
 
+`./start.sh` is the **single recommended entrypoint**. It is designed for both interactive terminal use and automated execution under a process supervisor (launchd, systemd).
+
 ### Prerequisites
 
+**Required (hard dependencies):**
 - Python 3.11+
-- Node.js 18+ (for frontend build)
-- [Ollama](https://ollama.ai) installed and running (`ollama serve`)
-- Git
+- [Ollama](https://ollama.ai) installed and running (`ollama serve`) – needed for LLM features
 
-### Quick start (recommended)
+**Required for frontend build:**
+- Node.js 18+ (not needed with `--backend-only` or `--no-build`)
+
+### Quick start
 
 ```bash
 git clone https://github.com/Keksiczek/ai-home-hub
@@ -66,27 +70,92 @@ chmod +x start.sh
 ./start.sh
 ```
 
-This single command:
-1. Creates a Python virtualenv (if needed)
-2. Installs Python dependencies
-3. Builds the React frontend
-4. Starts the FastAPI server on **http://localhost:8000**
+This builds the React frontend and starts the FastAPI server on **http://localhost:8000**.
 
-Options:
+### Startup modes
+
+| Mode | Command | When to use |
+|------|---------|-------------|
+| Full start | `./start.sh` | Normal local use – builds frontend, starts backend |
+| Check only | `./start.sh --check` | Validate environment without starting anything (CI, smoke test) |
+| Backend only | `./start.sh --backend-only` | API/agent server without frontend build (Node.js not needed) |
+| Reuse build | `./start.sh --no-build` | Skip frontend build, use existing `backend/static/dist/` |
+
+Additional options:
+
 ```bash
-./start.sh --port 9000       # custom port
-./start.sh --reload          # hot-reload for development
+./start.sh --port 9000       # custom port (default: 8000, or $PORT env)
+./start.sh --reload          # uvicorn hot-reload for development
+./start.sh --help            # full usage info
 ```
+
+Options can be combined: `./start.sh --no-build --reload --port 9000`
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success (or `--check` passed) |
+| 1 | Missing hard dependency or configuration error |
+| 2 | Frontend build artifacts missing (with `--no-build`) |
+| 3 | Backend failed to start |
 
 ### Other scripts (not required for normal use)
 
 | Script | Purpose |
 |--------|---------|
-| `run-app.sh [dev\|prod\|stop]` | Full orchestrator – auto-starts Ollama, pulls models, starts Open WebUI, health checks. Use for automated/unattended setups. |
+| `run-app.sh [dev\|prod\|stop]` | Full orchestrator – auto-starts Ollama, pulls models, starts Open WebUI, health checks. Dev/ops helper. |
 | `scripts/dev.sh` | Dev helper – manages backend + Tailscale Funnel for remote access. |
 | `Makefile` | Convenience targets (`make start`, `make test`, `make docker-up`, etc.) |
 
-These are **not** the recommended entrypoint. Use `./start.sh` for day-to-day use.
+These are helpers, not the primary entrypoint.
+
+---
+
+## Automatic startup (macOS launchd)
+
+`start.sh` is designed to work under a process supervisor. A sample launchd plist is provided at `files/macos/com.aihomehub.native.plist`.
+
+### Setup
+
+```bash
+# 1. Edit the plist – adjust /opt/ai-home-hub to your actual path
+#    and ensure PATH includes your python3/node/ollama locations.
+
+# 2. Copy to LaunchAgents
+cp files/macos/com.aihomehub.native.plist ~/Library/LaunchAgents/
+
+# 3. Load
+launchctl load ~/Library/LaunchAgents/com.aihomehub.native.plist
+
+# 4. Check status
+launchctl list | grep aihomehub
+
+# 5. View logs
+tail -f /tmp/aihomehub-native.stdout.log /tmp/aihomehub-native.stderr.log
+```
+
+### Unload / update
+
+```bash
+# Stop the service
+launchctl unload ~/Library/LaunchAgents/com.aihomehub.native.plist
+
+# Update code, rebuild frontend, etc.
+cd /opt/ai-home-hub && git pull && ./start.sh --check
+
+# Reload
+launchctl load ~/Library/LaunchAgents/com.aihomehub.native.plist
+```
+
+### Notes on KeepAlive
+
+The plist ships with `KeepAlive` set to `false`. If you set it to `true`, launchd will restart the process whenever it exits. This is useful for crash recovery but has trade-offs:
+
+- During updates, you must `unload` first, then update, then `reload`. Otherwise launchd will keep restarting the old process.
+- If the app fails immediately on startup (bad config, missing dependency), launchd will retry repeatedly. Use `./start.sh --check` to validate the environment first.
+
+For Docker-based deployment, see `files/macos/com.aihomehub.plist` and `deploy-macos.sh`.
 
 ---
 
@@ -114,7 +183,7 @@ The UI is responsive (works on mobile) and supports keyboard shortcuts (Ctrl+K f
 
 ## Integrations
 
-### Ollama (required)
+### Ollama (required for LLM features)
 
 Core LLM provider. Must be running on `localhost:11434` (default).
 
@@ -167,13 +236,21 @@ docker compose -f docker-compose.prod.yml --profile monitoring up -d
 
 ## Troubleshooting
 
+### Validate environment first
+
+```bash
+./start.sh --check
+```
+
+This reports all dependency issues without starting anything.
+
 ### `./start.sh` fails on frontend build
 
 ```
 error TS2688: Cannot find type definition file...
 ```
 
-Run `cd frontend && rm -rf node_modules && npm install`, then retry.
+Run `cd frontend && rm -rf node_modules && npm install`, then retry. Or use `--backend-only` to skip the frontend entirely.
 
 ### Ollama not running
 
@@ -206,6 +283,16 @@ cd frontend && npm run build
 ```
 
 Or use `./start.sh --reload` for development (hot-reload for backend; for frontend dev, run `cd frontend && npm run dev` separately).
+
+### launchd: process keeps restarting
+
+If `KeepAlive` is `true` and the app crashes on startup, launchd will retry. Fix:
+```bash
+launchctl unload ~/Library/LaunchAgents/com.aihomehub.native.plist
+./start.sh --check   # find the issue
+# fix it, then reload
+launchctl load ~/Library/LaunchAgents/com.aihomehub.native.plist
+```
 
 ---
 
