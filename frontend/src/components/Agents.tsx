@@ -37,7 +37,7 @@ export const Agents: React.FC = () => {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const { showToast } = useToast();
+  const toast = useToast();
 
   const fetchAgents = async () => {
     setLoading(true);
@@ -45,7 +45,7 @@ export const Agents: React.FC = () => {
       const data = await agentsApi.list();
       setAgents(data.agents);
     } catch (err: any) {
-      showToast.error('Nepodařilo se načíst agenty');
+      toast.error('Nepodařilo se načíst agenty');
     } finally {
       setLoading(false);
     }
@@ -64,29 +64,29 @@ export const Agents: React.FC = () => {
     try {
       await agentsApi.delete(id);
       setAgents(prev => prev.filter(a => a.id !== id));
-      showToast.success('Agent odstraněn');
+      toast.success('Agent odstraněn');
     } catch (err: any) {
-      showToast.error('Chyba při odstraňování agenta');
+      toast.error('Chyba při odstraňování agenta');
     }
   };
 
   const handleInterrupt = async (id: string) => {
     try {
       await agentsApi.interrupt(id);
-      showToast.info('Požadavek na přerušení odeslán');
+      toast.info('Požadavek na přerušení odeslán');
       fetchAgents();
     } catch (err: any) {
-      showToast.error('Agenta nelze přerušit');
+      toast.error('Agenta nelze přerušit');
     }
   };
 
   const handleCleanup = async () => {
     try {
       const data = await agentsApi.cleanup();
-      showToast.success(`Odstraněno ${data.removed} neaktivních agentů`);
+      toast.success(`Odstraněno ${data.removed} neaktivních agentů`);
       fetchAgents();
     } catch (err: any) {
-      showToast.error('Chyba při čištění');
+      toast.error('Chyba při čištění');
     }
   };
 

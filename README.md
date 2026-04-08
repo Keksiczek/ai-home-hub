@@ -1,56 +1,67 @@
-# AI Home Hub – Mac Control Center
+# AI Home Hub
 
-Lokální AI orchestrační centrum pro macOS. Propojuje Ollama, VS Code, filesystem a agentní orchestraci do jednoho dashboardu. Běží plně lokálně, optimalizované pro MacBook Pro 2019 (Intel, 8 GB RAM).
+Local AI orchestration hub. Connects Ollama, a React dashboard, an autonomous Resident Agent, Knowledge Base, job scheduling, and optional Open WebUI into a single self-hosted control center.
 
-> ⚠️ Projekt je v aktivním vývoji.
-
----
-
-## ✨ Co umí
-
-| Feature | Stav |
-|---------|------|
-| 💬 Chat s LLM (Ollama) | ✅ |
-| 🖼️ Image upload + Vision (llava:7b) | ✅ |
-| 🤖 4 custom profily (Lean/CI, PBI/DAX, Mac Admin, AI Dev) | ✅ |
-| 🧠 Resident Agent (autonomous, quiet hours, structured log) | ✅ |
-| 📚 Knowledge Base + multi-kolekce + tag search | ✅ |
-| 📁 File Manager (tree, VSCode open, KB upload) | ✅ |
-| 🔧 11 Agent Skills (web search, code exec, vision, shell...) | ✅ |
-| 💼 Job systém (run now, schedule, queue) | ✅ |
-| 🧠 Model Manager (Ollama + HuggingFace GGUF stahování) | ✅ |
-| ⚙️ LLM Settings (model routing, parametry, hot-reload) | ✅ |
-| 📊 Prometheus /metrics endpoint | ✅ |
-| 📈 Grafana Dashboards (5 panelů) | ✅ |
-| 🔔 Slack Alerting (Grafana + webhook relay) | ✅ |
-| ⚡ Power UX (force-cycle, CSV export, graceful shutdown) | ✅ |
-| ⚡ Live Activity Bar (WebSocket, RAM, jobs, KB stats) | ✅ |
-| 📸 Screenshot (Mac native + mobile html2canvas) | ✅ |
-| 🌐 Tailscale Funnel (remote přístup) | ✅ |
-| 🎯 First-run Onboarding Wizard | ✅ |
-| 🔍 Global Search Ctrl+K | ✅ |
-| 📊 Nightly Report Widget | ✅ |
-| 🃏 Model Cards (vizuální model výběr s tagy, filtry, hledání) | ✅ |
-| 🔔 Toast notifikace (stackable, auto-dismiss, max 3) | ✅ |
-| 💀 Skeleton loading states | ✅ |
-| 💬 Chat UX (markdown, code copy, timestamps, model indicator) | ✅ |
-| 📚 KB Dashboard + test panel | ✅ |
-| ⚙️ Settings tab navigation | ✅ |
-| 🎯 Empty states s návrhy akcí | ✅ |
-| ⌨️ Keyboard shortcuts (Ctrl+K, Ctrl+N, Esc) | ✅ |
-| 📱 Responsive mobile layout | ✅ |
+> Personal project, active development.
 
 ---
 
-## 🚀 Rychlý start
+## What it is
 
-### Požadavky
+A FastAPI + React single-page application that acts as a local AI command center. It provides:
+
+- **Chat** with local LLM models (Ollama) including vision support
+- **Resident Agent** – autonomous background agent with observer/advisor/autonomous modes
+- **Knowledge Base** – ChromaDB-powered semantic search across document collections
+- **Job System** – background job queue with scheduling
+- **Model Manager** – pull, delete, and manage Ollama models
+- **File Manager** – browse files, upload to KB
+- **Monitoring** – optional Prometheus + Grafana stack
+
+Everything runs locally. No cloud dependencies for core functionality.
+
+---
+
+## Current architecture
+
+```
+frontend/           React 19 + TypeScript + Vite (SPA)
+  src/
+    components/     Chat, Dashboard, ResidentAgent, KnowledgeBase,
+                    Models, Jobs, Files, Agents, OpenWebUI, CreativeStudio
+    context/        WebSocket + Toast providers
+    api.ts          Typed API client
+
+backend/            FastAPI (Python 3.11+)
+  app/
+    main.py         Entrypoint, lifespan, middleware
+    routers/        REST + WebSocket endpoints (20+)
+    services/       Core logic (LLM, resident agent, KB, jobs, ...)
+  static/dist/      Built React frontend (served by FastAPI)
+
+open-webui/         Optional – separate Open WebUI instance (port 8080)
+grafana/            Grafana dashboard definitions
+prometheus/         Prometheus scrape config
+```
+
+The React frontend builds into `backend/static/dist/` and is served directly by FastAPI. In development, Vite proxies `/api` and `/ws` to the backend.
+
+---
+
+## How to start
+
+`./start.sh` is the **single recommended entrypoint**. It is designed for both interactive terminal use and automated execution under a process supervisor (launchd, systemd).
+
+### Prerequisites
+
+**Required (hard dependencies):**
 - Python 3.11+
-- [Ollama](https://ollama.ai) nainstalovaný
-- Git
-- macOS (optimalizováno pro Intel 8GB) nebo Linux
+- [Ollama](https://ollama.ai) installed and running (`ollama serve`) – needed for LLM features
 
-### Quickstart
+**Required for frontend build:**
+- Node.js 18+ (not needed with `--backend-only` or `--no-build`)
+
+### Quick start
 
 ```bash
 git clone https://github.com/Keksiczek/ai-home-hub
@@ -59,351 +70,238 @@ chmod +x start.sh
 ./start.sh
 ```
 
-Appka běží na http://localhost:8000
+This builds the React frontend and starts the FastAPI server on **http://localhost:8000**.
 
-### Alternativní spuštění
+### Startup modes
 
-```bash
-# Plný launcher s Ollama auto-start a health checks
-./run-app.sh
+| Mode | Command | When to use |
+|------|---------|-------------|
+| Full start | `./start.sh` | Normal local use – builds frontend, starts backend |
+| Check only | `./start.sh --check` | Validate environment without starting anything (CI, smoke test) |
+| Backend only | `./start.sh --backend-only` | API/agent server without frontend build (Node.js not needed) |
+| Reuse build | `./start.sh --no-build` | Skip frontend build, use existing `backend/static/dist/` |
 
-# Manuální spuštění
-cd backend && source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --host 0.0.0.0 --port 8000
-```
-
-### Make příkazy
+Additional options:
 
 ```bash
-make start           # rychlý start přes start.sh
-make install         # vytvořit venv + nainstalovat deps
-make pull-and-start  # git pull + start
-make dev-start       # spustit backend + Tailscale
-make dev-stop        # zastavit vše
-make dev-update      # git pull + restart
-make dev-status      # stav procesů
+./start.sh --port 9000       # custom port (default: 8000, or $PORT env)
+./start.sh --reload          # uvicorn hot-reload for development
+./start.sh --help            # full usage info
 ```
+
+Options can be combined: `./start.sh --no-build --reload --port 9000`
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success (or `--check` passed) |
+| 1 | Missing hard dependency or configuration error |
+| 2 | Frontend build artifacts missing (with `--no-build`) |
+| 3 | Backend failed to start |
+
+### Other scripts (not required for normal use)
+
+| Script | Purpose |
+|--------|---------|
+| `run-app.sh [dev\|prod\|stop]` | Full orchestrator – auto-starts Ollama, pulls models, starts Open WebUI, health checks. Dev/ops helper. |
+| `scripts/dev.sh` | Dev helper – manages backend + Tailscale Funnel for remote access. |
+| `Makefile` | Convenience targets (`make start`, `make test`, `make docker-up`, etc.) |
+
+These are helpers, not the primary entrypoint.
 
 ---
 
-## 🏗️ Architektura
+## Automatic startup (macOS launchd)
 
-```
-backend/
-  app/
-    main.py                 # FastAPI entrypoint, lifespan, TaskSupervisor
-    routers/                # REST + WebSocket endpointy
-      chat.py               # LLM chat
-      chat_multimodal.py    # Vision chat (llava)
-      resident.py           # Resident Agent kontrola
-      models.py             # Model Manager + LLM Settings
-      knowledge.py          # KB + multi-kolekce
-      files.py              # File Manager
-      jobs.py               # Job systém
-      skills.py             # Agent Skills
-      websocket_router.py   # Activity bar WS
-    services/
-      resident_agent.py     # Autonomous daemon (structured log, quiet hours)
-      agent_orchestrator.py # LLM orchestrace + tool dispatch
-      job_service.py        # Job fronta a scheduling
-      model_manager_service.py  # Ollama + HuggingFace
-      vector_store_service.py   # ChromaDB + multi-KB
-      activity_service.py   # Live system stats aggregace
-      skills_service.py     # 11 agent skills
-      llm_service.py        # Model routing + keep_alive
-      resource_monitor.py   # psutil daemon
-    models/                 # Pydantic schemas
-    middleware/             # Logging, rate limiting
-    static/                 # Frontend SPA
-```
+`start.sh` is designed to work under a process supervisor. A sample launchd plist is provided at `files/macos/com.aihomehub.native.plist`.
 
-### LLM Model routing
-
-| Profil | Model (default) | num_ctx | temperature | timeout_s |
-|--------|----------------|---------|-------------|-----------|
-| chat | qwen2.5:7b-instruct-q4_K_M | 4096 | 0.7 | 90 |
-| resident_reasoner | qwen2.5:7b-instruct-q4_K_M | 3072 | 0.4 | 90 |
-| resident_reflection | llama3.2:3b-instruct | 2048 | 0.3 | 60 |
-| resident_mission_planner | qwen2.5:7b-instruct-q4_K_M | 4096 | 0.5 | 90 |
-| background_job | llama3.2:3b-instruct | 2048 | 0.3 | 60 |
-| general | qwen2.5:7b-instruct-q4_K_M | 4096 | 0.7 | 90 |
-
-Všechny hodnoty přepsatelné přes env vars:
+### Setup
 
 ```bash
-LLM_MODEL_CHAT=llama3.1:8b
-LLM_CTX_CHAT=4096
-LLM_TEMP_CHAT=0.5
-LLM_TIMEOUT_RESIDENT_REASONER=120
+# 1. Edit the plist – adjust /opt/ai-home-hub to your actual path
+#    and ensure PATH includes your python3/node/ollama locations.
+
+# 2. Copy to LaunchAgents
+cp files/macos/com.aihomehub.native.plist ~/Library/LaunchAgents/
+
+# 3. Load
+launchctl load ~/Library/LaunchAgents/com.aihomehub.native.plist
+
+# 4. Check status
+launchctl list | grep aihomehub
+
+# 5. View logs
+tail -f /tmp/aihomehub-native.stdout.log /tmp/aihomehub-native.stderr.log
 ```
 
-API endpointy:
-- `GET /api/settings/llm-profiles` – aktuální konfigurace profilů
-- `POST /api/settings/llm-profiles` – uložit override per profil
-
-### Použití s llama.cpp / llama-server
-
-AI Home Hub podporuje i OpenAI-compatible backendy (llama-server, LM Studio, Jan):
+### Unload / update
 
 ```bash
-# Homebrew
-brew install llama.cpp
+# Stop the service
+launchctl unload ~/Library/LaunchAgents/com.aihomehub.native.plist
 
-# Spustit server (OpenAI-compatible, port 11434)
-llama-server \
-  --model ~/.ollama/models/blobs/<sha256> \
-  --threads 4 \
-  --ctx-size 4096 \
-  --port 11434
+# Update code, rebuild frontend, etc.
+cd /opt/ai-home-hub && git pull && ./start.sh --check
 
-# AI Home Hub config
-LLM_BACKEND=openai_compatible
-OLLAMA_BASE_URL=http://localhost:11434
+# Reload
+launchctl load ~/Library/LaunchAgents/com.aihomehub.native.plist
 ```
 
----
+### Notes on KeepAlive
 
-## 📡 API přehled
+The plist ships with `KeepAlive` set to `false`. If you set it to `true`, launchd will restart the process whenever it exits. This is useful for crash recovery but has trade-offs:
 
-| Endpoint | Popis |
-|----------|-------|
-| POST /api/chat | LLM chat |
-| POST /api/chat/multimodal | Vision chat (base64 image) |
-| GET /api/models/installed | Nainstalované Ollama modely |
-| POST /api/models/pull | Stáhnout model (SSE stream) |
-| GET /api/kb/collections | Seznam KB kolekcí |
-| GET /api/kb/search?q= | Semantic + tag search |
-| GET /api/resident/status | Stav agenta |
-| POST /api/resident/run-now | Okamžitý cyklus |
-| GET /api/jobs/queue | Job fronta |
-| POST /api/jobs/run-now | Spustit job okamžitě |
-| GET /api/jobs/nightly-report | Nightly Report (latest) |
-| GET /api/llm/settings | LLM konfigurace |
-| PATCH /api/llm/settings | Změna nastavení (hot-reload) |
-| GET /metrics | Prometheus metriky |
-| GET /api/health | Health check (komponenty + background tasky) |
-| GET /api/system/health | Startup component health (Ollama, KB, Jobs DB) |
-| WS /ws | WebSocket (activity, agent status) |
+- During updates, you must `unload` first, then update, then `reload`. Otherwise launchd will keep restarting the old process.
+- If the app fails immediately on startup (bad config, missing dependency), launchd will retry repeatedly. Use `./start.sh --check` to validate the environment first.
 
-Kompletní API: http://localhost:8000/docs
+For Docker-based deployment, see `files/macos/com.aihomehub.plist` and `deploy-macos.sh`.
 
 ---
 
-## 🎯 First-run Onboarding
+## UI overview
 
-Při prvním spuštění se zobrazí průvodce, který:
-1. Zkontroluje dostupnost Ollama
-2. Navede k nastavení Knowledge Base
-3. Umožní výběr výchozího profilu (Lean/CI, PBI/DAX, Mac Admin, AI Dev)
-4. Spustí Resident Agent
+After starting, open **http://localhost:8000** in your browser. The UI has a sidebar with:
 
-Průvodce lze kdykoli znovu spustit v **Nastavení → 🔄 Průvodce**.
+**Main menu:**
+- **Chat** – LLM conversation with streaming, markdown, code highlighting, image upload
+- **Resident AI** – autonomous agent control (start/stop, mode switching, activity feed)
+- **Dashboard** – system stats, RAM, Ollama status, job queue
+- **Knowledge Base** – semantic search, document upload, multi-collection
 
----
+**Advanced features:**
+- **Open WebUI** – iframe integration (requires separate Open WebUI instance, see below)
+- **Files** – file browser with KB upload
+- **Agents** – multi-agent spawning and management
+- **Jobs** – job queue, history, nightly reports
+- **Models** – Ollama model manager (pull, delete, search)
+- **Creative Studio**, **Control Room**, **Settings**, and more
 
-## 🔍 Global Search (Ctrl+K)
-
-Command palette dostupná zkratkou **Ctrl+K** umožňuje:
-- Rychlou navigaci mezi záložkami
-- Spouštění akcí (Job, Agent, Screenshot...)
-- Sémantické vyhledávání v Knowledge Base (min. 3 znaky)
-
----
-
-## 📊 Nightly Report
-
-Widget v záložce **Noční úlohy** zobrazuje poslední automaticky generovaný denní report (LLM souhrn aktivity agenta za 24h). Lze regenerovat ručně nebo exportovat jako `.md` soubor.
+The UI is responsive (works on mobile) and supports keyboard shortcuts (Ctrl+K for global search).
 
 ---
 
-## 📱 Mobile PWA
+## Integrations
 
-Aplikace funguje jako Progressive Web App. Na mobilu:
-1. Otevři `http://<server>:8000` v Chrome/Safari
-2. **Add to Home Screen** → standalone ikona
-3. Offline dashboard funguje díky Service Worker cache
+### Ollama (required for LLM features)
 
-Touch-friendly UI: min 44px buttons, responsive grid → stack na mobile.
-
----
-
-## 🔄 Auto-cleanup
-
-Běží automaticky každých 6 hodin – není potřeba manuální údržba:
-- Smazání sessions starších 7 dní
-- Archivace KB artefaktů starších 30 dní do `data/archive/`
-- VACUUM SQLite databází (jobs.db, resident_state.db)
-- Stav: `GET /api/health/cleanup`
-
----
-
-## 📊 Monitoring (Grafana + Slack)
-
-Produkční stack zahrnuje Prometheus + Grafana pro kompletní observability.
-
-### Spuštění
+Core LLM provider. Must be running on `localhost:11434` (default).
 
 ```bash
-# Zkopíruj env soubor a doplň Slack webhook
-cp .env.example .env
-# SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
+# Install
+# macOS: brew install ollama
+# Linux: curl -fsSL https://ollama.com/install.sh | sh
 
-# Spusť produkční stack
-docker compose -f docker-compose.prod.yml up -d
+# Start
+ollama serve
+
+# Pull a model
+ollama pull qwen2.5:7b-instruct-q4_K_M
 ```
 
-### Přístup
+The app works with any Ollama model. Default model routing per profile is configured in the backend (see `LLM_MODEL_*` env vars).
 
-| Služba | URL | Přihlášení |
-|--------|-----|-----------|
-| App (hub) | http://localhost:8000 | – |
-| Grafana | http://localhost:3001 | admin / hub123 |
-| Prometheus | http://localhost:9090 | – |
+### Open WebUI (optional, separate service)
 
-### Dashboard
+Open WebUI is **not** started by `./start.sh`. It is a separate service that runs on port 8080 and shares the same Ollama backend.
 
-**AI Home Hub Resident** (`grafana/provisioning/dashboards/ai-home-hub.json`) – automaticky importován při startu Grafany.
+To use it:
+```bash
+# Docker
+cd open-webui && ./run.sh
 
-Obsahuje 5 panelů:
-1. **Resident Health** – Success Rate 24h (Stat, červená <80%, žlutá <90%)
-2. **Agent Lifecycle** – Spawned vs Blocked, Queue Depth (Time Series)
-3. **Resource Usage** – Memory (GB), Concurrent Agents % (Gauge)
-4. **KB Operations** – Reindex Success Rate, Watchdog Triggers (Stat)
-5. **Alerts Summary** – Active Failures tabulka (Table)
+# Or native Python
+cd open-webui && ./run_native.sh
+```
 
-### Slack Alerts
+When running, it appears in the sidebar under "Open WebUI" as an embedded iframe. When not running, the UI shows a helpful message with instructions.
 
-Alerty se posílají do kanálu `#ai-home-hub`:
-- `ResidentSuccessRateLow` – success rate <80% po dobu 15 minut → 🔴 critical
-- `AgentMemoryHigh` – memory >4GB po dobu 5 minut → 🟡 warning
+`run-app.sh` can auto-start Open WebUI if `run_openwebui.sh` exists in the project root.
 
-Grafana contact point míří na `http://app:8000/api/alerts/slack`.
+### Home Assistant
 
-Test integrace: `POST /api/alerts/test`
+Not directly integrated. The project is a standalone local AI hub. Remote access is available via Tailscale Funnel (`scripts/dev.sh`).
 
-### Power Features (Control Room)
+### Monitoring (optional)
 
-| Akce | Endpoint |
-|------|----------|
-| ⚡ Force Resident Cycle | `POST /api/control/resident/force-cycle` |
-| 📥 CSV Export (1000 cyklů) | `GET /api/control/resident/history/csv?limit=1000` |
-| 🛑 Graceful Shutdown | `POST /api/control/shutdown-graceful` |
-| 🗑️ Purge KB Cache | `POST /api/control/kb/purge-cache` |
-| 📌 Grafana Annotation | `POST /api/alerts/annotation` |
-
----
-
-## 🆘 When things go wrong
-
-1. **Control Room** → zkontroluj Alerts a status agenta
-2. **Export Debug** → `GET /api/health/errors` pro posledních 50 chyb
-3. **Error Boundary** → při JS crash se zobrazí banner s [Reload] [Export logs]
-4. **Persistent History** → `GET /api/agent/history/persistent` – cykly přežívají restart
-5. **Self-healing** → agent se po 5 konsekutivních chybách automaticky restartuje
-
----
-
-## 🚀 Production Deploy (Docker)
-
-Cross-platform deploy přes Docker Compose. Funguje na Linux, Windows (Docker Desktop) i macOS (Docker Desktop).
-
-### Rychlý start (všechny platformy)
+Prometheus + Grafana via Docker Compose:
 
 ```bash
-# 1. Zkopíruj .env.prod
-cp .env.prod.example .env.prod
-# 2. Uprav nastavení dle potřeby
-# 3. Spusť
-docker compose -f docker-compose.prod.yml up -d
-
-# S Grafana monitoringem:
 docker compose -f docker-compose.prod.yml --profile monitoring up -d
-```
-
-### Platform-specific deploy
-
-| Platforma | Skript | Popis |
-|-----------|--------|-------|
-| **Linux** | `sudo bash files/linux/deploy-linux.sh` | Kopíruje do /opt, nastaví systemd službu |
-| **Linux + monitoring** | `sudo bash files/linux/deploy-linux.sh --with-monitoring` | + Grafana na portu 3001 |
-| **Windows** | `files\windows\install.bat` (jako Admin) | Docker Compose + volitelný scheduled task |
-| **macOS** | `bash files/macos/deploy-macos.sh` | Docker Compose + launchd agent |
-| **macOS + monitoring** | `bash files/macos/deploy-macos.sh --with-monitoring` | + Grafana na portu 3001 |
-
-### Grafana Dashboards
-
-Při spuštění s `--profile monitoring` je Grafana dostupná na `http://localhost:3001` (default heslo: `admin`/`changeme`).
-
-Dashboard **AI Home Hub – Overview** zobrazuje:
-- Resident agent health (success/fail rate, queue depth)
-- Job queue status a active jobs
-- Ollama request rate a memory usage
-- KB reindex jobs a ChromaDB query latency
-- Chat latency a upload stats
-
----
-
-## 💾 Backup & Restore
-
-Cross-platform PowerShell skript pro zálohu dat a SQLite databází.
-
-```bash
-# Linux / macOS (vyžaduje pwsh – PowerShell Core)
-pwsh scripts/backup.ps1
-
-# Windows (PowerShell je nativní)
-pwsh scripts/backup.ps1
-
-# Custom cesta a retence
-pwsh scripts/backup.ps1 -BackupDir /mnt/backups -RetentionDays 14
-```
-
-### Automatické zálohy
-
-**Linux/macOS (cron):**
-```bash
-# Každý den ve 3:00
-0 3 * * * /usr/bin/pwsh /opt/ai-home-hub/scripts/backup.ps1
-```
-
-**Windows (Task Scheduler):**
-1. Otevři Task Scheduler
-2. Create Basic Task → "AI Home Hub Backup"
-3. Trigger: Daily, 3:00 AM
-4. Action: Start a program → `pwsh.exe` s argumentem `-File C:\ai-home-hub\scripts\backup.ps1`
-
-### Restore
-
-```bash
-# Zastav app
-docker compose -f docker-compose.prod.yml down
-# Rozbal zálohu
-unzip backups/ai-home-hub-backup-YYYY-MM-DD_HH-mm-ss.zip -d data/
-# Spusť znovu
-docker compose -f docker-compose.prod.yml up -d
+# Grafana: http://localhost:3001 (admin/changeme)
+# Prometheus: http://localhost:9090
 ```
 
 ---
 
-## 🧪 Testy
+## Troubleshooting
+
+### Validate environment first
 
 ```bash
-cd backend
-pytest tests/ -v
+./start.sh --check
 ```
 
-Testovací skupiny: `test_resident_flow.py`, `test_kb_upload_flow.py`, `test_jobs_api.py`, `test_polish_production.py`, `test_enterprise_deploy.py`
+This reports all dependency issues without starting anything.
 
-### CI Pipeline
+### `./start.sh` fails on frontend build
 
-Push/PR na `main` automaticky spouští:
-- `pytest` (Python 3.11 + 3.12)
-- `black --check` (formátování)
-- Validace Grafana dashboard JSON
+```
+error TS2688: Cannot find type definition file...
+```
+
+Run `cd frontend && rm -rf node_modules && npm install`, then retry. Or use `--backend-only` to skip the frontend entirely.
+
+### Ollama not running
+
+The app starts but Chat returns errors. Make sure Ollama is running:
+```bash
+ollama serve
+# or check: curl http://localhost:11434
+```
+
+### Port already in use
+
+```bash
+./start.sh --port 9000
+# or kill the existing process:
+lsof -ti:8000 | xargs kill
+```
+
+### Open WebUI not loading
+
+Open WebUI is a separate service. Start it manually:
+```bash
+cd open-webui && ./run_native.sh
+```
+
+### Frontend not updating after code changes
+
+Rebuild:
+```bash
+cd frontend && npm run build
+```
+
+Or use `./start.sh --reload` for development (hot-reload for backend; for frontend dev, run `cd frontend && npm run dev` separately).
+
+### launchd: process keeps restarting
+
+If `KeepAlive` is `true` and the app crashes on startup, launchd will retry. Fix:
+```bash
+launchctl unload ~/Library/LaunchAgents/com.aihomehub.native.plist
+./start.sh --check   # find the issue
+# fix it, then reload
+launchctl load ~/Library/LaunchAgents/com.aihomehub.native.plist
+```
 
 ---
 
-## 📄 Licence
+## Project status
 
-MIT – projekt je lokální a privátní. Sdílej zodpovědně.
+Active personal project. The React frontend is relatively new and replaces older legacy HTML views (some tabs still use iframe fallback to legacy endpoints). Core features (Chat, Resident Agent, KB, Jobs, Models) are fully React-native. Some advanced tabs (Control Room, Skills Marketplace, LLM Settings) still use legacy iframe views.
+
+---
+
+## License
+
+MIT

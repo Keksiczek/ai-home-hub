@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd agent for AI Home Hub (native, non-Docker)
+
+  Runs ./start.sh directly as a foreground process under launchd.
+  Ollama must be running separately (or use its own launchd agent).
+
+  Install:
+    cp files/macos/com.aihomehub.native.plist ~/Library/LaunchAgents/com.aihomehub.native.plist
+    launchctl load ~/Library/LaunchAgents/com.aihomehub.native.plist
+
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.aihomehub.native.plist
+    rm ~/Library/LaunchAgents/com.aihomehub.native.plist
+
+  NOTE: Adjust /opt/ai-home-hub to your actual install path.
+
+  KeepAlive is set to false by default. If you enable it, launchd will
+  restart the process whenever it exits — this is useful for crash recovery
+  but can interfere with intentional stops and updates. During updates,
+  unload the agent first, update, then reload.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.aihomehub.native</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/ai-home-hub/start.sh</string>
+        <string>--no-build</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/opt/ai-home-hub</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/aihomehub-native.stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/aihomehub-native.stderr.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PORT</key>
+        <string>8000</string>
+        <!-- Ensure Homebrew paths are available for python3, node, ollama -->
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>
