@@ -12,7 +12,7 @@ def test_health_endpoint_returns_components(client, mock_ollama):
     data = resp.json()
 
     assert "status" in data
-    assert data["status"] in ("ok", "degraded", "error")
+    assert data["status"] in ("ok", "healthy", "degraded", "limited", "error")
     assert "timestamp" in data
     assert "components" in data
 

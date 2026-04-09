@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ShieldAlert, RotateCcw, Power, Trash2, Loader2 } from 'lucide-react';
+import { RotateCcw, Power, Trash2, Loader2 } from 'lucide-react';
 
 interface ActionResult {
   action: string;

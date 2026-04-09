@@ -209,7 +209,9 @@ class TestUncensoredModelEligibility:
     def test_is_abliterated_model_detects_tags(self):
         from app.services.llm_service import is_abliterated_model
 
-        assert is_abliterated_model("dolphin-llama3:8b") is False  # dolphin is in quality_flags but not ABLITERATED_MODEL_TAGS
+        assert (
+            is_abliterated_model("dolphin-llama3:8b") is False
+        )  # dolphin is in quality_flags but not ABLITERATED_MODEL_TAGS
         assert is_abliterated_model("some-model-abliterated:7b") is True
         assert is_abliterated_model("llama3-uncensored:8b") is True
         assert is_abliterated_model("llama3.2:latest") is False

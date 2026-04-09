@@ -26,6 +26,7 @@ def mock_vector_store(monkeypatch):
     vs.delete_by_file_path = AsyncMock(return_value=0)
     vs.get_stats.return_value = {"total_chunks": 0, "collection_name": "knowledge_base"}
     monkeypatch.setattr("app.routers.knowledge.get_vector_store_service", lambda: vs)
+    monkeypatch.setattr("app.services.kb_indexing_service.get_vector_store_service", lambda: vs)
     return vs
 
 
@@ -39,6 +40,7 @@ def mock_embeddings(monkeypatch):
     ]
     svc.generate_embedding.return_value = [0.1, 0.2, 0.3]
     monkeypatch.setattr("app.routers.knowledge.get_embeddings_service", lambda: svc)
+    monkeypatch.setattr("app.services.kb_indexing_service.get_embeddings_service", lambda: svc)
     return svc
 
 
@@ -74,7 +76,7 @@ def test_incremental_ingest_skips_unchanged_files(
     current_mtime = txt_file.stat().st_mtime
 
     monkeypatch.setattr(
-        "app.routers.knowledge.get_file_metadata",
+        "app.services.kb_indexing_service.get_file_metadata",
         lambda path: {"mtime": current_mtime, "file_path": path},
     )
 
@@ -98,7 +100,7 @@ def test_incremental_ingest_reindexes_modified_file(
     os.utime(txt_file, (new_mtime, new_mtime))
 
     monkeypatch.setattr(
-        "app.routers.knowledge.get_file_metadata",
+        "app.services.kb_indexing_service.get_file_metadata",
         lambda path: {"mtime": original_mtime, "file_path": path},
     )
 

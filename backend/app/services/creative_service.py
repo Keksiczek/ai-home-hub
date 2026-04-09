@@ -127,14 +127,14 @@ def _strip_markdown_fences(text: str) -> str:
     """Remove ```html ... ``` or ``` ... ``` wrapping."""
     text = text.strip()
     # Remove opening fence
-    text = re.sub(r'^```(?:html|HTML)?\s*\n?', '', text)
+    text = re.sub(r"^```(?:html|HTML)?\s*\n?", "", text)
     # Remove closing fence
-    text = re.sub(r'\n?```\s*$', '', text)
+    text = re.sub(r"\n?```\s*$", "", text)
     return text.strip()
 
 
 def _extract_title_from_html(html: str) -> str:
-    m = re.search(r'<title[^>]*>(.*?)</title>', html, re.IGNORECASE | re.DOTALL)
+    m = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
     if m:
         return m.group(1).strip()[:100]
     return ""
@@ -155,23 +155,25 @@ def _sanitize_game_html(raw: str, prompt: str) -> Tuple[str, str, str, List[str]
         title = prompt[:60].strip().title()
 
     # Check if it looks like valid HTML
-    is_html_doc = bool(re.search(r'<html|<!doctype|<body|<head', html, re.IGNORECASE))
+    is_html_doc = bool(re.search(r"<html|<!doctype|<body|<head", html, re.IGNORECASE))
 
     if is_html_doc:
         preview_html = html
         # Add viewport meta if missing
         if '<meta name="viewport"' not in html.lower():
-            viewport = '<meta name="viewport" content="width=device-width, initial-scale=1">'
-            if '<head>' in html.lower():
+            viewport = (
+                '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            )
+            if "<head>" in html.lower():
                 preview_html = re.sub(
-                    r'(<head[^>]*>)',
-                    rf'\1\n{viewport}',
+                    r"(<head[^>]*>)",
+                    rf"\1\n{viewport}",
                     preview_html,
                     count=1,
                     flags=re.IGNORECASE,
                 )
             else:
-                preview_html = viewport + '\n' + preview_html
+                preview_html = viewport + "\n" + preview_html
                 warnings.append("Přidán viewport meta tag")
     else:
         # Wrap in a basic HTML shell
@@ -200,76 +202,84 @@ def _parse_scad_preview(scad_code: str) -> Dict[str, Any]:
     objects: List[Dict[str, Any]] = []
 
     # Track current transform context (simplified – only top-level transforms)
-    lines = scad_code.split('\n')
+    lines = scad_code.split("\n")
     current_translate = [0, 0, 0]
     current_rotate = [0, 0, 0]
 
     for line in lines:
         line_stripped = line.strip()
-        if line_stripped.startswith('//'):
+        if line_stripped.startswith("//"):
             continue
 
         # Parse translate
-        t_match = re.search(r'translate\s*\(\s*\[([^\]]+)\]', line_stripped)
+        t_match = re.search(r"translate\s*\(\s*\[([^\]]+)\]", line_stripped)
         if t_match:
             try:
-                vals = [float(v.strip()) for v in t_match.group(1).split(',')]
+                vals = [float(v.strip()) for v in t_match.group(1).split(",")]
                 current_translate = (vals + [0, 0, 0])[:3]
             except (ValueError, IndexError):
                 pass
 
         # Parse rotate
-        r_match = re.search(r'rotate\s*\(\s*\[([^\]]+)\]', line_stripped)
+        r_match = re.search(r"rotate\s*\(\s*\[([^\]]+)\]", line_stripped)
         if r_match:
             try:
-                vals = [float(v.strip()) for v in r_match.group(1).split(',')]
+                vals = [float(v.strip()) for v in r_match.group(1).split(",")]
                 current_rotate = (vals + [0, 0, 0])[:3]
             except (ValueError, IndexError):
                 pass
 
         # Parse cube
-        cube_match = re.search(r'cube\s*\(\s*(?:\[([^\]]+)\]|(\d+\.?\d*))', line_stripped)
+        cube_match = re.search(
+            r"cube\s*\(\s*(?:\[([^\]]+)\]|(\d+\.?\d*))", line_stripped
+        )
         if cube_match:
             try:
                 if cube_match.group(1):
-                    size = [float(v.strip()) for v in cube_match.group(1).split(',')]
+                    size = [float(v.strip()) for v in cube_match.group(1).split(",")]
                     size = (size + [1, 1, 1])[:3]
                 else:
                     s = float(cube_match.group(2))
                     size = [s, s, s]
-                objects.append({
-                    "type": "cube",
-                    "size": size,
-                    "position": list(current_translate),
-                    "rotation": list(current_rotate),
-                })
+                objects.append(
+                    {
+                        "type": "cube",
+                        "size": size,
+                        "position": list(current_translate),
+                        "rotation": list(current_rotate),
+                    }
+                )
             except (ValueError, IndexError):
                 pass
 
         # Parse sphere
-        sphere_match = re.search(r'sphere\s*\(\s*(?:r\s*=\s*)?(\d+\.?\d*)', line_stripped)
+        sphere_match = re.search(
+            r"sphere\s*\(\s*(?:r\s*=\s*)?(\d+\.?\d*)", line_stripped
+        )
         if sphere_match:
             try:
                 r = float(sphere_match.group(1))
-                objects.append({
-                    "type": "sphere",
-                    "r": r,
-                    "position": list(current_translate),
-                    "rotation": list(current_rotate),
-                })
+                objects.append(
+                    {
+                        "type": "sphere",
+                        "r": r,
+                        "position": list(current_translate),
+                        "rotation": list(current_rotate),
+                    }
+                )
             except ValueError:
                 pass
 
         # Parse cylinder
-        cyl_match = re.search(r'cylinder\s*\(([^)]+)\)', line_stripped)
+        cyl_match = re.search(r"cylinder\s*\(([^)]+)\)", line_stripped)
         if cyl_match:
             try:
                 params = cyl_match.group(1)
-                h_m = re.search(r'h\s*=\s*(\d+\.?\d*)', params)
-                r_m = re.search(r'(?<![r12])r\s*=\s*(\d+\.?\d*)', params)
-                r1_m = re.search(r'r1\s*=\s*(\d+\.?\d*)', params)
-                r2_m = re.search(r'r2\s*=\s*(\d+\.?\d*)', params)
-                d_m = re.search(r'(?<![r12])d\s*=\s*(\d+\.?\d*)', params)
+                h_m = re.search(r"h\s*=\s*(\d+\.?\d*)", params)
+                r_m = re.search(r"(?<![r12])r\s*=\s*(\d+\.?\d*)", params)
+                r1_m = re.search(r"r1\s*=\s*(\d+\.?\d*)", params)
+                r2_m = re.search(r"r2\s*=\s*(\d+\.?\d*)", params)
+                d_m = re.search(r"(?<![r12])d\s*=\s*(\d+\.?\d*)", params)
 
                 h = float(h_m.group(1)) if h_m else 10
                 if r_m:
@@ -296,7 +306,7 @@ def _parse_scad_preview(scad_code: str) -> Dict[str, Any]:
                 pass
 
         # Reset transforms after a primitive (simplified heuristic)
-        if any(p in line_stripped for p in ('cube(', 'sphere(', 'cylinder(')):
+        if any(p in line_stripped for p in ("cube(", "sphere(", "cylinder(")):
             current_translate = [0, 0, 0]
             current_rotate = [0, 0, 0]
 
@@ -320,12 +330,18 @@ def _sanitize_scad(raw: str, prompt: str) -> Tuple[str, str, Dict[str, Any], Lis
         warnings.append("SCAD kód byl oříznut na 100 KB")
 
     # Try to extract title from first comment
-    title_match = re.search(r'//\s*(.+)', code)
-    title = title_match.group(1).strip()[:80] if title_match else prompt[:60].strip().title()
+    title_match = re.search(r"//\s*(.+)", code)
+    title = (
+        title_match.group(1).strip()[:80]
+        if title_match
+        else prompt[:60].strip().title()
+    )
 
     preview_spec = _parse_scad_preview(code)
     if preview_spec.get("raw_only"):
-        warnings.append("Preview nedostupný pro tuto SCAD strukturu – kód je stále platný")
+        warnings.append(
+            "Preview nedostupný pro tuto SCAD strukturu – kód je stále platný"
+        )
 
     return title, code, preview_spec, warnings
 
@@ -335,7 +351,7 @@ def _sanitize_ascii(raw: str, prompt: str, width: int) -> Tuple[str, str, List[s
     warnings: List[str] = []
     art = _strip_markdown_fences(raw)
 
-    lines = art.split('\n')
+    lines = art.split("\n")
     if len(lines) > MAX_ASCII_LINES:
         lines = lines[:MAX_ASCII_LINES]
         warnings.append(f"ASCII art oříznut na {MAX_ASCII_LINES} řádků")
@@ -344,10 +360,10 @@ def _sanitize_ascii(raw: str, prompt: str, width: int) -> Tuple[str, str, List[s
     trimmed_lines = []
     for line in lines:
         if len(line) > width + 20:
-            line = line[:width + 20]
+            line = line[: width + 20]
         trimmed_lines.append(line)
 
-    art = '\n'.join(trimmed_lines).strip()
+    art = "\n".join(trimmed_lines).strip()
     title = prompt[:60].strip().title()
 
     return title, art, warnings
@@ -356,9 +372,7 @@ def _sanitize_ascii(raw: str, prompt: str, width: int) -> Tuple[str, str, List[s
 # ── Public API ─────────────────────────────────────────────────
 
 
-async def generate_game(
-    prompt: str, model: Optional[str] = None
-) -> Dict[str, Any]:
+async def generate_game(prompt: str, model: Optional[str] = None) -> Dict[str, Any]:
     model = _resolve_model(model)
     raw, call_warnings = await _call_ollama(GAME_SYSTEM_PROMPT, prompt, model)
     title, html, preview_html, san_warnings = _sanitize_game_html(raw, prompt)
@@ -377,9 +391,7 @@ async def generate_game(
     return result
 
 
-async def generate_scad(
-    prompt: str, model: Optional[str] = None
-) -> Dict[str, Any]:
+async def generate_scad(prompt: str, model: Optional[str] = None) -> Dict[str, Any]:
     model = _resolve_model(model)
     raw, call_warnings = await _call_ollama(SCAD_SYSTEM_PROMPT, prompt, model)
     title, scad_code, preview_spec, san_warnings = _sanitize_scad(raw, prompt)
@@ -415,7 +427,7 @@ async def generate_ascii(
     }
 
     # Save to history – preview is first 3 lines
-    preview = '\n'.join(art.split('\n')[:3])
+    preview = "\n".join(art.split("\n")[:3])
     await _save_history("ascii", title, prompt, model, preview, result)
     return result
 

@@ -19,7 +19,9 @@ from app.services.settings_service import get_settings_service
 logger = logging.getLogger(__name__)
 
 # ── Configuration from env vars ──────────────────────────────────────────────
-NOTIFICATIONS_ENABLED = os.environ.get("NOTIFICATIONS_ENABLED", "true").lower() == "true"
+NOTIFICATIONS_ENABLED = (
+    os.environ.get("NOTIFICATIONS_ENABLED", "true").lower() == "true"
+)
 NOTIFICATION_MIN_IMPORTANCE = int(os.environ.get("NOTIFICATION_MIN_IMPORTANCE", "6"))
 RESIDENT_MAX_NOTIFICATIONS_PER_HOUR = int(
     os.environ.get("RESIDENT_MAX_NOTIFICATIONS_PER_HOUR", "3")
@@ -142,8 +144,16 @@ class NotificationService:
                 """INSERT INTO notifications (id, title, body, level, source,
                    action_url, importance, read, created_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)""",
-                (notif_id, title[:200], body[:1000], level, source[:100],
-                 action_url, importance, created_at),
+                (
+                    notif_id,
+                    title[:200],
+                    body[:1000],
+                    level,
+                    source[:100],
+                    action_url,
+                    importance,
+                    created_at,
+                ),
             )
             conn.commit()
 
@@ -168,18 +178,20 @@ class NotificationService:
         # Broadcast via WS only if importance >= threshold
         if importance >= NOTIFICATION_MIN_IMPORTANCE and self._broadcast_fn:
             try:
-                await self._broadcast_fn({
-                    "type": "notification",
-                    "id": notif_id,
-                    "title": title[:200],
-                    "body": body[:1000],
-                    "level": level,
-                    "source": source[:100],
-                    "action_url": action_url,
-                    "importance": importance,
-                    "read": False,
-                    "created_at": created_at,
-                })
+                await self._broadcast_fn(
+                    {
+                        "type": "notification",
+                        "id": notif_id,
+                        "title": title[:200],
+                        "body": body[:1000],
+                        "level": level,
+                        "source": source[:100],
+                        "action_url": action_url,
+                        "importance": importance,
+                        "read": False,
+                        "created_at": created_at,
+                    }
+                )
             except Exception as exc:
                 logger.debug("Notification WS broadcast failed: %s", exc)
 
@@ -188,7 +200,9 @@ class NotificationService:
             cfg = self._settings.get_notification_config()
             if cfg.get("enabled", False):
                 # Check notification type filters (with granular categories)
-                if not self._should_push_ntfy(cfg, source, level, importance, title=title):
+                if not self._should_push_ntfy(
+                    cfg, source, level, importance, title=title
+                ):
                     pass  # Skip ntfy push based on filters
                 else:
                     # Check ntfy quiet hours
@@ -202,7 +216,9 @@ class NotificationService:
                         # Map priority – prefer per-category priority, then caller, then global default
                         ntfy_priority = priority
                         if ntfy_priority == "default":
-                            ntfy_priority = self._get_category_priority(cfg, source, level, title=title)
+                            ntfy_priority = self._get_category_priority(
+                                cfg, source, level, title=title
+                            )
 
                         headers = {
                             "Title": title,
@@ -250,7 +266,11 @@ class NotificationService:
             return "resident_action"
         if source == "kb" or "reindex" in title_lower or "kb" in title_lower:
             return "kb_changes"
-        if source == "night_scheduler" or "noční" in title_lower or "nightly" in title_lower:
+        if (
+            source == "night_scheduler"
+            or "noční" in title_lower
+            or "nightly" in title_lower
+        ):
             return "night_jobs"
         if source == "llm" or "timeout" in title_lower or "ollama" in title_lower:
             return "llm_errors"
@@ -259,7 +279,11 @@ class NotificationService:
         return ""
 
     def _should_push_ntfy(
-        self, cfg: dict, source: str, level: str, importance: int,
+        self,
+        cfg: dict,
+        source: str,
+        level: str,
+        importance: int,
         title: str = "",
     ) -> bool:
         """Check if this notification should be pushed to ntfy based on filter settings.
@@ -286,7 +310,9 @@ class NotificationService:
             return True
         if source == "job_worker" and cfg.get("notify_on_job_complete", False):
             return True
-        if source == "resource_monitor" and cfg.get("notify_on_resource_critical", True):
+        if source == "resource_monitor" and cfg.get(
+            "notify_on_resource_critical", True
+        ):
             return True
         if source == "resident_agent" and cfg.get("notify_on_resident_blocked", False):
             return True
@@ -294,13 +320,17 @@ class NotificationService:
         # Default: push if importance is high enough
         return importance >= min_imp
 
-    def _get_category_priority(self, cfg: dict, source: str, level: str, title: str = "") -> str:
+    def _get_category_priority(
+        self, cfg: dict, source: str, level: str, title: str = ""
+    ) -> str:
         """Get the per-category ntfy priority, falling back to the global default."""
         categories = cfg.get("categories", {})
         if categories:
             category = self._resolve_category(source, level, title)
             if category and category in categories:
-                return categories[category].get("priority", cfg.get("ntfy_priority_default", "default"))
+                return categories[category].get(
+                    "priority", cfg.get("ntfy_priority_default", "default")
+                )
         return cfg.get("ntfy_priority_default", "default")
 
     def _is_ntfy_quiet_hours(self, cfg: dict) -> bool:
@@ -310,7 +340,9 @@ class NotificationService:
         try:
             now = datetime.now(timezone.utc)
             current_minutes = now.hour * 60 + now.minute
-            start_h, start_m = map(int, cfg.get("quiet_hours_start", "22:00").split(":"))
+            start_h, start_m = map(
+                int, cfg.get("quiet_hours_start", "22:00").split(":")
+            )
             end_h, end_m = map(int, cfg.get("quiet_hours_end", "07:00").split(":"))
             start = start_h * 60 + start_m
             end = end_h * 60 + end_m
@@ -408,17 +440,19 @@ class NotificationService:
 
             notifications = []
             for r in rows:
-                notifications.append({
-                    "id": r["id"],
-                    "title": r["title"],
-                    "body": r["body"],
-                    "level": r["level"],
-                    "source": r["source"],
-                    "action_url": r["action_url"],
-                    "importance": r["importance"],
-                    "read": bool(r["read"]),
-                    "created_at": r["created_at"],
-                })
+                notifications.append(
+                    {
+                        "id": r["id"],
+                        "title": r["title"],
+                        "body": r["body"],
+                        "level": r["level"],
+                        "source": r["source"],
+                        "action_url": r["action_url"],
+                        "importance": r["importance"],
+                        "read": bool(r["read"]),
+                        "created_at": r["created_at"],
+                    }
+                )
 
             return {"notifications": notifications, "unread_count": unread_count}
         except Exception as exc:

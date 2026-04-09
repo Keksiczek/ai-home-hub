@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 @dataclass(order=True)
 class _Waiter:
     """Heap-ordered waiter: lower priority number = higher priority."""
+
     priority: int
     timestamp: float = field(compare=True)
     event: asyncio.Event = field(compare=False, default_factory=asyncio.Event)
@@ -89,7 +90,9 @@ class PrioritySemaphore:
                     wait_s = time.monotonic() - start
                     logger.warning(
                         "PrioritySemaphore timeout: priority=%s label=%s waited=%.1fs",
-                        priority.name, label, wait_s,
+                        priority.name,
+                        label,
+                        wait_s,
                         extra={
                             "event": "llm_semaphore_timeout",
                             "priority": priority.name,
@@ -108,7 +111,9 @@ class PrioritySemaphore:
             if wait_s > 1.0:
                 logger.info(
                     "PrioritySemaphore acquired: priority=%s label=%s waited=%.1fs",
-                    priority.name, label, wait_s,
+                    priority.name,
+                    label,
+                    wait_s,
                 )
 
             yield
@@ -152,8 +157,7 @@ class PrioritySemaphore:
             "total_acquired": self._total_acquired,
             "total_timeouts": self._total_timeouts,
             "by_priority": {
-                TaskPriority(k).name: v
-                for k, v in self._total_by_priority.items()
+                TaskPriority(k).name: v for k, v in self._total_by_priority.items()
             },
         }
 
@@ -167,5 +171,6 @@ def get_priority_semaphore() -> PrioritySemaphore:
     global _semaphore
     if _semaphore is None:
         from app.utils.constants import LLM_MAX_CONCURRENT_REQUESTS
+
         _semaphore = PrioritySemaphore(max_concurrent=LLM_MAX_CONCURRENT_REQUESTS)
     return _semaphore

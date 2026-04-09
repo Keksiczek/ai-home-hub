@@ -33,9 +33,7 @@ async def generate_game(req: CreativeGenerateRequest):
         raise HTTPException(status_code=502, detail=str(exc))
     except Exception as exc:
         logger.exception("Unexpected error in game generation")
-        raise HTTPException(
-            status_code=500, detail=f"Neočekávaná chyba: {exc}"
-        )
+        raise HTTPException(status_code=500, detail=f"Neočekávaná chyba: {exc}")
 
 
 @router.post("/scad", response_model=ScadGenerateResponse)
@@ -51,9 +49,7 @@ async def generate_scad(req: CreativeGenerateRequest):
         raise HTTPException(status_code=502, detail=str(exc))
     except Exception as exc:
         logger.exception("Unexpected error in SCAD generation")
-        raise HTTPException(
-            status_code=500, detail=f"Neočekávaná chyba: {exc}"
-        )
+        raise HTTPException(status_code=500, detail=f"Neočekávaná chyba: {exc}")
 
 
 @router.post("/ascii", response_model=AsciiGenerateResponse)
@@ -69,9 +65,7 @@ async def generate_ascii(req: AsciiGenerateRequest):
         raise HTTPException(status_code=502, detail=str(exc))
     except Exception as exc:
         logger.exception("Unexpected error in ASCII generation")
-        raise HTTPException(
-            status_code=500, detail=f"Neočekávaná chyba: {exc}"
-        )
+        raise HTTPException(status_code=500, detail=f"Neočekávaná chyba: {exc}")
 
 
 @router.get("/history", response_model=CreativeHistoryResponse)

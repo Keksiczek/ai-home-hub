@@ -1,20 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Folder, 
-  File, 
-  FileText, 
-  Image as ImageIcon, 
-  Trash2, 
-  ArrowLeft, 
-  ChevronRight,
-  Search,
-  RefreshCw,
-  Loader2,
-  Database
+import { useState, useEffect } from 'react';
+import {
+  Folder, FileText, Image as ImageIcon, File, Trash2,
+  ArrowLeft, ChevronRight, Search, RefreshCw, Loader2, Database,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { filesApi } from '../api';
 import { useToast } from '../context/ToastContext';
+import { PageShell } from './PageShell';
 
 interface FileEntry {
   name: string;
@@ -26,12 +17,28 @@ interface FileEntry {
   is_image: boolean;
 }
 
-export const Files: React.FC = () => {
-  const [currentPath, setCurrentPath] = useState<string>('data');
+function formatSize(bytes: number): string {
+  if (!bytes) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function FileIcon({ entry }: { entry: FileEntry }) {
+  if (entry.is_dir) return <Folder size={16} style={{ color: '#60a5fa', flexShrink: 0 }} />;
+  if (entry.is_image) return <ImageIcon size={16} style={{ color: '#a78bfa', flexShrink: 0 }} />;
+  if (['.txt', '.md', '.py', '.js', '.ts', '.json', '.yaml', '.toml', '.csv'].includes(entry.extension))
+    return <FileText size={16} style={{ color: '#34d399', flexShrink: 0 }} />;
+  return <File size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />;
+}
+
+export function Files() {
+  const [currentPath, setCurrentPath] = useState('data');
+  const [dataRoot, setDataRoot] = useState<string>('');
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [search, setSearch] = useState('');
   const toast = useToast();
 
   const fetchFiles = async (path: string) => {
@@ -41,33 +48,27 @@ export const Files: React.FC = () => {
       const data = await filesApi.listTree(path, 1);
       setEntries(data.entries);
       setCurrentPath(data.path);
+      // Record the data root on first successful load
+      setDataRoot(prev => prev || data.path);
     } catch (err: any) {
       setError(err.message || 'Nepodařilo se načíst soubory');
-      toast.error('Chyba při načítání souborů');
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    fetchFiles(currentPath);
-  }, []);
+  useEffect(() => { fetchFiles(currentPath); }, []);
 
-  const handleFolderClick = (path: string) => {
-    fetchFiles(path);
-  };
-
-  const handleBackClick = () => {
-    const parts = currentPath.split('/');
-    if (parts.length > 1) {
-      parts.pop();
-      fetchFiles(parts.join('/'));
-    }
+  const handleBack = () => {
+    if (!dataRoot || currentPath === dataRoot) return;
+    const parent = currentPath.includes('/')
+      ? currentPath.split('/').slice(0, -1).join('/')
+      : dataRoot;
+    fetchFiles(parent || dataRoot);
   };
 
   const handleDelete = async (path: string, name: string) => {
-    if (!window.confirm(`Opravdu chcete smazat "${name}"?`)) return;
-
+    if (!confirm(`Smazat „${name}"?`)) return;
     try {
       await filesApi.delete(path);
       toast.success('Soubor smazán');
@@ -77,154 +78,169 @@ export const Files: React.FC = () => {
     }
   };
 
-  const formatSize = (bytes: number) => {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-  };
-
-  const getFileIcon = (entry: FileEntry) => {
-    if (entry.is_dir) return <Folder className="text-blue-400 w-8 h-8" />;
-    if (entry.is_image) return <ImageIcon className="text-purple-400 w-8 h-8" />;
-    if (['.txt', '.md', '.py', '.js', '.ts'].includes(entry.extension)) {
-      return <FileText className="text-emerald-400 w-8 h-8" />;
+  const handleIndexKB = async (path: string, name: string) => {
+    try {
+      await filesApi.uploadToKb(path);
+      toast.success(`${name} zařazen do indexace KB`);
+    } catch (err: any) {
+      toast.error(`Indexace selhala: ${err.message}`);
     }
-    return <File className="text-slate-400 w-8 h-8" />;
   };
 
-  const filteredEntries = entries.filter(e => 
-    e.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const breadcrumbs = currentPath.split('/').filter(Boolean);
+  // Show breadcrumbs relative to the data root (e.g. data/uploads, not /home/user/…/data/uploads)
+  const displayPath = dataRoot && currentPath.startsWith(dataRoot)
+    ? 'data' + currentPath.slice(dataRoot.length)
+    : currentPath;
+  const breadcrumbs = displayPath.split('/').filter(Boolean);
+  const canGoBack = !!dataRoot && currentPath !== dataRoot;
+  const filtered = search
+    ? entries.filter(e => e.name.toLowerCase().includes(search.toLowerCase()))
+    : entries;
 
   return (
-    <motion.div 
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="flex flex-col h-full space-y-4"
-    >
-      {/* Header & Breadcrumbs */}
-      <div className="card glass-panel p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center space-x-3 overflow-hidden">
-          <button 
-            onClick={handleBackClick}
-            disabled={breadcrumbs.length <= 1}
-            className="p-2 hover:bg-white/10 rounded-lg disabled:opacity-30 transition-colors"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          
-          <div className="flex items-center text-sm font-medium overflow-x-auto whitespace-nowrap scrollbar-hide">
-             <Database size={16} className="text-blue-400 mr-2 shrink-0" />
-             {breadcrumbs.map((part, i) => (
-               <React.Fragment key={i}>
-                 {i > 0 && <ChevronRight size={14} className="mx-1 opacity-40 shrink-0" />}
-                 <span className={i === breadcrumbs.length - 1 ? "text-blue-400" : "opacity-60"}>
-                   {part}
-                 </span>
-               </React.Fragment>
-             ))}
-          </div>
+    <PageShell description="Procházení souborů v datovém adresáři aplikace. Soubory lze indexovat do Knowledge Base.">
+      {/* Toolbar */}
+      <div className="glass-panel" style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0, flexWrap: 'wrap' }}>
+        <button
+          onClick={handleBack}
+          disabled={!canGoBack}
+          title="Zpět"
+          style={{ padding: '5px', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', opacity: canGoBack ? 1 : 0.3, flexShrink: 0 }}
+        >
+          <ArrowLeft size={15} />
+        </button>
+
+        {/* Breadcrumb */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '3px', flex: 1, fontSize: '0.82rem', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+          <Database size={13} style={{ color: 'var(--text-muted)', flexShrink: 0, marginRight: '2px' }} />
+          {breadcrumbs.map((part, i) => (
+            <span key={i} style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+              {i > 0 && <ChevronRight size={11} style={{ opacity: 0.4, flexShrink: 0 }} />}
+              <span style={{ color: i === breadcrumbs.length - 1 ? 'var(--text-main)' : 'var(--text-muted)' }}>
+                {part}
+              </span>
+            </span>
+          ))}
         </div>
 
-        <div className="flex items-center space-x-2">
-          <div className="relative group">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-400 transition-colors" size={18} />
-            <input 
-              type="text"
-              placeholder="Hledat..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="bg-black/20 border border-white/10 rounded-xl py-2 pl-10 pr-4 outline-none focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 transition-all w-full md:w-64"
-            />
-          </div>
-          <button 
-            onClick={() => fetchFiles(currentPath)}
-            className="p-2.5 hover:bg-white/10 rounded-xl transition-colors"
-            title="Obnovit"
-          >
-            <RefreshCw size={20} className={loading ? "animate-spin text-blue-400" : ""} />
-          </button>
+        {/* Search */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '6px',
+          background: 'var(--bg-deep)', border: '1px solid var(--border-subtle)',
+          borderRadius: '6px', padding: '5px 10px',
+        }}>
+          <Search size={13} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Filtrovat..."
+            style={{
+              background: 'transparent', border: 'none', color: 'var(--text-main)',
+              fontSize: '0.82rem', outline: 'none', width: '120px',
+            }}
+          />
         </div>
+
+        <button
+          onClick={() => fetchFiles(currentPath)}
+          title="Obnovit"
+          style={{ padding: '5px', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', flexShrink: 0 }}
+        >
+          <RefreshCw size={15} className={loading ? 'spinner' : ''} />
+        </button>
       </div>
 
-      {/* Content Area */}
-      <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+      {/* Content */}
+      <div style={{ flex: 1, overflowY: 'auto' }}>
         {loading && entries.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center space-y-4 opacity-50">
-            <Loader2 className="animate-spin text-blue-400" size={48} />
-            <p className="text-xl font-medium tracking-tight">Procházení souborů...</p>
+          <div className="empty-state">
+            <Loader2 size={28} className="spinner" />
+            <p style={{ color: 'var(--text-muted)' }}>Načítám soubory…</p>
           </div>
         ) : error ? (
-          <div className="card glass-panel p-12 flex flex-col items-center justify-center space-y-4 text-center">
-            <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-2">
-              <Trash2 className="text-red-400" size={32} />
+          <div className="empty-state">
+            <p style={{ color: '#ef4444', margin: 0, fontSize: '0.9rem' }}>{error}</p>
+            <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+              <button className="action-btn small" onClick={() => fetchFiles(currentPath)}>
+                <RefreshCw size={13} /> Zkusit znovu
+              </button>
+              {!!dataRoot && currentPath !== dataRoot && (
+                <button className="action-btn small" onClick={() => fetchFiles(dataRoot)}>
+                  Zpět do kořene
+                </button>
+              )}
             </div>
-            <h3 className="text-xl font-semibold">Chyba přístupu</h3>
-            <p className="text-slate-400 max-w-md">{error}</p>
-            <button 
-              onClick={() => fetchFiles('data')}
-              className="px-6 py-2 bg-blue-600 hover:bg-blue-500 rounded-xl transition-all font-medium"
-            >
-              Zpět do kořene
-            </button>
           </div>
-        ) : filteredEntries.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center space-y-3 opacity-30 italic">
-             <File size={48} />
-             <p>Žádné soubory nenalezeny</p>
+        ) : filtered.length === 0 ? (
+          <div className="empty-state">
+            <File size={36} style={{ opacity: 0.25 }} />
+            <p style={{ color: 'var(--text-muted)', margin: 0 }}>
+              {search ? 'Nic nenalezeno' : 'Složka je prázdná'}
+            </p>
+            {!search && (
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', opacity: 0.7 }}>
+                Soubory lze přidat přes upload v Knowledge Base.
+              </span>
+            )}
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 pb-8">
-            <AnimatePresence mode="popLayout">
-              {filteredEntries.map((entry) => (
-                <motion.div
-                  key={entry.path}
-                  layout
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.9 }}
-                  whileHover={{ y: -4 }}
-                  className={`card glass-panel group p-4 flex flex-col items-center text-center cursor-pointer transition-all border-white/5 hover:border-blue-500/30 ${entry.is_dir ? 'hover:bg-blue-500/5' : 'hover:bg-white/5'}`}
-                  onClick={() => entry.is_dir ? handleFolderClick(entry.path) : null}
-                >
-                  <div className="relative mb-3">
-                    {getFileIcon(entry)}
-                  </div>
-                  
-                  <div className="w-full">
-                    <p className="text-sm font-medium truncate w-full" title={entry.name}>
-                      {entry.name}
-                    </p>
-                    <p className="text-[10px] opacity-40 uppercase tracking-widest mt-1">
-                      {entry.is_dir ? 'Složka' : formatSize(entry.size)}
-                    </p>
-                  </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            {filtered.map(entry => (
+              <div
+                key={entry.path}
+                className="glass-panel"
+                onClick={() => entry.is_dir && fetchFiles(entry.path)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '12px',
+                  padding: '10px 14px', borderRadius: '7px',
+                  cursor: entry.is_dir ? 'pointer' : 'default',
+                  transition: 'background 0.1s',
+                }}
+              >
+                <FileIcon entry={entry} />
 
-                  {/* Quick Actions */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    fontSize: '0.875rem', fontWeight: 500,
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}>
+                    {entry.name}
+                  </div>
                   {!entry.is_dir && (
-                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex space-x-1">
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDelete(entry.path, entry.name);
-                        }}
-                        className="p-1.5 bg-red-500/20 hover:bg-red-500/40 text-red-400 rounded-lg transition-colors"
-                        title="Smazat"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '1px' }}>
+                      {formatSize(entry.size)}{entry.extension ? ` · ${entry.extension}` : ''}
                     </div>
                   )}
-                </motion.div>
-              ))}
-            </AnimatePresence>
+                </div>
+
+                {!entry.is_dir && (
+                  <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+                    <button
+                      onClick={e => { e.stopPropagation(); handleIndexKB(entry.path, entry.name); }}
+                      title="Indexovat do Knowledge Base"
+                      style={{
+                        padding: '3px 8px', borderRadius: '5px', fontSize: '0.72rem', fontWeight: 600,
+                        background: 'rgba(99,102,241,0.1)', color: 'var(--primary-accent)',
+                        border: '1px solid rgba(99,102,241,0.2)',
+                      }}
+                    >
+                      KB
+                    </button>
+                    <button
+                      onClick={e => { e.stopPropagation(); handleDelete(entry.path, entry.name); }}
+                      title="Smazat"
+                      style={{ padding: '4px', borderRadius: '5px', color: '#ef4444', background: 'rgba(239,68,68,0.08)' }}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         )}
       </div>
-    </motion.div>
+    </PageShell>
   );
-};
+}

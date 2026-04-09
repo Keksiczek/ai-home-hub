@@ -242,9 +242,7 @@ RESIDENT_LLM_COOLDOWN_AFTER_FAIL_S = int(
 RESIDENT_LLM_TIMEOUT_SECONDS = int(
     _os.environ.get("RESIDENT_LLM_TIMEOUT_SECONDS", "90")
 )
-RESIDENT_LLM_MAX_RETRIES = int(
-    _os.environ.get("RESIDENT_LLM_MAX_RETRIES", "2")
-)
+RESIDENT_LLM_MAX_RETRIES = int(_os.environ.get("RESIDENT_LLM_MAX_RETRIES", "2"))
 # When True (default), a second cycle cannot start while the first is active.
 RESIDENT_CYCLE_LOCK_ENABLED = (
     _os.environ.get("RESIDENT_CYCLE_LOCK_ENABLED", "true").lower() == "true"
@@ -329,7 +327,7 @@ class MissionProposal:
 class AgentSettings:
     """Runtime-configurable agent settings."""
 
-    interval_seconds: int = 120
+    interval_seconds: int = 30
     model: str = ""  # empty = use default from settings
     max_cycles_per_day: int = 100
     quiet_hours_start: str = "22:00"  # HH:MM
@@ -416,7 +414,11 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         }
         self._state.status = _phase_to_status.get(phase, phase)
         self._state.in_progress = phase not in (
-            "idle", "cooldown", "error", "degraded", "paused"
+            "idle",
+            "cooldown",
+            "error",
+            "degraded",
+            "paused",
         )
         if phase == "idle":
             self._state.active_cycle_id = None
@@ -1059,7 +1061,10 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         # ── Timeout cooldown guard ───────────────────────────────────────
         # After a final LLM timeout the agent enters a cooldown period before
         # new cycles are permitted.
-        if RESIDENT_CYCLE_LOCK_ENABLED and time.monotonic() < self._cycle_cooldown_until:
+        if (
+            RESIDENT_CYCLE_LOCK_ENABLED
+            and time.monotonic() < self._cycle_cooldown_until
+        ):
             remaining = round(self._cycle_cooldown_until - time.monotonic(), 1)
             self._add_log(
                 "INFO",
@@ -1105,7 +1110,9 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         tier = policy.tier
 
         if decision == "block":
-            skip_reason = policy.get_skip_reason(TaskPriority.RESIDENT) or "resource_block"
+            skip_reason = (
+                policy.get_skip_reason(TaskPriority.RESIDENT) or "resource_block"
+            )
             self._state.status = "resource_blocked"
             self._state.current_thought = f"Pozastaven: {tier.value} resource tier"
             self._add_log(
@@ -1288,6 +1295,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         effective_interval = base_interval * interval_multiplier
         self._state.next_run_in = int(effective_interval)
         from datetime import timedelta
+
         self._state.next_run_at = (
             datetime.now(timezone.utc) + timedelta(seconds=effective_interval)
         ).isoformat()
@@ -1598,6 +1606,38 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                 job.id,
             )
 
+    async def _auto_execute_safe_actions(self, suggestion) -> None:
+        """Auto-execute actions that do not require confirmation.
+
+        Creates a resident_task job for each safe action in the suggestion,
+        tagging the payload with auto_executed=True.  Actions with
+        requires_confirmation=True are silently skipped.
+        """
+        from app.services.job_service import get_job_service
+
+        job_svc = get_job_service()
+        for action in suggestion.actions:
+            if action.requires_confirmation:
+                continue
+            action_type = getattr(action, "action", None) or action.action_type
+            job = job_svc.create_job(
+                type="resident_task",
+                title=f"[Auto] {action.title}",
+                input_summary=action.description[:300],
+                payload={
+                    "action_type": action_type,
+                    "steps": action.steps,
+                    "suggestion_id": suggestion.id,
+                    "auto_executed": True,
+                    "params": getattr(action, "params", {}),
+                },
+                priority="normal",
+            )
+            suggestion.executed_action_ids.append(action.id)
+            logger.info(
+                "Auto-executed safe action: %s (job=%s)", action.title, job.id
+            )
+
     async def _store_suggestion_thoughts(self, suggestion) -> None:
         """Store agent 'thought' fields from suggestions into memory."""
         try:
@@ -1621,8 +1661,13 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                         try:
                             import os
 
-                            if os.environ.get("NOTIFICATIONS_ENABLED", "true").lower() != "false":
-                                from app.services.notification_service import get_notification_service
+                            if (
+                                os.environ.get("NOTIFICATIONS_ENABLED", "true").lower()
+                                != "false"
+                            ):
+                                from app.services.notification_service import (
+                                    get_notification_service,
+                                )
 
                                 notif_svc = get_notification_service()
                                 await notif_svc.send(
@@ -1634,7 +1679,9 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                                     importance=8,
                                 )
                         except Exception as exc:
-                            logger.debug("Important thought notification failed: %s", exc)
+                            logger.debug(
+                                "Important thought notification failed: %s", exc
+                            )
         except Exception as exc:
             logger.debug("Failed to store suggestion thoughts: %s", exc)
 
@@ -2477,6 +2524,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
         # Check resource throttling
         try:
             from app.services.resource_monitor import get_resource_monitor
+
             monitor = get_resource_monitor()
             if monitor.is_throttled():
                 usage = monitor.get_current_usage()
@@ -2764,8 +2812,13 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                         try:
                             import os
 
-                            if os.environ.get("NOTIFICATIONS_ENABLED", "true").lower() != "false":
-                                from app.services.notification_service import get_notification_service
+                            if (
+                                os.environ.get("NOTIFICATIONS_ENABLED", "true").lower()
+                                != "false"
+                            ):
+                                from app.services.notification_service import (
+                                    get_notification_service,
+                                )
 
                                 notif_svc = get_notification_service()
                                 await notif_svc.send(
@@ -2777,7 +2830,9 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                                     importance=7,
                                 )
                         except Exception as exc:
-                            logger.debug("Analysis insight notification failed: %s", exc)
+                            logger.debug(
+                                "Analysis insight notification failed: %s", exc
+                            )
                 except Exception as exc:
                     job.status = "failed"
                     job.last_error = str(exc)
@@ -2938,10 +2993,15 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
             # 1b) Ollama offline detection
             try:
                 import httpx
-                from app.services.settings_service import LOCAL_LLM_BASE_URL, get_settings_service
+                from app.services.settings_service import (
+                    LOCAL_LLM_BASE_URL,
+                    get_settings_service,
+                )
 
-                ollama_url = get_settings_service().get_llm_config().get(
-                    "ollama_url", LOCAL_LLM_BASE_URL
+                ollama_url = (
+                    get_settings_service()
+                    .get_llm_config()
+                    .get("ollama_url", LOCAL_LLM_BASE_URL)
                 )
                 async with httpx.AsyncClient(timeout=5.0) as client:
                     resp = await client.get(f"{ollama_url}/api/tags")
@@ -2966,9 +3026,7 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                 from datetime import timedelta
 
                 job_svc = get_job_service()
-                since_1h = (
-                    datetime.now(timezone.utc) - timedelta(hours=1)
-                ).isoformat()
+                since_1h = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
                 failed_count = job_svc.count_jobs(status="failed", since=since_1h)
                 if failed_count >= 3:
                     # Only notify once per hour
@@ -3034,7 +3092,8 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                 closed_items = curiosity_svc.list_items(status="closed", limit=100)
                 # Filter to last 24h
                 closed_curiosity = sum(
-                    1 for item in closed_items
+                    1
+                    for item in closed_items
                     if getattr(item, "closed_at", "") >= since_24h
                 )
             except Exception:
@@ -3371,7 +3430,9 @@ class ResidentAgent(MemoryMixin, PendingActionsMixin, ToolsMixin, BackgroundServ
                 consecutive_failures=self._state.consecutive_failures,
             )
             # Enter cooldown: block new cycles for RESIDENT_TIMEOUT_COOLDOWN_SECONDS
-            self._cycle_cooldown_until = time.monotonic() + RESIDENT_TIMEOUT_COOLDOWN_SECONDS
+            self._cycle_cooldown_until = (
+                time.monotonic() + RESIDENT_TIMEOUT_COOLDOWN_SECONDS
+            )
             self._set_phase("cooldown", cycle_id)
             self._state.last_error = f"LLM timeout after {max_attempts} attempt(s)"
             self._state.last_error_at = _now()

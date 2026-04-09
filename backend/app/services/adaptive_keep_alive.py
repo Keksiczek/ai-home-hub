@@ -38,9 +38,9 @@ _KEEP_ALIVE_MAP: Dict[str, str] = {
 # Eviction priority order: evict leftmost first (cheapest to reload last)
 # Format: exact Ollama model name substrings used for matching
 _EVICTION_PRIORITY: Tuple[str, ...] = (
-    "llava",           # llava:7b  – largest, lowest reuse
-    "llama3.2",        # llama3.2:3b-instruct
-    "qwen2.5",         # qwen2.5:7b-instruct-q4_K_M
+    "llava",  # llava:7b  – largest, lowest reuse
+    "llama3.2",  # llama3.2:3b-instruct
+    "qwen2.5",  # qwen2.5:7b-instruct-q4_K_M
 )
 
 
@@ -186,9 +186,7 @@ class AdaptiveKeepAliveManager:
         """Return the least-recently-used model name, respecting eviction priority."""
         for substring in _EVICTION_PRIORITY:
             # Find all tracked models whose name matches this priority tier
-            candidates = [
-                m for m in self._last_used_at if substring in m.lower()
-            ]
+            candidates = [m for m in self._last_used_at if substring in m.lower()]
             if not candidates:
                 continue
             # Pick the one that was used the longest ago
@@ -206,9 +204,7 @@ class AdaptiveKeepAliveManager:
         Returns the evicted model name, or None if nothing was evicted.
         """
         for substring in _EVICTION_PRIORITY:
-            candidates = [
-                m for m in self._last_used_at if substring in m.lower()
-            ]
+            candidates = [m for m in self._last_used_at if substring in m.lower()]
             if not candidates:
                 continue
             candidates.sort(key=lambda m: self._last_used_at[m])
@@ -229,12 +225,16 @@ class AdaptiveKeepAliveManager:
         The prompt is deliberately minimal – we don't actually want output.
         """
         try:
-            from app.services.settings_service import LOCAL_LLM_BASE_URL, get_settings_service
+            from app.services.settings_service import (
+                LOCAL_LLM_BASE_URL,
+                get_settings_service,
+            )
 
             cfg = get_settings_service().get_llm_config()
             ollama_url = cfg.get("ollama_url", LOCAL_LLM_BASE_URL).rstrip("/")
         except Exception:
             from app.services.settings_service import LOCAL_LLM_BASE_URL as _url
+
             ollama_url = _url
 
         payload = {

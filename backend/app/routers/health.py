@@ -200,6 +200,7 @@ async def health() -> dict:
     # ── KB Watchdog ──────────────────────────────────────────
     try:
         from app.services.kb_watchdog import KBWatchdog
+
         # Watchdog status is available through startup reference
         # For now just report basic state
         components["kb_watchdog"] = {"status": "healthy"}
@@ -211,7 +212,9 @@ async def health() -> dict:
     if policy.tier.value in ("high", "critical"):
         degradation_reasons.append(f"resource_pressure_{policy.tier.value}")
     components["resource_policy"] = {
-        "status": "healthy" if policy.tier.value in ("normal", "elevated") else "degraded",
+        "status": (
+            "healthy" if policy.tier.value in ("normal", "elevated") else "degraded"
+        ),
         "tier": policy.tier.value,
         "reason": policy.state.tier_reason if policy.tier.value != "normal" else "",
         **resource_info,
@@ -220,6 +223,7 @@ async def health() -> dict:
     # ── LLM Semaphore ────────────────────────────────────────
     try:
         from app.services.priority_semaphore import get_priority_semaphore
+
         sem = get_priority_semaphore()
         components["llm_semaphore"] = {
             "status": "healthy",

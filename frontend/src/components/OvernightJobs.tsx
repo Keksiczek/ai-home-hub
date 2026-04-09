@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Moon, Play, Loader2, RefreshCw, Clock, CheckCircle2, XCircle } from 'lucide-react';
+import { Moon, Play, Loader2, RefreshCw, CheckCircle2, XCircle } from 'lucide-react';
 
 interface OvernightStatus {
   is_night_window: boolean;

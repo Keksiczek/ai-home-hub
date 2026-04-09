@@ -60,17 +60,19 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
 
 
 # Paths that are polled frequently — log at DEBUG instead of INFO to reduce noise
-_QUIET_PATHS = frozenset({
-    "/api/health",
-    "/api/health/live",
-    "/api/health/ready",
-    "/metrics",
-    "/api/status/system/resources",
-    "/api/notifications",
-    "/api/jobs/mobile-summary",
-    "/api/resident/status",
-    "/api/resident/heartbeat",
-})
+_QUIET_PATHS = frozenset(
+    {
+        "/api/health",
+        "/api/health/live",
+        "/api/health/ready",
+        "/metrics",
+        "/api/status/system/resources",
+        "/api/notifications",
+        "/api/jobs/mobile-summary",
+        "/api/resident/status",
+        "/api/resident/heartbeat",
+    }
+)
 
 
 def _log_request(

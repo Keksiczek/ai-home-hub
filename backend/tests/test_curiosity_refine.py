@@ -9,7 +9,23 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+import time
+
 from app.models.resident_models import CuriosityItem
+
+
+def _init_agent_budget(core: "ResidentAgent") -> None:  # type: ignore[name-defined]
+    """Initialise budget/rate-limit attrs that __new__ skips."""
+    core._llm_calls_this_hour = 0
+    core._llm_calls_reset_at = time.monotonic() + 3600
+    core._llm_last_fail_at = 0.0
+    core._missions_today = 0
+    core._missions_reset_date = ""
+    core._analysis_jobs_this_hour = 0
+    core._analysis_jobs_reset_at = time.monotonic() + 3600
+    core._daily_action_counts = {}
+    core._daily_action_reset_date = ""
+
 
 # ── Helper: isolated CuriosityService with temp dir ──────────────────
 
@@ -141,11 +157,13 @@ class TestWIPLimit:
             "app.services.resident_agent.core.MAX_CURIOSITY_IN_PROGRESS", 3
         ):
 
+            import time
             from app.services.resident_agent.core import ResidentAgent
 
             core = ResidentAgent.__new__(ResidentAgent)
             core._state = MagicMock()
             core._state.tick_count = 1  # divisible by 1
+            _init_agent_budget(core)
 
             await core._curiosity_tick()
 
@@ -250,6 +268,7 @@ class TestCuriositySafety:
             core = ResidentAgent.__new__(ResidentAgent)
             core._state = MagicMock()
             core._state.tick_count = 1
+            _init_agent_budget(core)
 
             await core._curiosity_tick()
 

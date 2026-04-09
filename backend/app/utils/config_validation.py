@@ -31,7 +31,9 @@ _LOCALHOST_PATTERNS = re.compile(
 class ConfigValidationError:
     """A single validation error/warning."""
 
-    def __init__(self, field: str, code: str, message: str, level: str = "error") -> None:
+    def __init__(
+        self, field: str, code: str, message: str, level: str = "error"
+    ) -> None:
         self.field = field
         self.code = code
         self.message = message
@@ -63,11 +65,13 @@ def validate_url(
     if not url or not url.strip():
         if allow_empty:
             return "", []
-        errors.append(ConfigValidationError(
-            field=field_name,
-            code="URL_EMPTY",
-            message=f"{field_name} is empty",
-        ))
+        errors.append(
+            ConfigValidationError(
+                field=field_name,
+                code="URL_EMPTY",
+                message=f"{field_name} is empty",
+            )
+        )
         return url, errors
 
     url = url.strip()
@@ -79,50 +83,62 @@ def validate_url(
         # No schema — check if it looks like localhost
         if _LOCALHOST_PATTERNS.match(url):
             normalized = f"http://{url}"
-            errors.append(ConfigValidationError(
-                field=field_name,
-                code="URL_LOCALHOST_NORMALIZED",
-                message=f"{field_name} missing http:// schema, auto-normalized: {url} -> {normalized}",
-                level="warning",
-            ))
+            errors.append(
+                ConfigValidationError(
+                    field=field_name,
+                    code="URL_LOCALHOST_NORMALIZED",
+                    message=f"{field_name} missing http:// schema, auto-normalized: {url} -> {normalized}",
+                    level="warning",
+                )
+            )
             logger.warning(
                 "Config: %s missing schema, auto-normalized: %s -> %s",
-                field_name, url, normalized,
+                field_name,
+                url,
+                normalized,
             )
             url = normalized
         else:
             # Check if they used a different scheme like ftp://
             parsed_check = urlparse(url)
             if parsed_check.scheme and parsed_check.scheme not in ("http", "https"):
-                errors.append(ConfigValidationError(
-                    field=field_name,
-                    code="URL_INVALID_SCHEMA",
-                    message=f"{field_name} must use http or https schema (got: {parsed_check.scheme})",
-                ))
+                errors.append(
+                    ConfigValidationError(
+                        field=field_name,
+                        code="URL_INVALID_SCHEMA",
+                        message=f"{field_name} must use http or https schema (got: {parsed_check.scheme})",
+                    )
+                )
                 return url, errors
-            errors.append(ConfigValidationError(
-                field=field_name,
-                code="URL_MISSING_SCHEMA",
-                message=f"{field_name} must start with http:// or https:// (got: {url})",
-            ))
+            errors.append(
+                ConfigValidationError(
+                    field=field_name,
+                    code="URL_MISSING_SCHEMA",
+                    message=f"{field_name} must start with http:// or https:// (got: {url})",
+                )
+            )
             return url, errors
 
     # Parse with schema present
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
-        errors.append(ConfigValidationError(
-            field=field_name,
-            code="URL_INVALID_SCHEMA",
-            message=f"{field_name} must use http or https schema (got: {parsed.scheme})",
-        ))
+        errors.append(
+            ConfigValidationError(
+                field=field_name,
+                code="URL_INVALID_SCHEMA",
+                message=f"{field_name} must use http or https schema (got: {parsed.scheme})",
+            )
+        )
         return url, errors
 
     if not parsed.hostname:
-        errors.append(ConfigValidationError(
-            field=field_name,
-            code="URL_INVALID_FORMAT",
-            message=f"{field_name} has no hostname",
-        ))
+        errors.append(
+            ConfigValidationError(
+                field=field_name,
+                code="URL_INVALID_FORMAT",
+                message=f"{field_name} has no hostname",
+            )
+        )
         return url, errors
 
     # Strip trailing slash

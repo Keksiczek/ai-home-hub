@@ -415,7 +415,9 @@ class JobWorker(BackgroundService):
 
     async def _poll_and_dispatch(self) -> None:
         job_settings = self._get_settings()
-        max_concurrent = min(job_settings.get("max_concurrent_jobs", 1), 1)  # hard cap: 1 on this HW
+        max_concurrent = min(
+            job_settings.get("max_concurrent_jobs", 1), 1
+        )  # hard cap: 1 on this HW
 
         # Check how many slots are available
         running_count = len(self._running_job_ids)

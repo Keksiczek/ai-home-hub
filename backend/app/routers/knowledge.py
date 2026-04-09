@@ -18,6 +18,7 @@ from fastapi import (
 )
 
 from app.models.schemas import ReindexFileRequest
+from app.services.embeddings_service import get_embeddings_service
 from app.services.settings_service import get_settings_service
 from app.services.vector_store_service import get_vector_store_service
 from app.utils.auth import verify_api_key
@@ -36,8 +37,6 @@ async def rebuild_kb_collection() -> Dict[str, Any]:
     Use when embedding dimension has changed (e.g. switched embedding model)
     and the existing collection has incompatible vectors.
     """
-    from app.services.embeddings_service import get_embeddings_service
-
     vs = get_vector_store_service()
     emb_svc = get_embeddings_service()
 
@@ -119,7 +118,9 @@ async def initialize_knowledge_base(body: Dict[str, Any] = Body(...)) -> Dict[st
 
     collection = body.get("collection", "knowledge_base")
     try:
-        return await get_knowledge_service().initialize(sources=sources, collection=collection)
+        return await get_knowledge_service().initialize(
+            sources=sources, collection=collection
+        )
     except Exception as exc:
         logger.error("KB initialization failed: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"KB initialization failed: {exc}")
@@ -346,7 +347,12 @@ async def batch_upload(
         for upload in files:
             suffix = Path(upload.filename or "file").suffix.lower()
             if suffix not in SUPPORTED_EXTENSIONS:
-                results.append({"file": upload.filename, "error": f"Unsupported file type: {suffix}"})
+                results.append(
+                    {
+                        "file": upload.filename,
+                        "error": f"Unsupported file type: {suffix}",
+                    }
+                )
                 continue
             dest = UPLOADS_DIR / f"{uuid.uuid4()}{suffix}"
             try:
@@ -367,13 +373,20 @@ async def batch_upload(
             if "saved_as" in r:
                 r["job_id"] = job_id
 
-        return {"results": results, "job_id": job_id, "mode": mode, "collection": collection}
+        return {
+            "results": results,
+            "job_id": job_id,
+            "mode": mode,
+            "collection": collection,
+        }
 
     # mode == "analyze"
     for upload in files:
         suffix = Path(upload.filename or "file").suffix.lower()
         if suffix not in SUPPORTED_EXTENSIONS:
-            results.append({"file": upload.filename, "error": f"Unsupported file type: {suffix}"})
+            results.append(
+                {"file": upload.filename, "error": f"Unsupported file type: {suffix}"}
+            )
             continue
 
         tmp_path = UPLOADS_DIR / f"analyze_{uuid.uuid4()}{suffix}"
@@ -449,7 +462,9 @@ async def list_kb_collections() -> Dict[str, Any]:
 
 
 @router.post("/kb/collections", tags=["knowledge"])
-async def create_kb_collection(body: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
+async def create_kb_collection(
+    body: Dict[str, Any] = Body(default={}),
+) -> Dict[str, Any]:
     """Create a new KB collection."""
     name = body.get("name", "").strip()
     if not name:

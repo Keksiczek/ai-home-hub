@@ -101,9 +101,7 @@ class GroqProvider(LLMProvider):
         if "num_predict" in options:
             payload["max_tokens"] = options["num_predict"]
 
-        stream_timeout = httpx.Timeout(
-            connect=10.0, read=timeout, write=10.0, pool=5.0
-        )
+        stream_timeout = httpx.Timeout(connect=10.0, read=timeout, write=10.0, pool=5.0)
         async with httpx.AsyncClient(timeout=stream_timeout) as client:
             async with client.stream(
                 "POST",
@@ -143,8 +141,7 @@ class GroqProvider(LLMProvider):
                 resp.raise_for_status()
                 data = resp.json()
             return [
-                ModelInfo(name=m.get("id", "unknown"))
-                for m in data.get("data", [])
+                ModelInfo(name=m.get("id", "unknown")) for m in data.get("data", [])
             ]
         except Exception:
             return [ModelInfo(name=m) for m in GROQ_MODELS]

@@ -56,4 +56,7 @@ async def test_notification() -> dict:
     )
     if success:
         return {"success": True, "message": "Test notification sent"}
-    return {"success": False, "error": "Failed to send notification. Check ntfy settings."}
+    return {
+        "success": False,
+        "error": "Failed to send notification. Check ntfy settings.",
+    }

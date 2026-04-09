@@ -87,9 +87,7 @@ class LlamaCppProvider(LLMProvider):
         if "num_predict" in options:
             payload["max_tokens"] = options["num_predict"]
 
-        stream_timeout = httpx.Timeout(
-            connect=10.0, read=timeout, write=10.0, pool=5.0
-        )
+        stream_timeout = httpx.Timeout(connect=10.0, read=timeout, write=10.0, pool=5.0)
         async with httpx.AsyncClient(timeout=stream_timeout) as client:
             async with client.stream(
                 "POST",
@@ -127,10 +125,7 @@ class LlamaCppProvider(LLMProvider):
         except Exception:
             return []
 
-        return [
-            ModelInfo(name=m.get("id", "unknown"))
-            for m in data.get("data", [])
-        ]
+        return [ModelInfo(name=m.get("id", "unknown")) for m in data.get("data", [])]
 
     # ── embeddings ─────────────────────────────────────────────
 
@@ -144,9 +139,7 @@ class LlamaCppProvider(LLMProvider):
         payload = {"model": model, "input": text}
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
-                resp = await client.post(
-                    f"{self.base_url}/v1/embeddings", json=payload
-                )
+                resp = await client.post(f"{self.base_url}/v1/embeddings", json=payload)
                 resp.raise_for_status()
                 data = resp.json()
                 return data.get("data", [{}])[0].get("embedding", [])

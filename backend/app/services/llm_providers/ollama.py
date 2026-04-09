@@ -19,6 +19,7 @@ class OllamaProvider(LLMProvider):
     def __init__(self, base_url: str | None = None) -> None:
         if base_url is None:
             from app.services.settings_service import LOCAL_LLM_BASE_URL
+
             base_url = LOCAL_LLM_BASE_URL
         self.base_url = base_url.rstrip("/")
 
@@ -111,7 +112,10 @@ class OllamaProvider(LLMProvider):
             return []
 
         embedding_prefixes = (
-            "nomic-embed", "all-minilm", "mxbai-embed", "snowflake-arctic-embed"
+            "nomic-embed",
+            "all-minilm",
+            "mxbai-embed",
+            "snowflake-arctic-embed",
         )
         result: List[ModelInfo] = []
         for m in data.get("models", []):
@@ -140,9 +144,7 @@ class OllamaProvider(LLMProvider):
         for endpoint in ("/api/embed", "/api/embeddings"):
             try:
                 async with httpx.AsyncClient(timeout=60.0) as client:
-                    resp = await client.post(
-                        f"{self.base_url}{endpoint}", json=payload
-                    )
+                    resp = await client.post(f"{self.base_url}{endpoint}", json=payload)
                     if resp.status_code == 404:
                         continue
                     resp.raise_for_status()

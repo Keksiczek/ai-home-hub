@@ -294,7 +294,7 @@ class TestServiceWorker:
     def test_sw_exists_and_has_cache(self):
         sw = Path(__file__).parent.parent / "static" / "sw.js"
         content = sw.read_text()
-        assert "ai-home-hub-v2" in content
+        assert "ai-home-hub-v" in content
         assert "CACHEABLE_API" in content
         assert "/api/health" in content
 

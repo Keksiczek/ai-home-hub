@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import {
-  Bot, Terminal, LayoutDashboard, Database, Settings as SettingsIcon, Activity, Folder,
-  Users, Zap, ShieldAlert, Cpu, Gamepad2, Moon, Wrench, Menu, X, ExternalLink
+  Bot, Terminal, LayoutDashboard, Database, Settings as SettingsIcon, Activity,
+  Folder, Users, Zap, ShieldAlert, Cpu, Gamepad2, Moon, Wrench, Menu, X,
+  ExternalLink, Package, AlertTriangle, Box,
 } from 'lucide-react';
 import { useAppWebSocket } from './context/AppWebSocketContext';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { Dashboard } from './components/Dashboard';
 import { Chat } from './components/Chat';
 import { KnowledgeBase } from './components/KnowledgeBase';
@@ -21,31 +23,73 @@ import { LLMSettings } from './components/LLMSettings';
 import { Settings } from './components/Settings';
 import './App.css';
 
-const mainNavItems = [
-  { id: 'chat', label: 'Chat', icon: Bot },
-  { id: 'resident', label: 'Resident AI', icon: Zap },
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'knowledge', label: 'Knowledge Base', icon: Database },
+// ── Navigation groups – IA: Core / Knowledge / Control / Models / System ──
+
+const coreNavItems = [
+  { id: 'chat',      label: 'Chat',         icon: Bot },
+  { id: 'dashboard', label: 'Dashboard',    icon: LayoutDashboard },
+  { id: 'resident',  label: 'Resident AI',  icon: Zap },
 ];
 
-const advancedNavItems = [
-  { id: 'files', label: 'Soubory', icon: Folder },
-  { id: 'agents', label: 'Agenti', icon: Users },
-  { id: 'skills', label: 'Skills', icon: Zap },
-  { id: 'actions', label: 'Rychlé akce', icon: Wrench },
-  { id: 'jobs', label: 'Jobs', icon: Terminal },
-  { id: 'creative', label: 'Creative Studio', icon: Gamepad2 },
-  { id: 'overnight', label: 'Noční úlohy', icon: Moon },
-  { id: 'models', label: 'Modely', icon: Database },
+const knowledgeNavItems = [
+  { id: 'knowledge', label: 'Knowledge Base', icon: Database },
+  { id: 'files',     label: 'Soubory',        icon: Folder },
+  { id: 'jobs',      label: 'Jobs',           icon: Terminal },
+];
+
+const controlNavItems = [
+  { id: 'agents',       label: 'Agenti',        icon: Users },
+  { id: 'skills',       label: 'Skills',        icon: Package },
+  { id: 'actions',      label: 'Rychlé akce',   icon: Wrench },
+  { id: 'control-room', label: 'Control Room',  icon: ShieldAlert },
+  { id: 'overnight',    label: 'Noční úlohy',   icon: Moon },
+];
+
+const modelsNavItems = [
+  { id: 'models',       label: 'Modely',         icon: Box },
+  { id: 'llm-settings', label: 'LLM nastavení',  icon: Cpu },
 ];
 
 const systemNavItems = [
-  { id: 'control-room', label: 'Control Room', icon: ShieldAlert },
-  { id: 'llm-settings', label: 'LLM nastavení', icon: Cpu },
-  { id: 'settings', label: 'Nastavení', icon: SettingsIcon },
+  { id: 'settings', label: 'Nastavení',      icon: SettingsIcon },
+  { id: 'creative', label: 'Creative Studio', icon: Gamepad2 },
 ];
 
-const allNavItems = [...mainNavItems, ...advancedNavItems, ...systemNavItems];
+const allNavItems = [
+  ...coreNavItems,
+  ...knowledgeNavItems,
+  ...controlNavItems,
+  ...modelsNavItems,
+  ...systemNavItems,
+];
+
+// ── Section error / unknown page fallbacks ────────────────────────────────
+
+function SectionErrorFallback({ name }: { name: string }) {
+  return (
+    <div className="section-error">
+      <AlertTriangle size={32} style={{ color: '#f59e0b', flexShrink: 0 }} />
+      <h3 style={{ margin: 0, fontSize: '1rem' }}>{name}</h3>
+      <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-muted)', maxWidth: '320px' }}>
+        Sekce se nepodařila načíst. Přejděte na jinou stránku a zkuste to znovu.
+      </p>
+    </div>
+  );
+}
+
+function UnknownPage() {
+  return (
+    <div className="section-error">
+      <AlertTriangle size={32} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+      <h3 style={{ margin: 0, fontSize: '1rem' }}>Stránka nenalezena</h3>
+      <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+        Tato sekce neexistuje nebo není implementována.
+      </p>
+    </div>
+  );
+}
+
+// ── App ───────────────────────────────────────────────────────────────────
 
 function App() {
   const [activeTab, setActiveTab] = useState('chat');
@@ -55,8 +99,7 @@ function App() {
 
   useEffect(() => {
     if (residentState?.type === 'resident_tick') {
-      const isRunning = residentState.is_running;
-      setResidentStatus(isRunning ? 'active' : 'stopped');
+      setResidentStatus(residentState.is_running ? 'active' : 'stopped');
     }
   }, [residentState]);
 
@@ -69,26 +112,26 @@ function App() {
 
   const renderContent = () => {
     switch (activeTab) {
-      case 'chat': return <Chat />;
-      case 'resident': return <ResidentAgent />;
-      case 'dashboard': return <Dashboard />;
-      case 'knowledge': return <KnowledgeBase />;
-      case 'creative': return <CreativeStudio />;
-      case 'jobs': return <Jobs />;
-      case 'models': return <Models />;
-      case 'files': return <Files />;
-      case 'agents': return <Agents />;
-      case 'skills': return <Skills />;
-      case 'actions': return <QuickActions />;
+      case 'chat':         return <Chat />;
+      case 'resident':     return <ResidentAgent />;
+      case 'dashboard':    return <Dashboard />;
+      case 'knowledge':    return <KnowledgeBase />;
+      case 'creative':     return <CreativeStudio />;
+      case 'jobs':         return <Jobs />;
+      case 'models':       return <Models />;
+      case 'files':        return <Files />;
+      case 'agents':       return <Agents />;
+      case 'skills':       return <Skills />;
+      case 'actions':      return <QuickActions />;
       case 'control-room': return <ControlRoom />;
-      case 'overnight': return <OvernightJobs />;
+      case 'overnight':    return <OvernightJobs />;
       case 'llm-settings': return <LLMSettings />;
-      case 'settings': return <Settings />;
-      default: return <Chat />;
+      case 'settings':     return <Settings />;
+      default:             return <UnknownPage />;
     }
   };
 
-  const renderNavGroup = (label: string, items: typeof mainNavItems) => (
+  const renderNavGroup = (label: string, items: typeof coreNavItems) => (
     <>
       <div className="nav-group-label">{label}</div>
       {items.map((item) => {
@@ -100,7 +143,7 @@ function App() {
             className={`nav-item ${isActive ? 'active' : ''}`}
             onClick={() => selectTab(item.id)}
           >
-            <Icon size={18} className="nav-icon" />
+            <Icon size={16} className="nav-icon" />
             <span>{item.label}</span>
           </button>
         );
@@ -108,31 +151,23 @@ function App() {
     </>
   );
 
-  // Detect OpenWebUI URL: use Tailscale hostname if not on localhost
-  const openWebUIUrl = (() => {
-    const host = window.location.hostname;
-    if (host === 'localhost' || host === '127.0.0.1') {
-      return 'http://localhost:8080';
-    }
-    // On Tailscale or other remote access, use same host with port 8080
-    return `${window.location.protocol}//${host}:8080`;
-  })();
+  const isLocalhost =
+    window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  const openWebUIUrl = isLocalhost
+    ? 'http://localhost:8080'
+    : `${window.location.protocol}//${window.location.hostname}:8080`;
 
   return (
     <div className="app-container">
-      {/* Mobile Sidebar Overlay */}
       {isSidebarOpen && (
-        <div
-          className="sidebar-overlay"
-          onClick={() => setIsSidebarOpen(false)}
-        />
+        <div className="sidebar-overlay" onClick={() => setIsSidebarOpen(false)} />
       )}
 
-      {/* Sidebar */}
+      {/* ── Sidebar ── */}
       <aside className={`sidebar ${isSidebarOpen ? 'open' : ''}`}>
         <div className="sidebar-header">
           <div className="logo-icon">
-            <Bot size={20} strokeWidth={2.5} />
+            <Bot size={18} strokeWidth={2.5} />
           </div>
           <h2>AI Home Hub</h2>
           <button className="mobile-close-btn" onClick={() => setIsSidebarOpen(false)}>
@@ -141,38 +176,55 @@ function App() {
         </div>
 
         <nav className="sidebar-nav">
-          {renderNavGroup('Hlavní', mainNavItems)}
-          {renderNavGroup('Funkce', advancedNavItems)}
-          {renderNavGroup('Systém', systemNavItems)}
+          {renderNavGroup('Core',      coreNavItems)}
+          {renderNavGroup('Znalosti',  knowledgeNavItems)}
+          {renderNavGroup('Řízení',    controlNavItems)}
+          {renderNavGroup('Modely',    modelsNavItems)}
+          {renderNavGroup('Systém',    systemNavItems)}
 
-          {/* OpenWebUI external link */}
-          <div className="nav-group-label">Externí</div>
-          <a
-            href={openWebUIUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="nav-item nav-external-link"
-          >
-            <Bot size={18} className="nav-icon" />
-            <span>Open WebUI</span>
-            <ExternalLink size={12} style={{ marginLeft: 'auto', opacity: 0.5 }} />
-          </a>
+          {/* OpenWebUI companion */}
+          <div className="nav-group-label">Companion</div>
+          <div className="openwebui-entry">
+            <div className="openwebui-header">
+              <Bot size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+              <span className="openwebui-name">Open WebUI</span>
+              <span className={`openwebui-badge ${isLocalhost ? 'badge-local' : 'badge-remote'}`}>
+                {isLocalhost ? 'jen lokálně' : 'port 8080'}
+              </span>
+            </div>
+            <p className="openwebui-note">
+              {isLocalhost
+                ? 'Dostupné jen z tohoto zařízení. Pro přístup odjinud je potřeba reverse proxy nebo Tailscale Funnel.'
+                : 'Port 8080 pravděpodobně není z jiných zařízení přístupný bez reverse proxy.'}
+            </p>
+            <a
+              href={openWebUIUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="openwebui-link"
+            >
+              Otevřít <ExternalLink size={11} />
+            </a>
+          </div>
         </nav>
       </aside>
 
-      {/* Main Content */}
+      {/* ── Main content ── */}
       <main className="main-content">
         <header className="topbar">
           <div className="topbar-left">
             <button className="mobile-menu-btn" onClick={() => setIsSidebarOpen(true)}>
-              <Menu size={24} />
+              <Menu size={22} />
             </button>
             <h1 className="page-title">{activeNavItem.label}</h1>
           </div>
 
           <div className="topbar-right">
             <div className="activity-badge">
-              <Activity size={14} className={`status-icon status-${status === 'connected' ? residentStatus : 'stopped'}`} />
+              <Activity
+                size={13}
+                className={`status-icon status-${status === 'connected' ? residentStatus : 'stopped'}`}
+              />
               <span className="status-text">
                 {status === 'connected' ? 'Online' : 'Offline'}
               </span>
@@ -180,10 +232,15 @@ function App() {
           </div>
         </header>
 
-        <div className="content-area">
-          <div className="tab-content" key={activeTab}>
-            {renderContent()}
-          </div>
+        <div className={`content-area${activeTab === 'chat' ? ' content-chat' : ''}`}>
+          <ErrorBoundary
+            key={activeTab}
+            fallback={<SectionErrorFallback name={activeNavItem.label} />}
+          >
+            <div className="tab-content">
+              {renderContent()}
+            </div>
+          </ErrorBoundary>
         </div>
       </main>
     </div>

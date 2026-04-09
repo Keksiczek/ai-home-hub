@@ -163,8 +163,8 @@ class TestKBSearchEndpoint:
         mock_vs = _mock_vector_store()
         mock_emb = _mock_search_deps(mock_vs)
         with patch(
-            "app.routers.knowledge.get_vector_store_service", return_value=mock_vs
-        ), patch("app.routers.knowledge.get_embeddings_service", return_value=mock_emb):
+            "app.services.kb_search_service.get_vector_store_service", return_value=mock_vs
+        ), patch("app.services.kb_search_service.get_embeddings_service", return_value=mock_emb):
             resp = client.get("/api/kb/search?q=lean+ci")
         assert resp.status_code == 200
 
@@ -172,8 +172,8 @@ class TestKBSearchEndpoint:
         mock_vs = _mock_vector_store()
         mock_emb = _mock_search_deps(mock_vs)
         with patch(
-            "app.routers.knowledge.get_vector_store_service", return_value=mock_vs
-        ), patch("app.routers.knowledge.get_embeddings_service", return_value=mock_emb):
+            "app.services.kb_search_service.get_vector_store_service", return_value=mock_vs
+        ), patch("app.services.kb_search_service.get_embeddings_service", return_value=mock_emb):
             resp = client.get("/api/kb/search?q=test&collection=main")
         assert resp.status_code == 200
 
@@ -184,7 +184,7 @@ class TestKBSearchEndpoint:
         )
         mock_vs.COLLECTION_NAME = "knowledge_base"
         with patch(
-            "app.routers.knowledge.get_vector_store_service", return_value=mock_vs
+            "app.services.kb_search_service.get_vector_store_service", return_value=mock_vs
         ):
             resp = client.get("/api/kb/search?tag=lean")
         assert resp.status_code == 200
@@ -193,7 +193,7 @@ class TestKBSearchEndpoint:
         mock_vs = _mock_vector_store()
         mock_emb = _mock_search_deps(mock_vs)
         with patch(
-            "app.routers.knowledge.get_vector_store_service", return_value=mock_vs
-        ), patch("app.routers.knowledge.get_embeddings_service", return_value=mock_emb):
+            "app.services.kb_search_service.get_vector_store_service", return_value=mock_vs
+        ), patch("app.services.kb_search_service.get_embeddings_service", return_value=mock_emb):
             data = client.get("/api/kb/search?q=anything").json()
         assert "results" in data

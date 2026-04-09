@@ -54,7 +54,9 @@ async def test_timeout(sem):
     """Semaphore should raise TimeoutError when timeout expires."""
     async with sem.acquire(TaskPriority.CHAT, timeout=5, label="holder"):
         with pytest.raises(asyncio.TimeoutError):
-            async with sem.acquire(TaskPriority.BACKGROUND, timeout=0.1, label="waiter"):
+            async with sem.acquire(
+                TaskPriority.BACKGROUND, timeout=0.1, label="waiter"
+            ):
                 pass
 
 

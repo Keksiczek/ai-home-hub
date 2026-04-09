@@ -87,9 +87,7 @@ class EmbeddingsService:
         from app.services.settings_service import LOCAL_LLM_BASE_URL
 
         ollama_url = (
-            settings.get("llm", {})
-            .get("ollama_url", LOCAL_LLM_BASE_URL)
-            .rstrip("/")
+            settings.get("llm", {}).get("ollama_url", LOCAL_LLM_BASE_URL).rstrip("/")
         )
         primary_model = settings.get("llm", {}).get(
             "embeddings_model", self.DEFAULT_MODEL

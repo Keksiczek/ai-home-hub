@@ -205,10 +205,7 @@ class JobService:
             jobs = self._read_raw()
             # 1. Cancel stale queued jobs (any type)
             for j in jobs:
-                if (
-                    j.get("status") == "queued"
-                    and j.get("created_at", "") < cutoff
-                ):
+                if j.get("status") == "queued" and j.get("created_at", "") < cutoff:
                     j["status"] = "cancelled"
                     j["last_error"] = f"Auto-cancelled: queued > {STALE_JOB_DAYS} days"
                     j["finished_at"] = _now()
@@ -216,7 +213,8 @@ class JobService:
 
             # 2. Enforce max queued low-priority jobs (keep newest, cancel oldest)
             low_prio_queued = [
-                j for j in jobs
+                j
+                for j in jobs
                 if j.get("status") == "queued"
                 and j.get("type") in LOW_PRIORITY_JOB_TYPES
             ]

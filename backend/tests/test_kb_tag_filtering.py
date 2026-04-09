@@ -56,13 +56,13 @@ def _make_vs_mock():
 class TestKBSearch:
     def test_search_by_tag_only_returns_200(self, client: TestClient):
         vs = _make_vs_mock()
-        with patch("app.routers.knowledge.get_vector_store_service", return_value=vs):
+        with patch("app.services.kb_search_service.get_vector_store_service", return_value=vs):
             resp = client.get("/api/kb/search?tag=%23lean")
         assert resp.status_code == 200
 
     def test_search_by_tag_returns_documents(self, client: TestClient):
         vs = _make_vs_mock()
-        with patch("app.routers.knowledge.get_vector_store_service", return_value=vs):
+        with patch("app.services.kb_search_service.get_vector_store_service", return_value=vs):
             resp = client.get("/api/kb/search?tag=%23lean")
         data = resp.json()
         assert "results" in data
@@ -70,14 +70,14 @@ class TestKBSearch:
 
     def test_search_by_tag_echoes_tag_param(self, client: TestClient):
         vs = _make_vs_mock()
-        with patch("app.routers.knowledge.get_vector_store_service", return_value=vs):
+        with patch("app.services.kb_search_service.get_vector_store_service", return_value=vs):
             resp = client.get("/api/kb/search?tag=%23lean")
         data = resp.json()
         assert data.get("tag") == "#lean"
 
     def test_search_empty_params_returns_400(self, client: TestClient):
         vs = _make_vs_mock()
-        with patch("app.routers.knowledge.get_vector_store_service", return_value=vs):
+        with patch("app.services.kb_search_service.get_vector_store_service", return_value=vs):
             resp = client.get("/api/kb/search")
         assert resp.status_code == 400
 
@@ -112,7 +112,7 @@ class TestKBSearch:
 
     def test_search_uses_tag_filter_on_empty_q(self, client: TestClient):
         vs = _make_vs_mock()
-        with patch("app.routers.knowledge.get_vector_store_service", return_value=vs):
+        with patch("app.services.kb_search_service.get_vector_store_service", return_value=vs):
             resp = client.get("/api/kb/search?q=&tag=%23ci")
         assert resp.status_code == 200
         vs.search_by_tag.assert_called_once()
