@@ -291,10 +291,16 @@ async def accept_suggestion(suggestion_id: str, action_id: str = Query(...)) -> 
     if mode == "observer":
         raise HTTPException(400, "V režimu observer nelze přijímat návrhy")
 
-    job_id = await get_resident_agent().accept_suggestion_action(suggestion_id, action_id)
+    job_id = await get_resident_agent().accept_suggestion_action(
+        suggestion_id, action_id
+    )
     if job_id is None:
         raise HTTPException(404, "Návrh nebo akce nenalezena")
-    return {"job_id": job_id, "status": "queued", "message": "Akce přijata a zařazena do fronty"}
+    return {
+        "job_id": job_id,
+        "status": "queued",
+        "message": "Akce přijata a zařazena do fronty",
+    }
 
 
 # ── Missions ─────────────────────────────────────────────────
@@ -603,7 +609,10 @@ async def agent_restart() -> dict:
             await asyncio.sleep(1)
         await agent.start()
         logger.info("Resident agent restarted")
-        return {"status": "restarted", "message": "Agent restartován s novým nastavením."}
+        return {
+            "status": "restarted",
+            "message": "Agent restartován s novým nastavením.",
+        }
     except Exception as exc:
         logger.error("Resident agent restart failed: %s", exc)
         raise HTTPException(500, f"Restart selhal: {exc}")
@@ -650,7 +659,9 @@ async def search_agent_memory(
 ) -> dict:
     """Full-text search over agent memory entries."""
     if len(q) < 3:
-        raise HTTPException(status_code=400, detail="Query must be at least 3 characters")
+        raise HTTPException(
+            status_code=400, detail="Query must be at least 3 characters"
+        )
     try:
         from app.services.memory_service import get_memory_service
 
@@ -766,13 +777,19 @@ async def get_activity_feed(limit: int = Query(default=20, ge=1, le=100)) -> dic
         thought_data = await build_thought_log(limit=limit)
         for t in thought_data.get("thoughts", []):
             category = t.get("category", "thought")
-            icon = {"thought": "\U0001f4ad", "decision": "\u2705", "observation": "\U0001f441"}.get(category, "\U0001f4ad")
-            feed.append({
-                "timestamp": t.get("timestamp", ""),
-                "type": "thought",
-                "icon": icon,
-                "description": t.get("content", "")[:200],
-            })
+            icon = {
+                "thought": "\U0001f4ad",
+                "decision": "\u2705",
+                "observation": "\U0001f441",
+            }.get(category, "\U0001f4ad")
+            feed.append(
+                {
+                    "timestamp": t.get("timestamp", ""),
+                    "type": "thought",
+                    "icon": icon,
+                    "description": t.get("content", "")[:200],
+                }
+            )
     except Exception:
         pass
 
@@ -785,12 +802,14 @@ async def get_activity_feed(limit: int = Query(default=20, ge=1, le=100)) -> dic
             icon = "\u274c" if is_error else "\u2705"
             if j.payload.get("auto_executed"):
                 icon = "\u26a1" if not is_error else "\u274c"
-            feed.append({
-                "timestamp": j.finished_at or j.started_at or j.created_at,
-                "type": "proactive" if j.payload.get("auto_executed") else "job",
-                "icon": icon,
-                "description": j.title or j.type,
-            })
+            feed.append(
+                {
+                    "timestamp": j.finished_at or j.started_at or j.created_at,
+                    "type": "proactive" if j.payload.get("auto_executed") else "job",
+                    "icon": icon,
+                    "description": j.title or j.type,
+                }
+            )
     except Exception:
         pass
 
@@ -868,7 +887,11 @@ async def approve_proposal(proposal_id: str) -> dict:
     job_id = await get_resident_agent().approve_proposal(proposal_id)
     if job_id is None:
         raise HTTPException(404, "Návrh nenalezen nebo již zpracován")
-    return {"status": "approved", "job_id": job_id, "message": "Mise schválena a zařazena do fronty"}
+    return {
+        "status": "approved",
+        "job_id": job_id,
+        "message": "Mise schválena a zařazena do fronty",
+    }
 
 
 @router.post("/proposals/{proposal_id}/reject")
@@ -932,7 +955,9 @@ async def run_template(
     from app.services.resident_reasoner import TEMPLATE_PROMPTS
 
     if template_id not in TEMPLATE_PROMPTS:
-        raise HTTPException(status_code=404, detail=f"Template '{template_id}' nenalezen")
+        raise HTTPException(
+            status_code=404, detail=f"Template '{template_id}' nenalezen"
+        )
 
     prompt = TEMPLATE_PROMPTS[template_id]
     if req.context:
@@ -946,7 +971,12 @@ async def run_template(
         payload={},
         priority="normal",
     )
-    return {"job_id": job.id, "status": "queued", "template_id": template_id, "title": template_id}
+    return {
+        "job_id": job.id,
+        "status": "queued",
+        "template_id": template_id,
+        "title": template_id,
+    }
 
 
 # ── Control Room: Debug Export ─────────────────────────────────

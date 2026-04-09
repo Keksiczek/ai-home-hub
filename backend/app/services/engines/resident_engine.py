@@ -65,7 +65,8 @@ async def _llm_reasoning_loop(
     except Exception as exc:
         logger.warning(
             "Reasoning loop LLM call failed for job %s, using raw result: %s",
-            job.id, exc,
+            job.id,
+            exc,
         )
         return {**raw_result, "_reasoning": "llm_unavailable"}
 
@@ -149,13 +150,15 @@ async def run_resident_task(
         except asyncio.TimeoutError:
             logger.warning(
                 "Reasoning loop timed out for job %s after %ds, using raw result",
-                job.id, _REASONING_LOOP_TIMEOUT_S,
+                job.id,
+                _REASONING_LOOP_TIMEOUT_S,
             )
             result = {**result, "_reasoning": "timeout"}
         except Exception as exc:
             logger.warning(
                 "Reasoning loop failed for job %s: %s, using raw result",
-                job.id, exc,
+                job.id,
+                exc,
             )
             result = {**result, "_reasoning": "error"}
 

@@ -108,28 +108,27 @@ _MARKDOWN_SYSTEM_HINT = (
 )
 
 
-
 # ── Response sanitization ─────────────────────────────────────────────────────
 
 import re as _re
 
 _FOREIGN_WORDS_IN_CZECH = [
-    _re.compile(r'\bnuestra\b', _re.IGNORECASE),
-    _re.compile(r'\bsimplemente\b', _re.IGNORECASE),
-    _re.compile(r'\bnuestro\b', _re.IGNORECASE),
-    _re.compile(r'\bfurther\b', _re.IGNORECASE),
-    _re.compile(r'\bjust\b', _re.IGNORECASE),
-    _re.compile(r'\bcould\b', _re.IGNORECASE),
-    _re.compile(r'\bwould\b', _re.IGNORECASE),
-    _re.compile(r'\bouršiny\b', _re.IGNORECASE),
+    _re.compile(r"\bnuestra\b", _re.IGNORECASE),
+    _re.compile(r"\bsimplemente\b", _re.IGNORECASE),
+    _re.compile(r"\bnuestro\b", _re.IGNORECASE),
+    _re.compile(r"\bfurther\b", _re.IGNORECASE),
+    _re.compile(r"\bjust\b", _re.IGNORECASE),
+    _re.compile(r"\bcould\b", _re.IGNORECASE),
+    _re.compile(r"\bwould\b", _re.IGNORECASE),
+    _re.compile(r"\bouršiny\b", _re.IGNORECASE),
 ]
 
 _FAKE_QUESTION_PATTERNS = [
-    _re.compile(r'Co myslíš[?]?\s*$', _re.IGNORECASE),
-    _re.compile(r'Jaký je váš[^?]*[?]\s*$', _re.IGNORECASE),
-    _re.compile(r'Otázka:\s*.+[?]?\s*$', _re.IGNORECASE),
-    _re.compile(r'Můžeme si[^?]*[?]\s*$', _re.IGNORECASE),
-    _re.compile(r'Co byste[^?]*[?]\s*$', _re.IGNORECASE),
+    _re.compile(r"Co myslíš[?]?\s*$", _re.IGNORECASE),
+    _re.compile(r"Jaký je váš[^?]*[?]\s*$", _re.IGNORECASE),
+    _re.compile(r"Otázka:\s*.+[?]?\s*$", _re.IGNORECASE),
+    _re.compile(r"Můžeme si[^?]*[?]\s*$", _re.IGNORECASE),
+    _re.compile(r"Co byste[^?]*[?]\s*$", _re.IGNORECASE),
 ]
 
 _INAPPROPRIATE_GREETINGS = [
@@ -157,21 +156,19 @@ def sanitize_response(text: str, model: str) -> tuple[str, bool]:
     # 2a: Mixed-language detection (log only, don't modify)
     for pattern in _FOREIGN_WORDS_IN_CZECH:
         if pattern.search(text):
-            logger.warning(
-                "Response quality issue – foreign words in model %s", model
-            )
+            logger.warning("Response quality issue – foreign words in model %s", model)
             break
 
     # 2c: Strip inappropriate greetings from the start
     for greeting in _INAPPROPRIATE_GREETINGS:
         if text.lstrip().startswith(greeting):
-            text = text.lstrip()[len(greeting):].lstrip(" ,\n")
+            text = text.lstrip()[len(greeting) :].lstrip(" ,\n")
             logger.info("Removed inappropriate greeting from response")
             sanitized = True
             break
 
     # 2b: Strip fake questions at the end (last 1-2 sentences)
-    lines = text.rstrip().split('\n')
+    lines = text.rstrip().split("\n")
     removed_count = 0
     while lines and removed_count < 2:
         last_line = lines[-1].strip()
@@ -189,7 +186,7 @@ def sanitize_response(text: str, model: str) -> tuple[str, bool]:
             break
 
     if removed_count > 0:
-        text = '\n'.join(lines).rstrip()
+        text = "\n".join(lines).rstrip()
         logger.info("Removed trailing fake question from response")
         sanitized = True
 
@@ -226,12 +223,21 @@ MODEL_ROUTING: dict[str, str] = {
 # Maps substrings of model names to quality flags displayed in the UI.
 # flag types: "uncensored", "low_quality", "embedding_only"
 MODEL_QUALITY_FLAGS: dict[str, dict[str, str]] = {
-    "abliterate": {"flag": "uncensored", "reason": "Abliterated model — nestabilní instrukce, guláš jazyků"},
+    "abliterate": {
+        "flag": "uncensored",
+        "reason": "Abliterated model — nestabilní instrukce, guláš jazyků",
+    },
     "uncensored": {"flag": "uncensored", "reason": "Uncensored model — bez guardrails"},
     "dolphin": {"flag": "uncensored", "reason": "Dolphin série — uncensored fine-tune"},
     "huihui": {"flag": "uncensored", "reason": "Huihui abliterated model"},
-    ":1b": {"flag": "low_quality", "reason": "1B model — velmi omezené schopnosti, vhodné jen pro jednoduché tasky"},
-    "embedding": {"flag": "embedding_only", "reason": "Embedding model — nelze použít pro chat"},
+    ":1b": {
+        "flag": "low_quality",
+        "reason": "1B model — velmi omezené schopnosti, vhodné jen pro jednoduché tasky",
+    },
+    "embedding": {
+        "flag": "embedding_only",
+        "reason": "Embedding model — nelze použít pro chat",
+    },
     "nomic-embed": {"flag": "embedding_only", "reason": "Embedding model"},
     "all-minilm": {"flag": "embedding_only", "reason": "Embedding model"},
 }
@@ -279,13 +285,18 @@ def resolve_model(
     When *allow_uncensored* is True (user opt-in via settings), the blacklist
     is bypassed.  When None, the value is read from settings.
     """
-    model = settings_override if settings_override else MODEL_ROUTING.get(profile, "llama3.2")
+    model = (
+        settings_override
+        if settings_override
+        else MODEL_ROUTING.get(profile, "llama3.2")
+    )
 
     if is_abliterated_model(model):
         # Resolve allow_uncensored from settings if not explicitly passed
         if allow_uncensored is None:
             try:
                 from app.services.settings_service import get_settings_service
+
                 allow_uncensored = get_settings_service().allow_uncensored_models()
             except Exception:
                 allow_uncensored = False
@@ -487,8 +498,17 @@ class LLMService:
         if provider == "ollama":
             # Determine priority: chat/user modes get priority 1, resident gets 2, rest gets 3
             _priority = TaskPriority.BACKGROUND
-            if mode in ("general", "chat", "powerbi", "lean", "lean_ci", "pbi_dax",
-                        "mac_admin", "ai_dev", "vision"):
+            if mode in (
+                "general",
+                "chat",
+                "powerbi",
+                "lean",
+                "lean_ci",
+                "pbi_dax",
+                "mac_admin",
+                "ai_dev",
+                "vision",
+            ):
                 _priority = TaskPriority.CHAT
             elif mode in ("resident", "resident_reasoner"):
                 _priority = TaskPriority.RESIDENT
@@ -1088,7 +1108,9 @@ class LLMService:
             async with _sem_ctx:
                 try:
                     async with asyncio.timeout(outer_timeout):
-                        async with httpx.AsyncClient(timeout=stream_http_timeout) as client:
+                        async with httpx.AsyncClient(
+                            timeout=stream_http_timeout
+                        ) as client:
                             async with client.stream(
                                 "POST", f"{ollama_url}/api/chat", json=payload
                             ) as resp:
@@ -1116,13 +1138,23 @@ class LLMService:
                     # Success – reset circuit breakers
                     await cb.record_success()
                     await model_cb.record_success(model)
-                except (_FirstTokenTimeout, asyncio.TimeoutError, httpx.TimeoutException) as exc:
+                except (
+                    _FirstTokenTimeout,
+                    asyncio.TimeoutError,
+                    httpx.TimeoutException,
+                ) as exc:
                     await cb.record_failure()
                     await model_cb.record_failure(model)
-                    timeout_type = "first-token" if isinstance(exc, _FirstTokenTimeout) else "stream"
+                    timeout_type = (
+                        "first-token"
+                        if isinstance(exc, _FirstTokenTimeout)
+                        else "stream"
+                    )
                     logger.warning(
                         "Ollama %s timeout for model %s (%.0fs cap)",
-                        timeout_type, model, outer_timeout,
+                        timeout_type,
+                        model,
+                        outer_timeout,
                     )
                     # Groq cloud fallback – attempt if enabled and first token never arrived
                     if groq_fallback and not first_token_received:
@@ -1136,7 +1168,10 @@ class LLMService:
                         yield f"\n\n[Lokální model pomalý – přepínám na Groq ({groq_model})]\n\n"
                         try:
                             async for token in groq_fallback.generate_stream(
-                                messages=messages, model=groq_model, options=options, timeout=30.0
+                                messages=messages,
+                                model=groq_model,
+                                options=options,
+                                timeout=30.0,
                             ):
                                 yield token
                             return
@@ -1151,11 +1186,16 @@ class LLMService:
                         settings_data = self._settings.load()
                         groq_cfg = settings_data.get("groq", {})
                         groq_model = groq_cfg.get("model", "llama-3.1-8b-instant")
-                        logger.info("Attempting Groq fallback after Ollama connect error")
+                        logger.info(
+                            "Attempting Groq fallback after Ollama connect error"
+                        )
                         yield f"\n\n[Ollama nedostupná – přepínám na Groq ({groq_model})]\n\n"
                         try:
                             async for token in groq_fallback.generate_stream(
-                                messages=messages, model=groq_model, options=options, timeout=30.0
+                                messages=messages,
+                                model=groq_model,
+                                options=options,
+                                timeout=30.0,
                             ):
                                 yield token
                             return

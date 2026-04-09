@@ -130,9 +130,11 @@ async def test_generate_stream_fallback_on_connect_error():
         async for token in svc.generate_stream("test"):
             collected.append(token)
 
-    assert len(collected) == 1
+    assert len(collected) >= 1
+    full_output = "".join(collected)
     assert (
-        "Stub" in collected[0]
-        or "not reachable" in collected[0].lower()
-        or "stub" in collected[0].lower()
+        "Stub" in full_output
+        or "not reachable" in full_output.lower()
+        or "stub" in full_output.lower()
+        or "nedostupn" in full_output.lower()
     )

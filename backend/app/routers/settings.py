@@ -166,22 +166,37 @@ async def get_settings_schema() -> Dict[str, Any]:
                 "type": "object",
                 "title": "Notifications",
                 "properties": {
-                    "enabled": {"type": "boolean", "description": "Enable ntfy push notifications"},
+                    "enabled": {
+                        "type": "boolean",
+                        "description": "Enable ntfy push notifications",
+                    },
                     "ntfy_url": {"type": "string", "default": "https://ntfy.sh"},
                     "topic": {"type": "string", "default": "ai-home-hub"},
-                    "ntfy_token": {"type": "string", "secret": True, "description": "ntfy auth token (optional)"},
+                    "ntfy_token": {
+                        "type": "string",
+                        "secret": True,
+                        "description": "ntfy auth token (optional)",
+                    },
                     "ntfy_priority_default": {
                         "type": "string",
                         "enum": ["min", "low", "default", "high", "urgent"],
                         "default": "default",
                     },
-                    "ntfy_click_url": {"type": "string", "description": "URL to open on notification click"},
+                    "ntfy_click_url": {
+                        "type": "string",
+                        "description": "URL to open on notification click",
+                    },
                     "notify_on_error": {"type": "boolean", "default": True},
                     "notify_on_agent_complete": {"type": "boolean", "default": False},
                     "notify_on_job_complete": {"type": "boolean", "default": False},
                     "notify_on_resource_critical": {"type": "boolean", "default": True},
                     "notify_on_resident_blocked": {"type": "boolean", "default": False},
-                    "min_importance": {"type": "integer", "minimum": 1, "maximum": 10, "default": 6},
+                    "min_importance": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 10,
+                        "default": 6,
+                    },
                     "quiet_hours_enabled": {"type": "boolean", "default": False},
                     "quiet_hours_start": {"type": "string", "default": "22:00"},
                     "quiet_hours_end": {"type": "string", "default": "07:00"},
@@ -189,46 +204,166 @@ async def get_settings_schema() -> Dict[str, Any]:
                         "type": "object",
                         "description": "Granular per-category notification settings",
                         "properties": {
-                            "system_errors": {"type": "object", "properties": {
-                                "enabled": {"type": "boolean", "default": True},
-                                "priority": {"type": "string", "enum": ["min", "low", "default", "high", "urgent"]},
-                            }},
-                            "resource_warnings": {"type": "object", "properties": {
-                                "enabled": {"type": "boolean", "default": True},
-                                "priority": {"type": "string", "enum": ["min", "low", "default", "high", "urgent"]},
-                            }},
-                            "job_failed": {"type": "object", "properties": {
-                                "enabled": {"type": "boolean", "default": True},
-                                "priority": {"type": "string", "enum": ["min", "low", "default", "high", "urgent"]},
-                            }},
-                            "job_succeeded": {"type": "object", "properties": {
-                                "enabled": {"type": "boolean", "default": False},
-                                "priority": {"type": "string", "enum": ["min", "low", "default", "high", "urgent"]},
-                            }},
-                            "resident_action": {"type": "object", "properties": {
-                                "enabled": {"type": "boolean", "default": False},
-                                "priority": {"type": "string", "enum": ["min", "low", "default", "high", "urgent"]},
-                            }},
-                            "resident_blocked": {"type": "object", "properties": {
-                                "enabled": {"type": "boolean", "default": False},
-                                "priority": {"type": "string", "enum": ["min", "low", "default", "high", "urgent"]},
-                            }},
-                            "agent_complete": {"type": "object", "properties": {
-                                "enabled": {"type": "boolean", "default": False},
-                                "priority": {"type": "string", "enum": ["min", "low", "default", "high", "urgent"]},
-                            }},
-                            "kb_changes": {"type": "object", "properties": {
-                                "enabled": {"type": "boolean", "default": False},
-                                "priority": {"type": "string", "enum": ["min", "low", "default", "high", "urgent"]},
-                            }},
-                            "night_jobs": {"type": "object", "properties": {
-                                "enabled": {"type": "boolean", "default": False},
-                                "priority": {"type": "string", "enum": ["min", "low", "default", "high", "urgent"]},
-                            }},
-                            "llm_errors": {"type": "object", "properties": {
-                                "enabled": {"type": "boolean", "default": True},
-                                "priority": {"type": "string", "enum": ["min", "low", "default", "high", "urgent"]},
-                            }},
+                            "system_errors": {
+                                "type": "object",
+                                "properties": {
+                                    "enabled": {"type": "boolean", "default": True},
+                                    "priority": {
+                                        "type": "string",
+                                        "enum": [
+                                            "min",
+                                            "low",
+                                            "default",
+                                            "high",
+                                            "urgent",
+                                        ],
+                                    },
+                                },
+                            },
+                            "resource_warnings": {
+                                "type": "object",
+                                "properties": {
+                                    "enabled": {"type": "boolean", "default": True},
+                                    "priority": {
+                                        "type": "string",
+                                        "enum": [
+                                            "min",
+                                            "low",
+                                            "default",
+                                            "high",
+                                            "urgent",
+                                        ],
+                                    },
+                                },
+                            },
+                            "job_failed": {
+                                "type": "object",
+                                "properties": {
+                                    "enabled": {"type": "boolean", "default": True},
+                                    "priority": {
+                                        "type": "string",
+                                        "enum": [
+                                            "min",
+                                            "low",
+                                            "default",
+                                            "high",
+                                            "urgent",
+                                        ],
+                                    },
+                                },
+                            },
+                            "job_succeeded": {
+                                "type": "object",
+                                "properties": {
+                                    "enabled": {"type": "boolean", "default": False},
+                                    "priority": {
+                                        "type": "string",
+                                        "enum": [
+                                            "min",
+                                            "low",
+                                            "default",
+                                            "high",
+                                            "urgent",
+                                        ],
+                                    },
+                                },
+                            },
+                            "resident_action": {
+                                "type": "object",
+                                "properties": {
+                                    "enabled": {"type": "boolean", "default": False},
+                                    "priority": {
+                                        "type": "string",
+                                        "enum": [
+                                            "min",
+                                            "low",
+                                            "default",
+                                            "high",
+                                            "urgent",
+                                        ],
+                                    },
+                                },
+                            },
+                            "resident_blocked": {
+                                "type": "object",
+                                "properties": {
+                                    "enabled": {"type": "boolean", "default": False},
+                                    "priority": {
+                                        "type": "string",
+                                        "enum": [
+                                            "min",
+                                            "low",
+                                            "default",
+                                            "high",
+                                            "urgent",
+                                        ],
+                                    },
+                                },
+                            },
+                            "agent_complete": {
+                                "type": "object",
+                                "properties": {
+                                    "enabled": {"type": "boolean", "default": False},
+                                    "priority": {
+                                        "type": "string",
+                                        "enum": [
+                                            "min",
+                                            "low",
+                                            "default",
+                                            "high",
+                                            "urgent",
+                                        ],
+                                    },
+                                },
+                            },
+                            "kb_changes": {
+                                "type": "object",
+                                "properties": {
+                                    "enabled": {"type": "boolean", "default": False},
+                                    "priority": {
+                                        "type": "string",
+                                        "enum": [
+                                            "min",
+                                            "low",
+                                            "default",
+                                            "high",
+                                            "urgent",
+                                        ],
+                                    },
+                                },
+                            },
+                            "night_jobs": {
+                                "type": "object",
+                                "properties": {
+                                    "enabled": {"type": "boolean", "default": False},
+                                    "priority": {
+                                        "type": "string",
+                                        "enum": [
+                                            "min",
+                                            "low",
+                                            "default",
+                                            "high",
+                                            "urgent",
+                                        ],
+                                    },
+                                },
+                            },
+                            "llm_errors": {
+                                "type": "object",
+                                "properties": {
+                                    "enabled": {"type": "boolean", "default": True},
+                                    "priority": {
+                                        "type": "string",
+                                        "enum": [
+                                            "min",
+                                            "low",
+                                            "default",
+                                            "high",
+                                            "urgent",
+                                        ],
+                                    },
+                                },
+                            },
                         },
                     },
                 },
@@ -273,9 +408,7 @@ async def list_ollama_models() -> Dict[str, Any]:
     import httpx
 
     settings_svc = get_settings_service()
-    ollama_url = settings_svc.get_llm_config().get(
-        "ollama_url", LOCAL_LLM_BASE_URL
-    )
+    ollama_url = settings_svc.get_llm_config().get("ollama_url", LOCAL_LLM_BASE_URL)
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:

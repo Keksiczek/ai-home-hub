@@ -193,8 +193,16 @@ class ResidentReasoner:
                 logger.warning("Reasoner: LLM unavailable, using fallback")
                 return self._fallback_suggestion(mode, context_summary)
 
-            actions = self._parse_suggestions(reply)
+            actions, had_candidates = self._parse_suggestions(reply)
             if not actions:
+                if had_candidates:
+                    # LLM returned items but all were filtered for safety — return empty
+                    logger.warning("Reasoner: all suggested actions were filtered out")
+                    return ResidentSuggestion(
+                        mode=mode,
+                        actions=[],
+                        context_summary=context_summary[:500],
+                    )
                 logger.warning("Reasoner: no valid actions parsed, using fallback")
                 return self._fallback_suggestion(mode, context_summary)
 
@@ -544,16 +552,20 @@ class ResidentReasoner:
 
     # ── Parsing ─────────────────────────────────────────────────
 
-    def _parse_suggestions(self, reply: str) -> List[SuggestedAction]:
+    def _parse_suggestions(
+        self, reply: str
+    ) -> tuple[List[SuggestedAction], bool]:
         """Parse LLM reply into a list of SuggestedAction, with safety filtering.
 
+        Returns (actions, had_candidates) where had_candidates is True when the
+        LLM returned at least one item (even if all were filtered for safety).
         Supports both old format (action_type) and new format (action + params + thought).
         """
         try:
             data = self._extract_json(reply)
         except (ValueError, json.JSONDecodeError):
             logger.warning("Reasoner: failed to parse JSON from reply")
-            return []
+            return [], False
 
         # Expect a list
         items = (
@@ -561,6 +573,7 @@ class ResidentReasoner:
             if isinstance(data, list)
             else data.get("actions", []) if isinstance(data, dict) else []
         )
+        had_candidates = bool(items)
 
         actions = []
         for item in items[:5]:  # max 5
@@ -589,7 +602,7 @@ class ResidentReasoner:
                     action_type = "other"
 
             if action_type not in ALLOWED_ACTION_TYPES:
-                action_type = "other"
+                continue  # Filter out disallowed action types
 
             # Enforce requires_confirmation for destructive types
             requires_conf = bool(item.get("requires_confirmation", True))
@@ -626,7 +639,7 @@ class ResidentReasoner:
             except Exception as exc:
                 logger.debug("Reasoner: skipped malformed suggestion: %s", exc)
 
-        return actions
+        return actions, had_candidates
 
     def _parse_mission_plan(self, reply: str) -> Optional[List[MissionStep]]:
         """Parse LLM reply into a list of MissionSteps."""
@@ -809,7 +822,7 @@ class ResidentReasoner:
             logger.error("Tool reasoning phase 3 failed: %s", exc)
             final_reply = "[]"
 
-        suggestions = self._parse_suggestions(final_reply) if final_reply else []
+        suggestions, _ = self._parse_suggestions(final_reply) if final_reply else ([], False)
 
         total_ms = int((time.monotonic() - t0) * 1000)
 
@@ -1169,9 +1182,7 @@ async def build_thought_log(limit: int = 50) -> dict:
             seen_ids.add(eid)
             unique.append(entry)
 
-    unique.sort(
-        key=lambda e: e.get("timestamp", e.get("created_at", "")), reverse=True
-    )
+    unique.sort(key=lambda e: e.get("timestamp", e.get("created_at", "")), reverse=True)
     unique = unique[:limit]
 
     return {

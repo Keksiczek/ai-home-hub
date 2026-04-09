@@ -55,7 +55,9 @@ class SessionService:
                         break
 
                 # Session name: explicit name > first message truncated > session_id
-                name = data.get("name") or (preview[:35] if preview else data.get("session_id", f.stem))
+                name = data.get("name") or (
+                    preview[:35] if preview else data.get("session_id", f.stem)
+                )
 
                 # Last message timestamp
                 last_message_at = None
@@ -68,7 +70,8 @@ class SessionService:
                         "name": name,
                         "created_at": data.get("created_at", ""),
                         "updated_at": f.stat().st_mtime,
-                        "last_message_at": last_message_at or data.get("created_at", ""),
+                        "last_message_at": last_message_at
+                        or data.get("created_at", ""),
                         "message_count": len(messages),
                         "preview": preview + ("..." if len(preview) == 50 else ""),
                     }

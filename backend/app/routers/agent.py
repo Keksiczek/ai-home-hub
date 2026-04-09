@@ -106,7 +106,9 @@ async def agent_settings_patch(updates: AgentSettingsPatch) -> dict:
     """Update agent runtime settings."""
     from app.services.resident_agent import get_resident_agent
 
-    return get_resident_agent().update_agent_settings(updates.model_dump(exclude_none=True))
+    return get_resident_agent().update_agent_settings(
+        updates.model_dump(exclude_none=True)
+    )
 
 
 @router.get("/memory")

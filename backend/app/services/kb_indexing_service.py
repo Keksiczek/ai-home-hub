@@ -171,7 +171,9 @@ async def run_ingest_core(
 # ── Background job wrappers ─────────────────────────────────────
 
 
-async def job_ingest(job_id: str, file_paths: Optional[List[str]], scan_fn=None) -> None:
+async def job_ingest(
+    job_id: str, file_paths: Optional[List[str]], scan_fn=None
+) -> None:
     """Background task wrapper: runs ingest and finalises the job record."""
     job = _jobs.get(job_id)
     if job is None:
@@ -292,10 +294,29 @@ async def job_upload_index(
             if parsed.get("error") and not parsed.get("text"):
                 ext = file_path.suffix.lower()
                 code_exts = {
-                    ".py", ".js", ".ts", ".jsx", ".tsx", ".json", ".yaml",
-                    ".yml", ".toml", ".sh", ".bash", ".zsh", ".html", ".css",
-                    ".sql", ".rs", ".go", ".java", ".c", ".cpp", ".h",
-                    ".rb", ".php",
+                    ".py",
+                    ".js",
+                    ".ts",
+                    ".jsx",
+                    ".tsx",
+                    ".json",
+                    ".yaml",
+                    ".yml",
+                    ".toml",
+                    ".sh",
+                    ".bash",
+                    ".zsh",
+                    ".html",
+                    ".css",
+                    ".sql",
+                    ".rs",
+                    ".go",
+                    ".java",
+                    ".c",
+                    ".cpp",
+                    ".h",
+                    ".rb",
+                    ".php",
                 }
                 if ext in code_exts:
                     text = file_path.read_text(encoding="utf-8", errors="ignore")

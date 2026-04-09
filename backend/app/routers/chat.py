@@ -67,13 +67,15 @@ async def chat_stream_ws(websocket: WebSocket) -> None:
     # Abliterated/uncensored model gate for streaming chat
     if model_override and is_abliterated_model(model_override):
         if not allow_uncensored:
-            await websocket.send_json({
-                "type": "error",
-                "message": (
-                    "Model je abliterated/uncensored. "
-                    "Pokud ho chceš použít vědomě, pošli allow_uncensored: true"
-                ),
-            })
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "message": (
+                        "Model je abliterated/uncensored. "
+                        "Pokud ho chceš použít vědomě, pošli allow_uncensored: true"
+                    ),
+                }
+            )
             await websocket.close()
             return
         logger.warning(
@@ -128,6 +130,7 @@ async def chat_stream_ws(websocket: WebSocket) -> None:
 
     # Sanitize the final assembled response
     from app.services.llm_service import sanitize_response
+
     reply_text, was_sanitized = sanitize_response(reply_text, model_used)
 
     # Prometheus instrumentation
@@ -180,9 +183,12 @@ async def chat_stream_sse(request: ChatRequest):
     model_override = request.model
     if model_override and is_abliterated_model(model_override):
         if not request.allow_uncensored:
-            return JSONResponse(status_code=400, content={
-                "error": "Model je abliterated/uncensored. Pošli allow_uncensored: true"
-            })
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": "Model je abliterated/uncensored. Pošli allow_uncensored: true"
+                },
+            )
 
     session_id = request.session_id
     if not session_id or not session_svc.session_exists(session_id):
@@ -191,6 +197,7 @@ async def chat_stream_sse(request: ChatRequest):
     history = session_svc.get_history_for_llm(session_id, limit=20)
 
     from app.utils.context_helpers import enrich_message
+
     llm_message, context_meta = await enrich_message(message)
 
     async def event_generator():
@@ -205,11 +212,13 @@ async def chat_stream_sse(request: ChatRequest):
                 model_override=model_override,
             ):
                 full_reply.append(token)
-                chunk = json.dumps({
-                    "type": "chat_chunk",
-                    "delta": {"plain_text": token, "markdown": token},
-                    "is_final": False,
-                })
+                chunk = json.dumps(
+                    {
+                        "type": "chat_chunk",
+                        "delta": {"plain_text": token, "markdown": token},
+                        "is_final": False,
+                    }
+                )
                 yield f"data: {chunk}\n\n"
         except Exception as exc:
             logger.error("SSE stream error: %s", exc, exc_info=True)
@@ -223,6 +232,7 @@ async def chat_stream_sse(request: ChatRequest):
         model_used = model_override or cfg.get("model", "llama3.2")
 
         from app.services.llm_service import sanitize_response
+
         reply_text, was_sanitized = sanitize_response(reply_text, model_used)
 
         session_svc.save_message(session_id, "user", message)
@@ -237,12 +247,18 @@ async def chat_stream_sse(request: ChatRequest):
             "session_id": session_id,
             **context_meta,
         }
-        final = json.dumps({
-            "type": "chat_chunk",
-            "delta": {"plain_text": reply_text, "markdown": reply_text, "html": None},
-            "is_final": True,
-            "meta": meta,
-        })
+        final = json.dumps(
+            {
+                "type": "chat_chunk",
+                "delta": {
+                    "plain_text": reply_text,
+                    "markdown": reply_text,
+                    "html": None,
+                },
+                "is_final": True,
+                "meta": meta,
+            }
+        )
         yield f"data: {final}\n\n"
 
     return StreamingResponse(

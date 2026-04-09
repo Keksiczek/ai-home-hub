@@ -264,7 +264,7 @@ class TestKBFilesEndpoint:
 
     def test_list_kb_files_empty(self, client: TestClient) -> None:
         vs = self._make_mock_vector_store([])
-        with patch("app.routers.knowledge.get_vector_store_service", return_value=vs):
+        with patch("app.services.kb_management_service.get_vector_store_service", return_value=vs):
             resp = client.get("/api/knowledge/files")
         assert resp.status_code == 200
         data = resp.json()
@@ -303,7 +303,7 @@ class TestKBFilesEndpoint:
                 },
             ]
         )
-        with patch("app.routers.knowledge.get_vector_store_service", return_value=vs):
+        with patch("app.services.kb_management_service.get_vector_store_service", return_value=vs):
             resp = client.get("/api/knowledge/files")
         assert resp.status_code == 200
         data = resp.json()

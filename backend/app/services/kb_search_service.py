@@ -139,7 +139,9 @@ async def search_kb_with_filters(
             }
         logger.warning(
             "KB search query failed (collection=%s, count=%d): %s",
-            col_name, col_count, exc,
+            col_name,
+            col_count,
+            exc,
         )
         return {
             "results": [],

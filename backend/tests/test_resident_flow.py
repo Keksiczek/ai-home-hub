@@ -47,7 +47,11 @@ def _reset_agent():
     agent._state.last_heartbeat = None
     agent._state.heartbeat_status = "healthy"
     agent._state.alerts = []
+    agent._state.current_task = None
     agent._start_time = None
+    # Clear any stale asyncio task from a previous event loop so that
+    # BackgroundService.start() creates a fresh task in the current loop.
+    agent._task = None
     return agent
 
 

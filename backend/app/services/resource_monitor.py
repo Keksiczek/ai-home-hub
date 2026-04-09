@@ -120,9 +120,7 @@ class ResourceMonitor:
                     from app.services.settings_service import LOCAL_LLM_BASE_URL
 
                     cfg = get_settings_service().get_llm_config()
-                    ollama_url = cfg.get("ollama_url", LOCAL_LLM_BASE_URL).rstrip(
-                        "/"
-                    )
+                    ollama_url = cfg.get("ollama_url", LOCAL_LLM_BASE_URL).rstrip("/")
                     snap.ollama_model_ram_mb = await self._fetch_ollama_model_ram(
                         ollama_url
                     )
@@ -146,7 +144,10 @@ class ResourceMonitor:
                     # Send ntfy notification on CRITICAL tier
                     if policy.tier.value == "critical":
                         try:
-                            from app.services.notification_service import get_notification_service
+                            from app.services.notification_service import (
+                                get_notification_service,
+                            )
+
                             asyncio.create_task(
                                 get_notification_service().notify_resource_critical(
                                     policy.tier.value, snap.ram_used_percent

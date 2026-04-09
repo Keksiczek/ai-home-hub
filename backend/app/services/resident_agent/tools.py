@@ -221,10 +221,18 @@ class ToolsMixin:
             notif = get_notification_service()
             body = params.get("body", params.get("message", ""))
             if not body:
-                return {"action": "send_notification", "sent": False, "error": "body is required"}
+                return {
+                    "action": "send_notification",
+                    "sent": False,
+                    "error": "body is required",
+                }
             # Rate limit check
             if not notif.can_agent_notify():
-                return {"action": "send_notification", "sent": False, "error": "hourly limit reached"}
+                return {
+                    "action": "send_notification",
+                    "sent": False,
+                    "error": "hourly limit reached",
+                }
             notif.record_agent_notification()
             level = params.get("level", "info")
             if level not in ("info", "warning", "insight"):

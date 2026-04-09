@@ -168,7 +168,7 @@ class TestAutonomousModeSafety:
                 },
             ]
         )
-        actions = reasoner._parse_suggestions(reply)
+        actions, _ = reasoner._parse_suggestions(reply)
         for a in actions:
             assert (
                 a.requires_confirmation is True
@@ -193,7 +193,7 @@ class TestAutonomousModeSafety:
                 },
             ]
         )
-        actions = reasoner._parse_suggestions(reply)
+        actions, _ = reasoner._parse_suggestions(reply)
         assert len(actions) == 1
         assert actions[0].action_type == "health_check"
 

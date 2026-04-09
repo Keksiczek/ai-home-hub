@@ -7,8 +7,8 @@ from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-_MAX_RESTARTS = 0  # 0 = unlimited restarts (never give up)
-_MAX_BACKOFF_S = 300  # cap at 5 minutes between retries
+_MAX_RESTARTS = 3  # give up after this many consecutive failures
+_MAX_BACKOFF_S = 60  # cap at 1 minute between retries
 
 # Patchable sleep for testing
 _sleep = asyncio.sleep

@@ -212,9 +212,7 @@ async def _check_embedding_dim(
                 result["kb_new_dim"] = detected_dim
                 chroma_match = f"REBUILT ({stored_dim} → {detected_dim})"
             except Exception as rebuild_exc:
-                logger.error(
-                    "Auto-rebuild of KB collection failed: %s", rebuild_exc
-                )
+                logger.error("Auto-rebuild of KB collection failed: %s", rebuild_exc)
                 result["kb_auto_rebuild_error"] = str(rebuild_exc)
     except Exception as exc:
         logger.warning("Could not check Chroma collection dim: %s", exc)

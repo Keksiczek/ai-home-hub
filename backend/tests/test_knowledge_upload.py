@@ -165,7 +165,7 @@ class TestKBOverviewEndpoint:
             "app.services.kb_stats_cache.get_cached_stats",
             return_value=mock_stats,
         ), patch(
-            "app.routers.knowledge.get_vector_store_service",
+            "app.services.kb_management_service.get_vector_store_service",
             return_value=mock_vs,
         ):
             resp = client.get("/api/knowledge/overview")

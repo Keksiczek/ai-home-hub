@@ -30,10 +30,10 @@ from app.services.resident_agent.core import (  # noqa: E402
     ResidentAgentState,
 )
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _make_agent() -> ResidentAgent:
     """Return a ResidentAgent with broadcast wired to a no-op."""
@@ -45,6 +45,7 @@ def _make_agent() -> ResidentAgent:
 # ─────────────────────────────────────────────────────────────────────────────
 # Phase / status consistency
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestSetPhase:
     """_set_phase keeps legacy fields consistent with the new phase field."""
@@ -113,6 +114,7 @@ class TestSetPhase:
 # Cycle lock – skip when active
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestCycleLock:
     """Scheduler must not start a new cycle while one is in progress."""
 
@@ -127,14 +129,18 @@ class TestCycleLock:
 
         # Patch asyncio.sleep so the test doesn't wait
         with patch("asyncio.sleep", new_callable=AsyncMock):
-            with patch.object(agent, "_process_task_queue", new_callable=AsyncMock) as mock_ptq:
+            with patch.object(
+                agent, "_process_task_queue", new_callable=AsyncMock
+            ) as mock_ptq:
                 await agent._tick()
 
         # _process_task_queue must NOT have been called (cycle was skipped)
         mock_ptq.assert_not_called()
 
         # A skip log entry must have been emitted
-        skip_logs = [e for e in agent._log_entries if e.event == "cycle_skip_active_in_progress"]
+        skip_logs = [
+            e for e in agent._log_entries if e.event == "cycle_skip_active_in_progress"
+        ]
         assert len(skip_logs) >= 1
 
     @pytest.mark.asyncio
@@ -145,7 +151,9 @@ class TestCycleLock:
         agent._cycle_cooldown_until = time.monotonic() + 9999  # far future
 
         with patch("asyncio.sleep", new_callable=AsyncMock):
-            with patch.object(agent, "_process_task_queue", new_callable=AsyncMock) as mock_ptq:
+            with patch.object(
+                agent, "_process_task_queue", new_callable=AsyncMock
+            ) as mock_ptq:
                 await agent._tick()
 
         mock_ptq.assert_not_called()
@@ -161,15 +169,21 @@ class TestCycleLock:
         # Stub out all sub-tick methods so the cycle completes quickly
         noop = AsyncMock()
         with patch("asyncio.sleep", new_callable=AsyncMock):
-            with patch.object(agent, "_process_task_queue", noop), \
-                 patch.object(agent, "_process_missions", noop), \
-                 patch.object(agent, "_thought_tick", noop), \
-                 patch.object(agent, "_proactive_action_tick", noop), \
-                 patch.object(agent, "_curiosity_tick", noop), \
-                 patch.object(agent, "_periodic_check", noop), \
-                 patch.object(agent, "_proactive_alerts", noop), \
-                 patch.object(agent, "_digest_tick", noop), \
-                 patch.object(agent, "_summarize_old_memories", noop):
+            with patch.object(agent, "_process_task_queue", noop), patch.object(
+                agent, "_process_missions", noop
+            ), patch.object(agent, "_thought_tick", noop), patch.object(
+                agent, "_proactive_action_tick", noop
+            ), patch.object(
+                agent, "_curiosity_tick", noop
+            ), patch.object(
+                agent, "_periodic_check", noop
+            ), patch.object(
+                agent, "_proactive_alerts", noop
+            ), patch.object(
+                agent, "_digest_tick", noop
+            ), patch.object(
+                agent, "_summarize_old_memories", noop
+            ):
                 await agent._tick()
 
         assert agent._cycle_in_progress is False
@@ -184,10 +198,13 @@ class TestCycleLock:
             raise RuntimeError("simulated failure")
 
         with patch("asyncio.sleep", new_callable=AsyncMock):
-            with patch.object(agent, "_process_task_queue", side_effect=RuntimeError("boom")), \
-                 patch.object(agent, "_process_missions", AsyncMock()), \
-                 patch.object(agent, "_periodic_check", AsyncMock()), \
-                 patch.object(agent, "_proactive_alerts", AsyncMock()):
+            with patch.object(
+                agent, "_process_task_queue", side_effect=RuntimeError("boom")
+            ), patch.object(agent, "_process_missions", AsyncMock()), patch.object(
+                agent, "_periodic_check", AsyncMock()
+            ), patch.object(
+                agent, "_proactive_alerts", AsyncMock()
+            ):
                 await agent._tick()
 
         assert agent._cycle_in_progress is False
@@ -196,6 +213,7 @@ class TestCycleLock:
 # ─────────────────────────────────────────────────────────────────────────────
 # Retry stays within same cycle_id
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestLLMRetry:
     """All LLM retries must remain associated with the original cycle_id."""
@@ -219,10 +237,17 @@ class TestLLMRetry:
         mock_monitor.is_throttled.return_value = False
         mock_monitor.is_blocked.return_value = False
 
-        with patch("app.services.settings_service.get_settings_service", return_value=mock_settings), \
-             patch("app.services.resource_monitor.get_resource_monitor", return_value=mock_monitor), \
-             patch("asyncio.sleep", new_callable=AsyncMock), \
-             patch("asyncio.timeout", side_effect=asyncio.TimeoutError):
+        with patch(
+            "app.services.settings_service.get_settings_service",
+            return_value=mock_settings,
+        ), patch(
+            "app.services.resource_monitor.get_resource_monitor",
+            return_value=mock_monitor,
+        ), patch(
+            "asyncio.sleep", new_callable=AsyncMock
+        ), patch(
+            "asyncio.timeout", side_effect=asyncio.TimeoutError
+        ):
             result = await agent._execute_with_llm(task)
 
         # Result should indicate timeout
@@ -258,10 +283,17 @@ class TestLLMRetry:
 
         before = time.monotonic()
 
-        with patch("app.services.settings_service.get_settings_service", return_value=mock_settings), \
-             patch("app.services.resource_monitor.get_resource_monitor", return_value=mock_monitor), \
-             patch("asyncio.sleep", new_callable=AsyncMock), \
-             patch("asyncio.timeout", side_effect=asyncio.TimeoutError):
+        with patch(
+            "app.services.settings_service.get_settings_service",
+            return_value=mock_settings,
+        ), patch(
+            "app.services.resource_monitor.get_resource_monitor",
+            return_value=mock_monitor,
+        ), patch(
+            "asyncio.sleep", new_callable=AsyncMock
+        ), patch(
+            "asyncio.timeout", side_effect=asyncio.TimeoutError
+        ):
             await agent._execute_with_llm(task)
 
         # Cooldown window must be set to the future
@@ -280,21 +312,29 @@ class TestLLMRetry:
         async def fake_thought_tick():
             # Simulate what _thought_tick does when LLM keeps timing out:
             # sets cooldown and phase but does NOT raise (returns error dict)
-            agent._cycle_cooldown_until = time.monotonic() + RESIDENT_TIMEOUT_COOLDOWN_SECONDS
+            agent._cycle_cooldown_until = (
+                time.monotonic() + RESIDENT_TIMEOUT_COOLDOWN_SECONDS
+            )
             agent._set_phase("cooldown", f"cycle-{agent._state.tick_count:04d}")
             agent._state.last_error = "LLM timeout after 3 attempt(s)"
 
         noop = AsyncMock()
         with patch("asyncio.sleep", new_callable=AsyncMock):
-            with patch.object(agent, "_process_task_queue", noop), \
-                 patch.object(agent, "_process_missions", noop), \
-                 patch.object(agent, "_thought_tick", fake_thought_tick), \
-                 patch.object(agent, "_proactive_action_tick", noop), \
-                 patch.object(agent, "_curiosity_tick", noop), \
-                 patch.object(agent, "_periodic_check", noop), \
-                 patch.object(agent, "_proactive_alerts", noop), \
-                 patch.object(agent, "_digest_tick", noop), \
-                 patch.object(agent, "_summarize_old_memories", noop):
+            with patch.object(agent, "_process_task_queue", noop), patch.object(
+                agent, "_process_missions", noop
+            ), patch.object(agent, "_thought_tick", fake_thought_tick), patch.object(
+                agent, "_proactive_action_tick", noop
+            ), patch.object(
+                agent, "_curiosity_tick", noop
+            ), patch.object(
+                agent, "_periodic_check", noop
+            ), patch.object(
+                agent, "_proactive_alerts", noop
+            ), patch.object(
+                agent, "_digest_tick", noop
+            ), patch.object(
+                agent, "_summarize_old_memories", noop
+            ):
                 await agent._tick()
 
         # Lock must be released (finally block)
@@ -306,6 +346,7 @@ class TestLLMRetry:
 # ─────────────────────────────────────────────────────────────────────────────
 # Config constants
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestConfigConstants:
     """Verify default values of the new lifecycle config constants."""
@@ -327,6 +368,7 @@ class TestConfigConstants:
 # ─────────────────────────────────────────────────────────────────────────────
 # State dataclass
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestResidentAgentStateDefaults:
     """New fields on ResidentAgentState have correct defaults."""
@@ -365,6 +407,7 @@ class TestResidentAgentStateDefaults:
 # Degraded mode
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class TestDegradedMode:
     """Degraded mode logic."""
 
@@ -379,9 +422,13 @@ class TestDegradedMode:
         """Calling _enter_degraded_mode twice should not add duplicate log entries."""
         agent = _make_agent()
         agent._enter_degraded_mode(reason="first", cycle_id="cycle-0001")
-        before_logs = len([e for e in agent._log_entries if e.event == "degraded_mode_entered"])
+        before_logs = len(
+            [e for e in agent._log_entries if e.event == "degraded_mode_entered"]
+        )
         agent._enter_degraded_mode(reason="second", cycle_id="cycle-0001")
-        after_logs = len([e for e in agent._log_entries if e.event == "degraded_mode_entered"])
+        after_logs = len(
+            [e for e in agent._log_entries if e.event == "degraded_mode_entered"]
+        )
         assert after_logs == before_logs  # second call is a no-op
 
     def test_exit_degraded_mode_clears_flag(self):
@@ -411,23 +458,30 @@ class TestDegradedMode:
         """After RESIDENT_MAX_CONSECUTIVE_FAILURES_BEFORE_DEGRADED failures, enter degraded."""
         agent = _make_agent()
         agent._state.is_running = True
-        agent._state.consecutive_failures = RESIDENT_MAX_CONSECUTIVE_FAILURES_BEFORE_DEGRADED - 1
+        agent._state.consecutive_failures = (
+            RESIDENT_MAX_CONSECUTIVE_FAILURES_BEFORE_DEGRADED - 1
+        )
 
         # Simulate a cycle that raises an exception
         async def run():
             noop = AsyncMock()
             with patch("asyncio.sleep", new_callable=AsyncMock):
-                with patch.object(agent, "_process_task_queue",
-                                  side_effect=RuntimeError("boom")), \
-                     patch.object(agent, "_process_missions", noop), \
-                     patch.object(agent, "_periodic_check", noop), \
-                     patch.object(agent, "_proactive_alerts", noop):
+                with patch.object(
+                    agent, "_process_task_queue", side_effect=RuntimeError("boom")
+                ), patch.object(agent, "_process_missions", noop), patch.object(
+                    agent, "_periodic_check", noop
+                ), patch.object(
+                    agent, "_proactive_alerts", noop
+                ):
                     await agent._tick()
 
         asyncio.get_event_loop().run_until_complete(run())
 
         assert agent._state.degraded_mode is True
-        assert agent._state.consecutive_failures >= RESIDENT_MAX_CONSECUTIVE_FAILURES_BEFORE_DEGRADED
+        assert (
+            agent._state.consecutive_failures
+            >= RESIDENT_MAX_CONSECUTIVE_FAILURES_BEFORE_DEGRADED
+        )
 
     @pytest.mark.asyncio
     async def test_llm_ticks_skipped_in_degraded_mode(self):
@@ -442,15 +496,21 @@ class TestDegradedMode:
         curiosity_tick = AsyncMock()
 
         with patch("asyncio.sleep", new_callable=AsyncMock):
-            with patch.object(agent, "_process_task_queue", noop), \
-                 patch.object(agent, "_process_missions", noop), \
-                 patch.object(agent, "_thought_tick", thought_tick), \
-                 patch.object(agent, "_proactive_action_tick", noop), \
-                 patch.object(agent, "_curiosity_tick", curiosity_tick), \
-                 patch.object(agent, "_periodic_check", noop), \
-                 patch.object(agent, "_proactive_alerts", noop), \
-                 patch.object(agent, "_digest_tick", noop), \
-                 patch.object(agent, "_summarize_old_memories", noop):
+            with patch.object(agent, "_process_task_queue", noop), patch.object(
+                agent, "_process_missions", noop
+            ), patch.object(agent, "_thought_tick", thought_tick), patch.object(
+                agent, "_proactive_action_tick", noop
+            ), patch.object(
+                agent, "_curiosity_tick", curiosity_tick
+            ), patch.object(
+                agent, "_periodic_check", noop
+            ), patch.object(
+                agent, "_proactive_alerts", noop
+            ), patch.object(
+                agent, "_digest_tick", noop
+            ), patch.object(
+                agent, "_summarize_old_memories", noop
+            ):
                 await agent._tick()
 
         thought_tick.assert_not_called()
@@ -466,15 +526,21 @@ class TestDegradedMode:
 
         noop = AsyncMock()
         with patch("asyncio.sleep", new_callable=AsyncMock):
-            with patch.object(agent, "_process_task_queue", noop), \
-                 patch.object(agent, "_process_missions", noop), \
-                 patch.object(agent, "_thought_tick", noop), \
-                 patch.object(agent, "_proactive_action_tick", noop), \
-                 patch.object(agent, "_curiosity_tick", noop), \
-                 patch.object(agent, "_periodic_check", noop), \
-                 patch.object(agent, "_proactive_alerts", noop), \
-                 patch.object(agent, "_digest_tick", noop), \
-                 patch.object(agent, "_summarize_old_memories", noop):
+            with patch.object(agent, "_process_task_queue", noop), patch.object(
+                agent, "_process_missions", noop
+            ), patch.object(agent, "_thought_tick", noop), patch.object(
+                agent, "_proactive_action_tick", noop
+            ), patch.object(
+                agent, "_curiosity_tick", noop
+            ), patch.object(
+                agent, "_periodic_check", noop
+            ), patch.object(
+                agent, "_proactive_alerts", noop
+            ), patch.object(
+                agent, "_digest_tick", noop
+            ), patch.object(
+                agent, "_summarize_old_memories", noop
+            ):
                 await agent._tick()
 
         assert agent._state.degraded_mode is False
@@ -489,15 +555,21 @@ class TestDegradedMode:
 
         noop = AsyncMock()
         with patch("asyncio.sleep", new_callable=AsyncMock):
-            with patch.object(agent, "_process_task_queue", noop), \
-                 patch.object(agent, "_process_missions", noop), \
-                 patch.object(agent, "_thought_tick", noop), \
-                 patch.object(agent, "_proactive_action_tick", noop), \
-                 patch.object(agent, "_curiosity_tick", noop), \
-                 patch.object(agent, "_periodic_check", noop), \
-                 patch.object(agent, "_proactive_alerts", noop), \
-                 patch.object(agent, "_digest_tick", noop), \
-                 patch.object(agent, "_summarize_old_memories", noop):
+            with patch.object(agent, "_process_task_queue", noop), patch.object(
+                agent, "_process_missions", noop
+            ), patch.object(agent, "_thought_tick", noop), patch.object(
+                agent, "_proactive_action_tick", noop
+            ), patch.object(
+                agent, "_curiosity_tick", noop
+            ), patch.object(
+                agent, "_periodic_check", noop
+            ), patch.object(
+                agent, "_proactive_alerts", noop
+            ), patch.object(
+                agent, "_digest_tick", noop
+            ), patch.object(
+                agent, "_summarize_old_memories", noop
+            ):
                 await agent._tick()
 
         # Degraded mode cleared → phase should be idle
@@ -507,6 +579,7 @@ class TestDegradedMode:
 # ─────────────────────────────────────────────────────────────────────────────
 # Degraded safe-actions allowlist
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestDegradedSafeActions:
     """DEGRADED_SAFE_ACTIONS constant sanity checks."""
@@ -522,6 +595,7 @@ class TestDegradedSafeActions:
 
     def test_safe_actions_subset_of_allowed_actions(self):
         from app.services.resident_agent.core import ALLOWED_ACTIONS
+
         # All degraded safe actions must be in the main ALLOWED_ACTIONS list
         assert DEGRADED_SAFE_ACTIONS.issubset(set(ALLOWED_ACTIONS))
 
@@ -532,6 +606,7 @@ class TestDegradedSafeActions:
 # ─────────────────────────────────────────────────────────────────────────────
 # Additional state defaults (degraded fields)
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class TestDegradedStateDefaults:
     """ResidentAgentState degraded fields have correct defaults."""

@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 # ── Tier definitions ────────────────────────────────────────────────────────
 
+
 class ResourceTier(str, enum.Enum):
     NORMAL = "normal"
     ELEVATED = "elevated"
@@ -39,9 +40,10 @@ class ResourceTier(str, enum.Enum):
 
 class TaskPriority(int, enum.Enum):
     """Lower number = higher priority."""
-    CHAT = 1       # user-facing chat, explicit user actions
-    RESIDENT = 2   # resident agent reasoning cycles
-    BACKGROUND = 3 # KB maintenance, embeddings, curiosity, watchdog, discovery
+
+    CHAT = 1  # user-facing chat, explicit user actions
+    RESIDENT = 2  # resident agent reasoning cycles
+    BACKGROUND = 3  # KB maintenance, embeddings, curiosity, watchdog, discovery
 
 
 # ── Tier thresholds (RAM %) ─────────────────────────────────────────────────
@@ -53,9 +55,9 @@ TIER_THRESHOLDS = {
 }
 
 # Hysteresis parameters
-HYSTERESIS_UP_COUNT = 2      # consecutive samples above threshold to escalate
-HYSTERESIS_DOWN_COUNT = 3    # consecutive samples below threshold to de-escalate
-HYSTERESIS_DOWN_MARGIN = 5   # must drop this many % below threshold to de-escalate
+HYSTERESIS_UP_COUNT = 2  # consecutive samples above threshold to escalate
+HYSTERESIS_DOWN_COUNT = 3  # consecutive samples below threshold to de-escalate
+HYSTERESIS_DOWN_MARGIN = 5  # must drop this many % below threshold to de-escalate
 
 # ── Tier action rules ───────────────────────────────────────────────────────
 
@@ -87,6 +89,7 @@ TIER_RULES: dict[ResourceTier, dict[TaskPriority, str]] = {
 @dataclass
 class TierTransition:
     """Tracks consecutive samples for hysteresis."""
+
     up_consecutive: int = 0
     down_consecutive: int = 0
 
@@ -94,6 +97,7 @@ class TierTransition:
 @dataclass
 class ResourcePolicyState:
     """Current policy state exposed to consumers."""
+
     tier: ResourceTier = ResourceTier.NORMAL
     ram_percent: float = 0.0
     cpu_percent: float = 0.0
@@ -169,7 +173,9 @@ class ResourcePolicy:
             self._state.tier_reason = reason
             logger.info(
                 "Resource tier changed: %s -> %s (%s)",
-                old_tier.value, new_tier.value, reason,
+                old_tier.value,
+                new_tier.value,
+                reason,
                 extra={
                     "event": "resource_tier_change",
                     "old_tier": old_tier.value,

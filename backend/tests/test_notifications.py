@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── NotificationService unit tests ───────────────────────────────────────────
 
 
@@ -16,9 +15,7 @@ async def test_notification_service_send_and_list(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "app.services.notification_service.DB_PATH", tmp_path / "notif.db"
     )
-    monkeypatch.setattr(
-        "app.services.notification_service.DB_DIR", tmp_path
-    )
+    monkeypatch.setattr("app.services.notification_service.DB_DIR", tmp_path)
 
     # Re-import to pick up monkeypatched paths
     from app.services.notification_service import NotificationService
@@ -58,9 +55,7 @@ async def test_notification_service_mark_read(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "app.services.notification_service.DB_PATH", tmp_path / "notif.db"
     )
-    monkeypatch.setattr(
-        "app.services.notification_service.DB_DIR", tmp_path
-    )
+    monkeypatch.setattr("app.services.notification_service.DB_DIR", tmp_path)
 
     from app.services.notification_service import NotificationService
 
@@ -84,9 +79,7 @@ async def test_notification_service_mark_all_read(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "app.services.notification_service.DB_PATH", tmp_path / "notif.db"
     )
-    monkeypatch.setattr(
-        "app.services.notification_service.DB_DIR", tmp_path
-    )
+    monkeypatch.setattr("app.services.notification_service.DB_DIR", tmp_path)
 
     from app.services.notification_service import NotificationService
 
@@ -109,12 +102,8 @@ async def test_notification_service_fifo_pruning(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "app.services.notification_service.DB_PATH", tmp_path / "notif.db"
     )
-    monkeypatch.setattr(
-        "app.services.notification_service.DB_DIR", tmp_path
-    )
-    monkeypatch.setattr(
-        "app.services.notification_service.MAX_NOTIFICATIONS", 5
-    )
+    monkeypatch.setattr("app.services.notification_service.DB_DIR", tmp_path)
+    monkeypatch.setattr("app.services.notification_service.MAX_NOTIFICATIONS", 5)
 
     from app.services.notification_service import NotificationService
 
@@ -138,9 +127,7 @@ async def test_notification_service_disabled(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "app.services.notification_service.DB_PATH", tmp_path / "notif.db"
     )
-    monkeypatch.setattr(
-        "app.services.notification_service.DB_DIR", tmp_path
-    )
+    monkeypatch.setattr("app.services.notification_service.DB_DIR", tmp_path)
 
     from app.services.notification_service import NotificationService
 
@@ -156,9 +143,7 @@ async def test_notification_ws_not_sent_below_threshold(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "app.services.notification_service.DB_PATH", tmp_path / "notif.db"
     )
-    monkeypatch.setattr(
-        "app.services.notification_service.DB_DIR", tmp_path
-    )
+    monkeypatch.setattr("app.services.notification_service.DB_DIR", tmp_path)
     monkeypatch.setattr(
         "app.services.notification_service.NOTIFICATION_MIN_IMPORTANCE", 6
     )
@@ -182,9 +167,7 @@ async def test_notification_agent_rate_limit(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "app.services.notification_service.DB_PATH", tmp_path / "notif.db"
     )
-    monkeypatch.setattr(
-        "app.services.notification_service.DB_DIR", tmp_path
-    )
+    monkeypatch.setattr("app.services.notification_service.DB_DIR", tmp_path)
     monkeypatch.setattr(
         "app.services.notification_service.RESIDENT_MAX_NOTIFICATIONS_PER_HOUR", 2
     )
