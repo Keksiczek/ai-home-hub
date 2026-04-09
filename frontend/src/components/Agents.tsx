@@ -1,71 +1,57 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Users, 
-  Terminal, 
-  CheckCircle2, 
-  AlertCircle, 
-  Clock, 
-  Trash2, 
-  StopCircle,
-  RefreshCw,
-  Plus,
-  Search,
-  Layers,
-  ExternalLink,
-  Loader2,
-  Sparkles
+import { useState, useEffect, useCallback } from 'react';
+import {
+  Users, CheckCircle2, AlertCircle, Clock, Trash2,
+  StopCircle, RefreshCw, Loader2,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { agentsApi } from '../api';
 import { useToast } from '../context/ToastContext';
+import { PageShell } from './PageShell';
 
 interface Agent {
   id: string;
   type: string;
   status: 'pending' | 'running' | 'success' | 'error' | 'aborted';
-  task: {
-    goal: string;
-    [key: string]: any;
-  };
+  task: { goal: string; [k: string]: unknown };
   progress?: number;
   created_at: string;
   finished_at?: string;
   artifacts_count: number;
 }
 
-export const Agents: React.FC = () => {
+const STATUS_CONF: Record<string, { label: string; color: string; badgeClass: string }> = {
+  pending:  { label: 'Čeká',     color: '#71717a', badgeClass: '' },
+  running:  { label: 'Běží',     color: '#60a5fa', badgeClass: 'badge-info' },
+  success:  { label: 'Hotovo',   color: '#10b981', badgeClass: 'badge-success' },
+  error:    { label: 'Chyba',    color: '#ef4444', badgeClass: 'badge-danger' },
+  aborted:  { label: 'Přerušen', color: '#f59e0b', badgeClass: 'badge-warning' },
+};
+
+export function Agents() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const toast = useToast();
 
-  const fetchAgents = async () => {
-    setLoading(true);
+  const fetchAgents = useCallback(async () => {
     try {
       const data = await agentsApi.list();
       setAgents(data.agents);
+      setError(null);
     } catch (err: any) {
-      toast.error('Nepodařilo se načíst agenty');
+      setError(err.message || 'Nepodařilo se načíst agenty');
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    fetchAgents();
-    // Poll for status updates
-    const timer = setInterval(() => {
-      fetchAgents();
-    }, 5000);
-    return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => { fetchAgents(); }, [fetchAgents]);
 
   const handleDelete = async (id: string) => {
     try {
       await agentsApi.delete(id);
       setAgents(prev => prev.filter(a => a.id !== id));
       toast.success('Agent odstraněn');
-    } catch (err: any) {
+    } catch {
       toast.error('Chyba při odstraňování agenta');
     }
   };
@@ -75,7 +61,7 @@ export const Agents: React.FC = () => {
       await agentsApi.interrupt(id);
       toast.info('Požadavek na přerušení odeslán');
       fetchAgents();
-    } catch (err: any) {
+    } catch {
       toast.error('Agenta nelze přerušit');
     }
   };
@@ -85,167 +71,131 @@ export const Agents: React.FC = () => {
       const data = await agentsApi.cleanup();
       toast.success(`Odstraněno ${data.removed} neaktivních agentů`);
       fetchAgents();
-    } catch (err: any) {
+    } catch {
       toast.error('Chyba při čištění');
     }
   };
 
-  const getStatusIcon = (status: Agent['status']) => {
-    switch (status) {
-      case 'success': return <CheckCircle2 className="text-emerald-400" size={18} />;
-      case 'error': return <AlertCircle className="text-red-400" size={18} />;
-      case 'running': return <Loader2 className="animate-spin text-blue-400" size={18} />;
-      case 'aborted': return <StopCircle className="text-amber-400" size={18} />;
-      default: return <Clock className="text-slate-400" size={18} />;
-    }
-  };
-
-  const filteredAgents = agents.filter(a => 
-    a.task.goal.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    a.id.toLowerCase().includes(searchQuery.toLowerCase())
+  const actionBar = (
+    <div style={{ display: 'flex', gap: '8px' }}>
+      <button className="action-btn small" onClick={handleCleanup} title="Odstranit dokončené agenty">
+        <Trash2 size={13} /> Vyčistit
+      </button>
+      <button className="action-btn small" onClick={fetchAgents} title="Obnovit">
+        <RefreshCw size={13} />
+      </button>
+    </div>
   );
+
+  if (loading) {
+    return (
+      <div className="loading-center">
+        <Loader2 size={28} className="spinner" />
+        <p>Načítám agenty…</p>
+      </div>
+    );
+  }
 
   return (
-    <motion.div 
-      initial={{ opacity: 0, scale: 0.98 }}
-      animate={{ opacity: 1, scale: 1 }}
-      className="flex flex-col h-full space-y-6"
+    <PageShell
+      description="Přehled autonomních AI instancí spuštěných resident agentem nebo z fronty úloh."
+      action={actionBar}
     >
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold flex items-center tracking-tight">
-            <Users className="mr-3 text-blue-400" />
-            Agenti
-          </h2>
-          <p className="text-slate-400 text-sm mt-1">Správa autonomních AI instancí vykonávajících úkoly.</p>
-        </div>
-
-        <div className="flex items-center space-x-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-            <input 
-              type="text"
-              placeholder="Hledat agenta..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="bg-black/20 border border-white/10 rounded-xl py-2 pl-10 pr-4 outline-none focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 transition-all"
-            />
-          </div>
-          
-          <button 
-            onClick={fetchAgents}
-            className="p-2.5 bg-white/5 hover:bg-white/10 rounded-xl transition-all"
-            title="Obnovit"
-          >
-            <RefreshCw size={20} className={loading ? "animate-spin text-blue-400" : ""} />
-          </button>
-
-          <button 
-            onClick={handleCleanup}
-            className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 rounded-xl transition-all text-sm font-medium flex items-center"
-          >
-            <Trash2 size={16} className="mr-2 opacity-60" />
-            Vyčistit
-          </button>
-
-          <button className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-xl transition-all text-sm font-bold flex items-center shadow-lg shadow-blue-500/20">
-            <Plus size={18} className="mr-2" />
-            Nový Agent
+      {error && (
+        <div style={{
+          padding: '12px 16px', borderRadius: '8px',
+          background: 'rgba(239,68,68,0.1)', color: '#ef4444',
+          fontSize: '0.875rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          flexShrink: 0,
+        }}>
+          <span>{error}</span>
+          <button className="action-btn small" onClick={fetchAgents}>
+            <RefreshCw size={13} /> Retry
           </button>
         </div>
-      </div>
+      )}
 
-      {/* Agents Grid */}
-      <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
-        {agents.length === 0 && !loading ? (
-          <div className="h-64 card glass-panel flex flex-col items-center justify-center opacity-30 italic text-center p-8">
-            <Users size={48} className="mb-4" />
-            <p className="text-lg">Žádní aktivní agenti nejsou k dispozici.</p>
-            <p className="text-sm mt-2">Vytvořte nového agenta pomocí tlačítka výše.</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-8">
-            <AnimatePresence mode="popLayout">
-              {filteredAgents.map((agent) => (
-                <motion.div
-                  key={agent.id}
-                  layout
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.9 }}
-                  className="card glass-panel group flex flex-col border-white/10 hover:border-blue-500/30 transition-all hover:bg-blue-500/[0.02]"
-                >
-                  {/* Status Bar */}
-                  <div className="p-4 border-b border-white/5 flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <div className="p-1.5 bg-blue-500/10 rounded-lg">
-                        <Terminal size={14} className="text-blue-400" />
-                      </div>
-                      <span className="text-[11px] font-mono opacity-50 tracking-tighter">
-                        {agent.id.slice(0, 13)}...
-                      </span>
+      {agents.length === 0 && !error ? (
+        <div className="empty-state-box glass-panel">
+          <Users size={40} style={{ opacity: 0.25 }} />
+          <p style={{ margin: 0 }}>Žádní aktivní agenti</p>
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', opacity: 0.7 }}>
+            Agenti jsou spouštěni automaticky resident agentem nebo z Jobs.
+          </span>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', overflowY: 'auto', flex: 1 }}>
+          {agents.map(agent => {
+            const cfg = STATUS_CONF[agent.status] || STATUS_CONF.pending;
+            const isRunning = agent.status === 'running';
+            const isFinished = ['success', 'error', 'aborted'].includes(agent.status);
+
+            return (
+              <div key={agent.id} className="card glass-panel" style={{ padding: '14px 18px' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px' }}>
+                  {/* Status icon */}
+                  <div style={{ marginTop: '2px', flexShrink: 0 }}>
+                    {agent.status === 'running'  && <Loader2     size={16} className="spinner" style={{ color: cfg.color }} />}
+                    {agent.status === 'success'  && <CheckCircle2 size={16} style={{ color: cfg.color }} />}
+                    {agent.status === 'error'    && <AlertCircle  size={16} style={{ color: cfg.color }} />}
+                    {agent.status === 'aborted'  && <StopCircle   size={16} style={{ color: cfg.color }} />}
+                    {agent.status === 'pending'  && <Clock        size={16} style={{ color: cfg.color }} />}
+                  </div>
+
+                  {/* Info */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{
+                      fontWeight: 500, fontSize: '0.875rem', marginBottom: '4px',
+                      overflow: 'hidden', display: '-webkit-box',
+                      WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                    }}>
+                      {agent.task.goal}
                     </div>
-                    <div className="flex items-center space-x-2 px-2 py-1 bg-black/20 rounded-full">
-                      {getStatusIcon(agent.status)}
-                      <span className="text-[10px] font-bold uppercase tracking-wider">
-                        {agent.status}
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                      <span style={{ fontFamily: 'monospace' }}>{agent.id.slice(0, 12)}…</span>
+                      <span>{agent.type}</span>
+                      <span>{agent.artifacts_count} artefaktů</span>
+                      <span>
+                        {new Date(agent.created_at).toLocaleString('cs-CZ', {
+                          day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit',
+                        })}
                       </span>
                     </div>
                   </div>
 
-                  {/* Body */}
-                  <div className="p-5 flex-1 space-y-4">
-                    <div className="space-y-1">
-                      <p className="text-[10px] font-bold text-blue-400/70 uppercase tracking-widest">Cíl úlohy</p>
-                      <p className="text-sm line-clamp-3 font-medium leading-relaxed">
-                        {agent.task.goal}
-                      </p>
-                    </div>
-
-                    <div className="flex items-center justify-between text-xs pt-2">
-                       <div className="flex items-center opacity-50">
-                         <Layers size={14} className="mr-1.5" />
-                         <span>{agent.artifacts_count} Artefaktů</span>
-                       </div>
-                       <div className="flex items-center opacity-50">
-                         <Sparkles size={14} className="mr-1.5 text-amber-400" />
-                         <span>{agent.type}</span>
-                       </div>
-                    </div>
-                  </div>
+                  {/* Status badge */}
+                  <span className={`badge ${cfg.badgeClass}`} style={!cfg.badgeClass ? { color: 'var(--text-muted)', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border-subtle)' } : {}}>
+                    {cfg.label}
+                  </span>
 
                   {/* Actions */}
-                  <div className="p-3 bg-black/10 border-t border-white/5 flex items-center justify-end space-x-2">
-                    {agent.status === 'running' && (
-                      <button 
+                  <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+                    {isRunning && (
+                      <button
                         onClick={() => handleInterrupt(agent.id)}
-                        className="p-2 hover:bg-amber-500/20 text-amber-400 rounded-lg transition-colors"
+                        className="action-btn small"
                         title="Přerušit"
+                        style={{ color: '#f59e0b' }}
                       >
-                        <StopCircle size={18} />
+                        <StopCircle size={13} />
                       </button>
                     )}
-                    <button 
-                      onClick={() => handleDelete(agent.id)}
-                      className="p-2 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors"
-                      title="Smazat"
-                    >
-                      <Trash2 size={18} />
-                    </button>
-                    <button 
-                      className="p-2 hover:bg-blue-500/20 text-blue-400 rounded-lg transition-colors"
-                      title="Detail"
-                    >
-                      <ExternalLink size={18} />
-                    </button>
+                    {isFinished && (
+                      <button
+                        onClick={() => handleDelete(agent.id)}
+                        className="action-btn small danger"
+                        title="Smazat"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
                   </div>
-                </motion.div>
-              ))}
-            </AnimatePresence>
-          </div>
-        )}
-      </div>
-    </motion.div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </PageShell>
   );
-};
+}

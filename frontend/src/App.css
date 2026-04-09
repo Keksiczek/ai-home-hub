@@ -219,20 +219,9 @@
   padding: 20px;
 }
 
-.progress-bar {
-  height: 4px;
-  background: rgba(255,255,255,0.06);
-  border-radius: var(--radius-full);
-  overflow: hidden;
-  margin-top: var(--spacing-sm);
-}
-
-.progress-fill {
-  height: 100%;
-  background: var(--primary-accent);
-  border-radius: var(--radius-full);
-  transition: width 0.3s ease;
-}
+/* NOTE: .progress-bar and .progress-fill are defined in Chat.css (shared styles).
+   Do not redefine them here to avoid cascade conflicts. Use inline styles in
+   Dashboard or any component that needs different progress bar appearance. */
 
 /* ── Chat view: fill area edge-to-edge, no scroll ────────── */
 .content-area.content-chat {

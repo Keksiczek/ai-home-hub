@@ -28,9 +28,10 @@ export function Dashboard() {
       >
         <h3>System Resources</h3>
         <p>RAM: {ramUsed} GB / {ramTotal} GB</p>
-        <div className="progress-bar">
-          <motion.div 
-            className="progress-fill" 
+        {/* Inline styles to avoid conflict with Chat.css .progress-bar definition */}
+        <div style={{ height: '4px', background: 'rgba(255,255,255,0.06)', borderRadius: '9999px', overflow: 'hidden', marginTop: '8px' }}>
+          <motion.div
+            style={{ height: '100%', background: 'var(--primary-accent)', borderRadius: '9999px' }}
             initial={{ width: 0 }}
             animate={{ width: `${ramPct}%` }}
             transition={{ type: 'spring', bounce: 0.2 }}
