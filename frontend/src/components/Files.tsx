@@ -34,6 +34,7 @@ function FileIcon({ entry }: { entry: FileEntry }) {
 
 export function Files() {
   const [currentPath, setCurrentPath] = useState('data');
+  const [dataRoot, setDataRoot] = useState<string>('');
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -47,6 +48,8 @@ export function Files() {
       const data = await filesApi.listTree(path, 1);
       setEntries(data.entries);
       setCurrentPath(data.path);
+      // Record the data root on first successful load
+      setDataRoot(prev => prev || data.path);
     } catch (err: any) {
       setError(err.message || 'Nepodařilo se načíst soubory');
     } finally {
@@ -57,11 +60,11 @@ export function Files() {
   useEffect(() => { fetchFiles(currentPath); }, []);
 
   const handleBack = () => {
-    const parts = currentPath.split('/').filter(Boolean);
-    if (parts.length > 1) {
-      parts.pop();
-      fetchFiles(parts.join('/'));
-    }
+    if (!dataRoot || currentPath === dataRoot) return;
+    const parent = currentPath.includes('/')
+      ? currentPath.split('/').slice(0, -1).join('/')
+      : dataRoot;
+    fetchFiles(parent || dataRoot);
   };
 
   const handleDelete = async (path: string, name: string) => {
@@ -84,8 +87,12 @@ export function Files() {
     }
   };
 
-  const breadcrumbs = currentPath.split('/').filter(Boolean);
-  const canGoBack = breadcrumbs.length > 1;
+  // Show breadcrumbs relative to the data root (e.g. data/uploads, not /home/user/…/data/uploads)
+  const displayPath = dataRoot && currentPath.startsWith(dataRoot)
+    ? 'data' + currentPath.slice(dataRoot.length)
+    : currentPath;
+  const breadcrumbs = displayPath.split('/').filter(Boolean);
+  const canGoBack = !!dataRoot && currentPath !== dataRoot;
   const filtered = search
     ? entries.filter(e => e.name.toLowerCase().includes(search.toLowerCase()))
     : entries;
@@ -158,8 +165,8 @@ export function Files() {
               <button className="action-btn small" onClick={() => fetchFiles(currentPath)}>
                 <RefreshCw size={13} /> Zkusit znovu
               </button>
-              {currentPath !== 'data' && (
-                <button className="action-btn small" onClick={() => fetchFiles('data')}>
+              {!!dataRoot && currentPath !== dataRoot && (
+                <button className="action-btn small" onClick={() => fetchFiles(dataRoot)}>
                   Zpět do kořene
                 </button>
               )}

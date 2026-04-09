@@ -89,17 +89,33 @@ async def file_tree(
 ) -> Dict[str, Any]:
     """Return a recursive directory tree for the file manager UI.
 
-    Security: delegates path validation to the filesystem service whitelist.
+    Security: paths within the app's own data/ directory are always allowed.
+    Paths outside data/ require an allowed_directories whitelist entry.
     """
     from app.services.filesystem_service import get_filesystem_service
 
-    fs_svc = get_filesystem_service()
+    # Resolve the path: treat bare 'data' or relative paths as relative to DATA_DIR
+    p = Path(path)
+    if not p.is_absolute():
+        # Strip a leading 'data' segment to avoid double-nesting
+        parts = p.parts
+        if parts and parts[0] == "data":
+            p = DATA_DIR / Path(*parts[1:]) if len(parts) > 1 else DATA_DIR
+        else:
+            p = DATA_DIR / p
+    resolved = p.resolve()
 
-    # Validate path is within allowed directories
-    try:
-        resolved = fs_svc._assert_allowed(path)
-    except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc))
+    # Paths within the app data dir are always accessible from the file manager
+    data_dir_resolved = DATA_DIR.resolve()
+    within_data_dir = str(resolved).startswith(str(data_dir_resolved))
+
+    if not within_data_dir:
+        # Fall back to the configured whitelist for external paths
+        fs_svc = get_filesystem_service()
+        try:
+            resolved = fs_svc._assert_allowed(path)
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc))
 
     if not resolved.exists():
         raise HTTPException(status_code=404, detail=f"Path not found: {path}")
